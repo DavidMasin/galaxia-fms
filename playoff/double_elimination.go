@@ -7,7 +7,7 @@ package playoff
 
 import (
 	"fmt"
-	"github.com/Team254/cheesy-arena/model"
+	"github.com/DavidMasin/galaxia-fms/model"
 )
 
 // Creates a double-elimination bracket and returns the root matchup comprising the tournament finals along with

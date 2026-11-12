@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Team254/cheesy-arena/model"
+	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/stretchr/testify/assert"
 )
 

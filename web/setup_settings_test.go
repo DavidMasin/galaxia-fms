@@ -5,10 +5,10 @@ package web
 
 import (
 	"bytes"
-	"github.com/Team254/cheesy-arena/field"
-	"github.com/Team254/cheesy-arena/game"
-	"github.com/Team254/cheesy-arena/model"
-	"github.com/Team254/cheesy-arena/tournament"
+	"github.com/DavidMasin/galaxia-fms/field"
+	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/model"
+	"github.com/DavidMasin/galaxia-fms/tournament"
 	"github.com/stretchr/testify/assert"
 	"io"
 	"mime/multipart"
@@ -331,4 +331,25 @@ func (web *Web) postFileHttpResponse(path string, paramName string, file *bytes.
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	web.newHandler().ServeHTTP(recorder, req)
 	return recorder
+}
+
+func TestSetupSettingsRadioOnlyNetwork(t *testing.T) {
+	web := setupTestWeb(t)
+	assert.False(t, web.arena.EventSettings.RadioOnlyNetwork)
+
+	recorder := web.postHttpResponse(
+		"/setup/settings", "name=Tent&playoffType=single&numPlayoffAlliances=8&networkSecurityEnabled=on&"+
+			"radioOnlyNetwork=on",
+	)
+	assert.Equal(t, 303, recorder.Code)
+	assert.True(t, web.arena.EventSettings.NetworkSecurityEnabled)
+	assert.True(t, web.arena.EventSettings.RadioOnlyNetwork)
+	recorder = web.getHttpResponse("/setup/settings")
+	assert.Contains(t, recorder.Body.String(), "name=\"radioOnlyNetwork\"  checked")
+
+	recorder = web.postHttpResponse(
+		"/setup/settings", "name=Tent&playoffType=single&numPlayoffAlliances=8&networkSecurityEnabled=on",
+	)
+	assert.Equal(t, 303, recorder.Code)
+	assert.False(t, web.arena.EventSettings.RadioOnlyNetwork)
 }

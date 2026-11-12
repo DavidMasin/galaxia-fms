@@ -8,7 +8,7 @@ package tournament
 import (
 	"encoding/csv"
 	"fmt"
-	"github.com/Team254/cheesy-arena/model"
+	"github.com/DavidMasin/galaxia-fms/model"
 	"math"
 	"math/rand"
 	"os"

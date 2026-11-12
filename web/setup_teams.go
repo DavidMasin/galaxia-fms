@@ -8,7 +8,7 @@ package web
 import (
 	"bytes"
 	"fmt"
-	"github.com/Team254/cheesy-arena/model"
+	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/dchest/uniuri"
 	"net/http"
 	"regexp"

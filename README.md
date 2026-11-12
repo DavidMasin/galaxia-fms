@@ -1,148 +1,52 @@
-Cheesy Arena [![Build Status](https://github.com/Team254/cheesy-arena/actions/workflows/test.yml/badge.svg)](https://github.com/Team254/cheesy-arena/actions)
-============
-A field management system that just works.
+Galaxia FMS [![CI](https://github.com/DavidMasin/galaxia-fms/actions/workflows/test.yml/badge.svg)](https://github.com/DavidMasin/galaxia-fms/actions)
+===========
 
-For the game-agnostic version, see [Cheesy Arena Lite](https://github.com/Team254/cheesy-arena-lite).
+A field management system for an FRC practice field that can run any game from a definition file and treats
+field electronics as plug-and-play devices.
 
-## Key features
+Galaxia FMS is built on [Cheesy Arena](https://github.com/Team254/cheesy-arena) by Team 254. It keeps Cheesy
+Arena's match control, driver station communication, network configuration, scheduling and publishing, and
+replaces the parts written for one specific game. See [NOTICE.md](NOTICE.md).
 
-**For participants and spectators**
+## Status
 
-* Same network isolation and security as the official FIRST FMS
-* No-lag realtime scoring
-* Team stack lights and seven-segment display are replaced by an LCD screen, which shows team info before the match and
-  realtime scoring and timer during the match
-* Smooth-scrolling rankings display
-* Direct publishing of schedule, results, and rankings to The Blue Alliance
+Work in progress. The plan, the design and the milestone list are in [docs/PLAN.md](docs/PLAN.md); a report
+for each finished milestone is in [docs/milestones/](docs/milestones/).
 
-**For scorekeepers and event staff**
+Until milestone 3 lands, the running application still plays the game that upstream Cheesy Arena ships with.
 
-* Runs on Windows, macOS, and Linux
-* No install prerequisites
-* No "pre-start" &ndash; hardware is configured automatically and in the background
-* Flexible and quick match schedule generation
-* Streamlined realtime score entry
-* Reports, results, and logs can be viewed from any computer
-* An arbitrary number of auxiliary displays can be set up using any computer with just a web browser, to show rankings,
-  queueing, field status, etc.
+## Building and running
 
-## License
+1. Install [Go](https://go.dev/dl/) 1.26.7 or later.
+1. Clone this repository and open a terminal in it.
+1. Build with `go build`.
+1. Run `./galaxia-fms` (`galaxia-fms.exe` on Windows) from the repository directory.
+1. Open http://localhost:8080 in a browser (Google Chrome recommended).
 
-Teams may use Cheesy Arena freely for practice, scrimmages, and off-season events. See [LICENSE](LICENSE) for more
-details.
+When running without robots, pass `-dev` so the driver station listeners bind to every address instead of
+only `10.0.100.5`.
 
-## Installing
+Run the tests with `go test ./...`.
 
-**From a pre-built release**
+## Networking
 
-Download the [latest release](https://github.com/Team254/cheesy-arena/releases). Pre-built packages are available for
-Linux, macOS (x64 and M1), and Windows.
+Three setups are supported from the Settings page:
 
-On recent versions of macOS, you may be prevented from running an app from an unidentified developer;
-see [these instructions](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unidentified-developer-mh40616/mac)
-on how to bypass the warning.
+* **Network security off** (the default): one ordinary network. Nothing is configured automatically.
+* **Network security on**: Cheesy Arena's full isolated setup, with a Vivid-Hosting VH-113 access point and a
+  Cisco Catalyst 3500-series switch giving each team its own SSID and VLAN. See upstream's
+  [Advanced Networking wiki page](https://github.com/Team254/cheesy-arena/wiki/Advanced-Networking-Concepts).
+* **Network security on, radio only**: the access point is configured for each match's teams and the switch
+  is left alone. For fields that have the radio but no managed switch.
 
-**From source**
+## Licence
 
-1. Download [Go](https://golang.org/dl/) (version 1.26.7 or later required)
-1. Clone this GitHub repository to a location of your choice
-1. Navigate to the repository's directory in the terminal
-1. Compile the code with `go build`
-1. Run the `cheesy-arena` or `cheesy-arena.exe` binary
-1. Navigate to http://localhost:8080 in your browser (Google Chrome recommended)
-
-**IP address configuration**
-
-When running Cheesy Arena on a playing field with robots, set the IP address of the computer running Cheesy Arena to
-10.0.100.5. By a convention baked into the FRC Driver Station software, driver stations will broadcast their presence on
-the network to this hardcoded address so that the FMS does not need to discover them by some other method.
-
-When running Cheesy Arena without robots for testing or development, pass the `-dev` flag to bind driver station
-listeners to any local IP address.
-
-## Under the hood
-
-Cheesy Arena is written using [Go](https://golang.org), a language developed by Google and first released in 2009. Go
-excels in the areas of concurrency, networking, performance, and portability, which makes it ideal for a field
-management system.
-
-Cheesy Arena is implemented as a web server, with all human interaction done via browser. The graphical interfaces are
-implemented in HTML, JavaScript, and CSS. There are many advantages to this approach &ndash; development of new
-graphical elements is rapid, and no software needs to be installed other than on the server. Client web pages send
-commands and receive updates using WebSockets.
-
-[Bolt](https://github.com/etcd-io/bbolt) is used as the datastore, and making backups or transferring data from one
-installation to another is as simple as copying the database file.
-
-Schedule generation is fast because pre-generated schedules are included with the code. Each schedule contains a certain
-number of matches per team for placeholder teams 1 through N, so generating the actual match schedule becomes a simple
-exercise in permuting the mapping of real teams to placeholder teams. The pre-generated schedules are checked into this
-repository and can be vetted in advance of any events for deviations from the randomness (and other) requirements.
-
-Cheesy Arena includes support for, but doesn't require, networking hardware similar to that used in official FRC events.
-Teams are issued their own SSIDs and WPA keys, and when connected to Cheesy Arena are isolated to a VLAN which prevents
-any communication other than between the driver station, robot, and event server. The network hardware is reconfigured
-via SSH and Telnet commands for the new set of teams when each mach is loaded.
-
-## PLC integration
-
-Cheesy Arena has the ability to integrate with an Allen-Bradley PLC setup similar to the one that FIRST uses, to read
-field sensors and control lights and motors. The PLC hardware travels with the FIRST California fields; contact your FTA
-for more information.
-
-The PLC code can be found [here](https://github.com/ejordan376/Cheesy-PLC).
-
-## Team Sign integration
-
-Cheesy Arena has the ability to integrate with
-the [Cypress Team Signs](https://cypressintegration.com/customsolutions/teamdisplay/) used at official FRC events. See
-the [Configuring Cheesy Arena wiki page](https://github.com/Team254/cheesy-arena/wiki/Configuring-Cheesy-Arena-Settings#team-signs)
-for details configurating the team signs in Cheesy Arena.
-
-## DMX Lighting integration
-
-Cheesy Arena has the ability to integrate with DMX lighting hardware like what's used at official FRC events.
-See the [DMX Lighting Setup wiki page](https://github.com/Team254/cheesy-arena/wiki/DMX-Lighting-Setup) for details.
-
-## LED hardware
-
-Due to the prohibitive cost of the LEDs and LED controllers used on official fields, for years in which LEDs are
-mandatory for a proper game experience (such as 2018), Cheesy Arena integrates
-with [Advatek](https://www.advateklights.com) controllers and LEDs.
-
-## Advanced networking
-
-See the [Advanced Networking wiki page](https://github.com/Team254/cheesy-arena/wiki/Advanced-Networking-Concepts) for
-instructions on what equipment to obtain and how to configure it in order to support advanced network security.
-
-## Contributing
-
-Cheesy Arena is far from finished! You can help by:
-
-* Writing a missing feature, and sending a pull request
-* Filing any bugs or feature requests using the [issue tracker](https://github.com/Team254/cheesy-arena/issues)
-* Contributing documentation to the [wiki](https://github.com/Team254/cheesy-arena/wiki)
-* Sending baked goods to [Pat](https://github.com/patfair)
+Galaxia FMS is a modified version of Cheesy Arena and is covered by Team 254's licence terms in
+[LICENSE](LICENSE), which allow use for testing, scrimmages, off-season events and evaluation, and restrict
+redistribution of modifications. Read [NOTICE.md](NOTICE.md) before reusing this code.
 
 ## Acknowledgements
 
-[Several folks](https://github.com/Team254/cheesy-arena/graphs/contributors) have contributed pull requests. Thanks!
-
-In addition, the following individuals have contributed to make Cheesy Arena a reality:
-
-* Tom Bottiglieri
-* James Cerar
-* Kiet Chau
-* Travis Covington
-* Nick Eyre
-* Patrick Fairbank
-* Eugene Fang
-* Thad House
-* Ed Jordan
-* Karthik Kanagasabapathy
-* Ken Mitchell
-* Andrew Nabors
-* Jared Russell
-* Ken Schenke
-* Austin Schuh
-* Colin Wilson
+[Patrick Fairbank](https://github.com/patfair) and Team 254 wrote Cheesy Arena, with
+[many contributors](https://github.com/Team254/cheesy-arena/graphs/contributors). Galaxia FMS exists because
+they published it.

@@ -7,13 +7,13 @@ package field
 
 import (
 	"fmt"
-	"github.com/Team254/cheesy-arena/game"
-	"github.com/Team254/cheesy-arena/led"
-	"github.com/Team254/cheesy-arena/model"
-	"github.com/Team254/cheesy-arena/network"
-	"github.com/Team254/cheesy-arena/partner"
-	"github.com/Team254/cheesy-arena/playoff"
-	"github.com/Team254/cheesy-arena/plc"
+	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/led"
+	"github.com/DavidMasin/galaxia-fms/model"
+	"github.com/DavidMasin/galaxia-fms/network"
+	"github.com/DavidMasin/galaxia-fms/partner"
+	"github.com/DavidMasin/galaxia-fms/playoff"
+	"github.com/DavidMasin/galaxia-fms/plc"
 	"log"
 	"math"
 	"math/rand"
@@ -1096,14 +1096,22 @@ func (arena *Arena) setupNetwork(teams [6]*model.Team, isPreload bool) {
 		if err := arena.accessPoint.ConfigureTeamWifi(teams); err != nil {
 			log.Printf("Failed to configure team WiFi: %s", err.Error())
 		}
-		go func() {
-			arena.setSCCEthernetEnabled(false)
-			if err := arena.networkSwitch.ConfigureTeamEthernet(teams); err != nil {
-				log.Printf("Failed to configure team Ethernet: %s", err.Error())
-			}
-			arena.setSCCEthernetEnabled(true)
-		}()
+		if arena.switchConfigEnabled() {
+			go func() {
+				arena.setSCCEthernetEnabled(false)
+				if err := arena.networkSwitch.ConfigureTeamEthernet(teams); err != nil {
+					log.Printf("Failed to configure team Ethernet: %s", err.Error())
+				}
+				arena.setSCCEthernetEnabled(true)
+			}()
+		}
 	}
+}
+
+// Returns true if the managed switch should be reconfigured for each match's teams. In radio-only mode the field
+// radio is still configured but there is no managed switch to give each team its own VLAN and address range.
+func (arena *Arena) switchConfigEnabled() bool {
+	return arena.EventSettings.NetworkSecurityEnabled && !arena.EventSettings.RadioOnlyNetwork
 }
 
 // Returns nil if the match can be started, and an error otherwise.

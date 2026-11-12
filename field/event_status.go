@@ -7,7 +7,7 @@ package field
 
 import (
 	"fmt"
-	"github.com/Team254/cheesy-arena/model"
+	"github.com/DavidMasin/galaxia-fms/model"
 	"log"
 	"math"
 	"time"

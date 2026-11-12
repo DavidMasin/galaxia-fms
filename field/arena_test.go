@@ -4,13 +4,13 @@
 package field
 
 import (
-	"github.com/Team254/cheesy-arena/game"
-	"github.com/Team254/cheesy-arena/led"
-	"github.com/Team254/cheesy-arena/model"
-	"github.com/Team254/cheesy-arena/partner"
-	"github.com/Team254/cheesy-arena/playoff"
-	"github.com/Team254/cheesy-arena/tournament"
-	"github.com/Team254/cheesy-arena/websocket"
+	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/led"
+	"github.com/DavidMasin/galaxia-fms/model"
+	"github.com/DavidMasin/galaxia-fms/partner"
+	"github.com/DavidMasin/galaxia-fms/playoff"
+	"github.com/DavidMasin/galaxia-fms/tournament"
+	"github.com/DavidMasin/galaxia-fms/websocket"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
@@ -1310,4 +1310,22 @@ func TestSignalReset(t *testing.T) {
 	assert.True(t, arena.FieldReset)
 	assert.Equal(t, "fieldReset", arena.AllianceStationDisplayMode)
 	assertHubLedModes(led.GreenMode, led.GreenMode)
+}
+
+func TestSwitchConfigEnabled(t *testing.T) {
+	arena := setupTestArena(t)
+
+	// With network security off, nothing on the network is configured.
+	arena.EventSettings.NetworkSecurityEnabled = false
+	arena.EventSettings.RadioOnlyNetwork = false
+	assert.False(t, arena.switchConfigEnabled())
+	arena.EventSettings.RadioOnlyNetwork = true
+	assert.False(t, arena.switchConfigEnabled())
+
+	// With network security on, the switch is configured unless the field is radio-only.
+	arena.EventSettings.NetworkSecurityEnabled = true
+	arena.EventSettings.RadioOnlyNetwork = false
+	assert.True(t, arena.switchConfigEnabled())
+	arena.EventSettings.RadioOnlyNetwork = true
+	assert.False(t, arena.switchConfigEnabled())
 }

@@ -264,6 +264,18 @@ UI for configuring event settings.
                 </div>
               </div>
               <div class="row mb-3">
+                <label class="col-lg-8 control-label" for="radioOnlyNetwork">Radio only: configure the access
+                  point but not the managed switch</label>
+                <div class="col-lg-1 checkbox">
+                  <input type="checkbox" id="radioOnlyNetwork"
+                    name="radioOnlyNetwork" {{if .RadioOnlyNetwork}} checked{{end}}>
+                </div>
+              </div>
+              <p class="form-text">Use radio only when the field has the access point but no Cisco switch. Team
+                SSIDs are still set up for every match. The switch is left alone, and the check that a team is
+                plugged into the right station is turned off, because it relies on the switch's per-team
+                addresses.</p>
+              <div class="row mb-3">
                 <label class="col-lg-6 control-label">AP Address</label>
                 <div class="col-lg-6">
                   <input type="text" class="form-control" name="apAddress" value="{{.ApAddress}}" placeholder="10.0.100.2">

@@ -29,3 +29,7 @@ _testmain.go
 .DS_Store
 static/logs
 static/img/avatars
+
+# Galaxia FMS
+galaxia-fms
+/data/

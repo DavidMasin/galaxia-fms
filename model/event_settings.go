@@ -8,7 +8,7 @@ package model
 import (
 	"strings"
 
-	"github.com/Team254/cheesy-arena/game"
+	"github.com/DavidMasin/galaxia-fms/game"
 )
 
 type PlayoffType int
@@ -56,6 +56,7 @@ type EventSettings struct {
 	NexusAutoQueueEnabled            bool
 	NexusAutoQueueKey                string
 	NetworkSecurityEnabled           bool
+	RadioOnlyNetwork                 bool
 	ApAddress                        string
 	ApPassword                       string
 	ApChannel                        int

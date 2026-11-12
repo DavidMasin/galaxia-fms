@@ -4,7 +4,7 @@ package tournament
 
 import (
 	"fmt"
-	"github.com/Team254/cheesy-arena/model"
+	"github.com/DavidMasin/galaxia-fms/model"
 )
 
 // Rebuilds carried alliance yellow cards from the latest results of completed playoff matches.

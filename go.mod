@@ -1,4 +1,4 @@
-module github.com/Team254/cheesy-arena
+module github.com/DavidMasin/galaxia-fms
 
 go 1.26.7
 

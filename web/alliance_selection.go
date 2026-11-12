@@ -7,9 +7,9 @@ package web
 
 import (
 	"fmt"
-	"github.com/Team254/cheesy-arena/model"
-	"github.com/Team254/cheesy-arena/tournament"
-	"github.com/Team254/cheesy-arena/websocket"
+	"github.com/DavidMasin/galaxia-fms/model"
+	"github.com/DavidMasin/galaxia-fms/tournament"
+	"github.com/DavidMasin/galaxia-fms/websocket"
 	"io"
 	"log"
 	"net/http"

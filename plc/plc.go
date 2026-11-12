@@ -7,7 +7,7 @@ package plc
 
 import (
 	"fmt"
-	"github.com/Team254/cheesy-arena/websocket"
+	"github.com/DavidMasin/galaxia-fms/websocket"
 	"github.com/goburrow/modbus"
 	"log"
 	"strings"

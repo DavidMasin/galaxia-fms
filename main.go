@@ -5,9 +5,9 @@ package main
 
 import (
 	"flag"
-	"github.com/Team254/cheesy-arena/field"
-	"github.com/Team254/cheesy-arena/network"
-	"github.com/Team254/cheesy-arena/web"
+	"github.com/DavidMasin/galaxia-fms/field"
+	"github.com/DavidMasin/galaxia-fms/network"
+	"github.com/DavidMasin/galaxia-fms/web"
 	"log"
 )
 

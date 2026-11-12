@@ -8,9 +8,9 @@ package field
 import (
 	"errors"
 	"fmt"
-	"github.com/Team254/cheesy-arena/game"
-	"github.com/Team254/cheesy-arena/model"
-	"github.com/Team254/cheesy-arena/network"
+	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/model"
+	"github.com/DavidMasin/galaxia-fms/network"
 	"io"
 	"log"
 	"net"
@@ -468,7 +468,7 @@ func (arena *Arena) serveDriverStations(listener net.Listener) {
 		// Read the team number from the IP address to check for a station mismatch.
 		stationStatus := byte(0)
 		wrongAssignedStation := ""
-		if arena.EventSettings.NetworkSecurityEnabled {
+		if arena.switchConfigEnabled() {
 			stationTeamId, ipAddress, ok := driverStationTeamIdFromRemoteAddr(tcpConn.RemoteAddr())
 			if ok && stationTeamId != teamId {
 				wrongAssignedStation = arena.getAssignedAllianceStation(stationTeamId)

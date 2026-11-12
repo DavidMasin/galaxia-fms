@@ -2,6 +2,10 @@
 // Author: pat@patfairbank.com (Patrick Fairbank)
 //
 // Client-side logic for the field monitor display.
+//
+// The stations are the field's: R1 to R3 belong to the first alliance of the game and B1 to B3 to the second,
+// whatever the game calls them. Phases, alliance colours and scores come from the game view and the generic messages;
+// see game_view.js and display_shared.js, which must be loaded first.
 
 let websocket;
 let currentMatchId;
@@ -10,6 +14,9 @@ let blueSide;
 const lowBatteryThreshold = 8;
 const highBtuThreshold = 7.0;
 
+// The last message of each kind, kept so that the display can be drawn again when the game arrives or changes.
+let lastMatchTime = null;
+let lastRealtimeScore = null;
 
 const handleArenaStatus = function (data) {
   // If getting data for the wrong match (e.g. after a server restart), reload the page.
@@ -162,28 +169,25 @@ const handleArenaStatus = function (data) {
 
 // Handles a websocket message to update the match time countdown.
 const handleMatchTime = function (data) {
-  translateMatchTime(data, function (matchState, matchStateText, countdownSec) {
-    $("#matchState").text(matchStateText);
-    $("#matchTime").text(countdownSec);
-    if (matchStateText === "PRE-MATCH" || matchStateText === "POST-MATCH") {
-      $(".ds-dependent").attr("data-preMatch", "true");
-    } else {
-      $(".ds-dependent").attr("data-preMatch", "false");
-    }
-  });
+  lastMatchTime = data;
+  const clock = DisplayShared.clock(data);
+  if (clock === null) {
+    return;
+  }
+  $("#matchState").text(clock.stateLabel);
+  $("#matchTime").text(clock.countdownSec);
+  if (clock.state === "PRE_MATCH" || clock.state === "POST_MATCH") {
+    $(".ds-dependent").attr("data-preMatch", "true");
+  } else {
+    $(".ds-dependent").attr("data-preMatch", "false");
+  }
 };
 
 // Handles a websocket message to update the match score.
-const handleRealtimeScore = function (data, reversed) {
-
-  if (reversed === "true") {
-    $("#rightScore").text(data.Red.ScoreSummary.Score);
-    $("#leftScore").text(data.Blue.ScoreSummary.Score);
-  } else {
-    $("#rightScore").text(data.Blue.ScoreSummary.Score);
-    $("#leftScore").text(data.Red.ScoreSummary.Score);
-
-  }
+const handleRealtimeScore = function (data) {
+  lastRealtimeScore = data;
+  $(`#${redSide}Score`).text(DisplayShared.scoreText(data, GameView.allianceIdForSlot("red")));
+  $(`#${blueSide}Score`).text(DisplayShared.scoreText(data, GameView.allianceIdForSlot("blue")));
 };
 
 // Handles a websocket message to update current match
@@ -241,6 +245,15 @@ $(function () {
   $(".reversible-left").attr("data-reversed", reversed);
   $(".reversible-right").attr("data-reversed", reversed);
 
+  // Draw the clock and the scores again when the game arrives or changes.
+  GameView.onChange(function () {
+    if (lastMatchTime !== null) {
+      handleMatchTime(lastMatchTime);
+    }
+    if (lastRealtimeScore !== null) {
+      handleRealtimeScore(lastRealtimeScore);
+    }
+  });
 
   // Set up the websocket back to the server.
   websocket = new CheesyWebsocket("/displays/field_monitor/websocket", {
@@ -250,17 +263,17 @@ $(function () {
     eventStatus: function (event) {
       handleEventStatus(event.data);
     },
+    game: function (event) {
+      handleGame(event.data);
+    },
     matchLoad: function (event) {
       handleMatchLoad(event.data);
-    },
-    matchTiming: function (event) {
-      handleMatchTiming(event.data);
     },
     matchTime: function (event) {
       handleMatchTime(event.data);
     },
     realtimeScore: function (event) {
-      handleRealtimeScore(event.data, reversed);
+      handleRealtimeScore(event.data);
     },
   });
 });

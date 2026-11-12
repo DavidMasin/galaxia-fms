@@ -18,32 +18,10 @@ Display that can be shown on a screen supplemental to one with the audience disp
     <div id="overlayCentering">
       <div id="matchOverlayAux">
         <div class="score-aux reversible-left" id="leftScoreAux">
-          <div class="score-fuel">
-            <span id="leftFuelNumerator"></span>
-            <span id="leftFuelDenominator"></span>
-          </div>
-          <div class="score-hub-active" id="leftHubActive">
-            <svg width="70" height="100">
-              <circle class="progress-guide" cx="35" cy="50" r="25" fill="none" stroke="white" stroke-width="2"/>
-              <circle class="active-progress" cx="35" cy="50" r="25" fill="none" stroke="white" stroke-width="5"
-                stroke-dasharray="158 158" stroke-dashoffset="5" transform="rotate(90, 35, 50)"/>
-              <text class="progress-time" x="35" y="52" text-anchor="middle" dominant-baseline="middle" fill="white"></text>
-            </svg>
-          </div>
+          <div class="score-items" id="leftScoreItems"></div>
         </div>
         <div class="score-aux reversible-right" id="rightScoreAux">
-          <div class="score-hub-active" id="rightHubActive">
-            <svg width="70" height="100">
-              <circle class="progress-guide" cx="35" cy="50" r="25" fill="none" stroke="white" stroke-width="2"/>
-              <circle class="active-progress" cx="35" cy="50" r="25" fill="none" stroke="white" stroke-width="5"
-                stroke-dasharray="158 158" stroke-dashoffset="-5" transform="rotate(90, 35, 50)"/>
-              <text class="progress-time" x="35" y="52" text-anchor="middle" dominant-baseline="middle" fill="white"></text>
-            </svg>
-          </div>
-          <div class="score-fuel">
-            <span id="rightFuelNumerator"></span>
-            <span id="rightFuelDenominator"></span>
-          </div>
+          <div class="score-items" id="rightScoreItems"></div>
         </div>
       </div>
       <div id="matchOverlayContainer">
@@ -90,7 +68,7 @@ Display that can be shown on a screen supplemental to one with the audience disp
         <span id="leftPlayoffAllianceWins"></span>&nbsp;-&nbsp;<span id="rightPlayoffAllianceWins"></span>
       </div>
       <div class="text-center" id="matchCircle">
-        <img id="logo" src="/static/img/game-logo.png" alt="logo"/>
+        <div id="matchPhase"></div>
         <div id="matchTime"></div>
       </div>
       <div id="timeoutDetails">
@@ -109,7 +87,9 @@ Display that can be shown on a screen supplemental to one with the audience disp
     <script src="/static/js/lib/handlebars-1.3.0.js"></script>
     <script src="/static/js/lib/bootstrap.bundle.min.js"></script>
     <script src="/static/js/cheesy-websocket.js"></script>
+    <script src="/static/js/game_view.js"></script>
     <script src="/static/js/match_timing.js"></script>
+    <script src="/static/js/display_shared.js"></script>
     <script src="/static/js/wall_display.js"></script>
   </body>
 </html>

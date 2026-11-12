@@ -8,31 +8,51 @@ package web
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/partner"
 	"github.com/DavidMasin/galaxia-fms/playoff"
+	"github.com/DavidMasin/galaxia-fms/scoring"
 	"github.com/DavidMasin/galaxia-fms/websocket"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
 )
 
-type MatchResultWithSummary struct {
+// MatchResultWithScore is a stored match result together with what the game it was played with makes of it.
+type MatchResultWithScore struct {
 	model.MatchResult
-	RedSummary  *game.ScoreSummary
-	BlueSummary *game.ScoreSummary
+	// Computed holds the points, breakdown, ranking points and outcome of every alliance, keyed by alliance id. It
+	// is null if the result can no longer be computed, for example because its game definition is gone.
+	Computed *scoring.Result
 }
 
 type MatchWithResult struct {
 	model.Match
-	Result *MatchResultWithSummary
+	Result *MatchResultWithScore
 }
 
-type RankingWithNickname struct {
-	game.Ranking
-	Nickname string
+// RankingsApiColumn describes one sort value of the rankings: a key of the active game's ranking order.
+type RankingsApiColumn struct {
+	Name     string
+	Decimals int
+	Random   bool
+}
+
+// RankingsApiRanking is one team's place in the rankings. Sort holds one value per column.
+type RankingsApiRanking struct {
+	TeamId            int
+	Nickname          string
+	Rank              int
+	PreviousRank      int
+	RP                float64
+	Played            int
+	Wins              int
+	Losses            int
+	Ties              int
+	Disqualifications int
+	Sort              []float64
 }
 
 type allianceMatchup struct {
@@ -69,13 +89,16 @@ func (web *Web) matchesApiHandler(w http.ResponseWriter, r *http.Request) {
 			handleWebErr(w, err)
 			return
 		}
-		var matchResultWithSummary *MatchResultWithSummary
 		if matchResult != nil {
-			matchResultWithSummary = &MatchResultWithSummary{MatchResult: *matchResult}
-			matchResultWithSummary.RedSummary = matchResult.RedScoreSummary()
-			matchResultWithSummary.BlueSummary = matchResult.BlueScoreSummary()
+			matchResultWithScore := &MatchResultWithScore{MatchResult: *matchResult}
+			computed, _, err := matchResult.Compute(web.arena.Database, match.UseTiebreakCriteria)
+			if err != nil {
+				log.Printf("Failed to compute the result of match %d for the matches API: %v", match.Id, err)
+			} else {
+				matchResultWithScore.Computed = computed
+			}
+			matchesWithResults[i].Result = matchResultWithScore
 		}
-		matchesWithResults[i].Result = matchResultWithSummary
 	}
 
 	jsonData, err := json.MarshalIndent(matchesWithResults, "", "  ")
@@ -127,12 +150,11 @@ func (web *Web) rankingsApiHandler(w http.ResponseWriter, r *http.Request) {
 		handleWebErr(w, err)
 		return
 	}
-	var rankingsWithNicknames []RankingWithNickname
-	if rankings == nil {
-		// Go marshals an empty slice to null, so explicitly create it so that it appears as an empty JSON array.
-		rankingsWithNicknames = make([]RankingWithNickname, 0)
-	} else {
-		rankingsWithNicknames = make([]RankingWithNickname, len(rankings))
+
+	// The columns are the keys the active game sorts teams by; each ranking holds one value per column.
+	columns := make([]RankingsApiColumn, len(web.arena.Game.Ranking.Order))
+	for i, key := range web.arena.Game.Ranking.Order {
+		columns[i] = RankingsApiColumn{Name: key.Name, Decimals: key.Decimals, Random: key.Random}
 	}
 
 	// Get team info so that nicknames can be displayed.
@@ -145,8 +167,20 @@ func (web *Web) rankingsApiHandler(w http.ResponseWriter, r *http.Request) {
 	for _, team := range teams {
 		teamNicknames[team.Id] = team.Nickname
 	}
+
+	// Go marshals a nil slice to null, so the slices are created explicitly to appear as empty JSON arrays.
+	apiRankings := make([]RankingsApiRanking, len(rankings))
 	for i, ranking := range rankings {
-		rankingsWithNicknames[i] = RankingWithNickname{ranking, teamNicknames[ranking.TeamId]}
+		// Rankings calculated under another game may hold a different number of sort values; a browser is always
+		// given exactly one per column.
+		sortValues := make([]float64, len(columns))
+		copy(sortValues, ranking.Sort)
+		apiRankings[i] = RankingsApiRanking{
+			TeamId: ranking.TeamId, Nickname: teamNicknames[ranking.TeamId], Rank: ranking.Rank,
+			PreviousRank: ranking.PreviousRank, RP: ranking.RP, Played: ranking.Played, Wins: ranking.Wins,
+			Losses: ranking.Losses, Ties: ranking.Ties, Disqualifications: ranking.Disqualifications,
+			Sort: sortValues,
+		}
 	}
 
 	// Get the last match scored so we can report that on the display.
@@ -163,9 +197,10 @@ func (web *Web) rankingsApiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Rankings           []RankingWithNickname
+		Columns            []RankingsApiColumn
+		Rankings           []RankingsApiRanking
 		HighestPlayedMatch string
-	}{rankingsWithNicknames, highestPlayedMatch.ShortName}
+	}{columns, apiRankings, highestPlayedMatch.ShortName}
 	jsonData, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		handleWebErr(w, err)
@@ -214,7 +249,7 @@ func (web *Web) arenaWebsocketApiHandler(w http.ResponseWriter, r *http.Request)
 	defer closeWebsocket(ws)
 
 	// Subscribe the websocket to the notifiers whose messages will be passed on to the client.
-	ws.HandleNotifiers(web.arena.MatchTimingNotifier, web.arena.MatchLoadNotifier, web.arena.MatchTimeNotifier)
+	ws.HandleNotifiers(web.arena.GameNotifier, web.arena.MatchLoadNotifier, web.arena.MatchTimeNotifier)
 }
 
 // Serves the avatar for a given team, or a default if none exists.

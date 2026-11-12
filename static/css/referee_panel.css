@@ -1,6 +1,8 @@
 /*
   Copyright 2023 Team 254. All Rights Reserved.
   Author: pat@patfairbank.com (Patrick Fairbank)
+
+  Alliance colours come from the --alliance-<index>-color variables that game_view.js sets from the active game.
 */
 html {
   -webkit-user-select: none;
@@ -28,10 +30,30 @@ h3 {
 #matchName {
   font-size: 2vw;
 }
+#panelMessage {
+  margin: 0.5vw 0;
+  padding: 0.5vw 1.5vw;
+  border-radius: 0.5vw;
+  font-size: 1.5vw;
+  color: #000;
+  background-color: #ffc107;
+}
 #refereePanel {
   width: 98%;
   display: flex;
   flex-direction: row;
+}
+[data-alliance-index="0"] {
+  --alliance-color: var(--alliance-0-color, #777);
+}
+[data-alliance-index="1"] {
+  --alliance-color: var(--alliance-1-color, #777);
+}
+[data-alliance-index="2"] {
+  --alliance-color: var(--alliance-2-color, #777);
+}
+[data-alliance-index="3"] {
+  --alliance-color: var(--alliance-3-color, #777);
 }
 #cards {
   display: flex;
@@ -42,6 +64,7 @@ h3 {
   display: none;
 }
 .alliance-cards {
+  margin-bottom: 1vw;
   padding: 0.5vw 1vw;
   display: flex;
   flex-direction: column;
@@ -49,13 +72,8 @@ h3 {
   align-items: center;
   border: 1px solid #666;
   border-radius: 1vw;
-}
-#redCards {
-  margin-bottom: 1vw;
-  background-color: #322;
-}
-#blueCards {
-  background-color: #223;
+  background-color: #2a2a2a;
+  background-color: color-mix(in srgb, var(--alliance-color) 22%, #1c1c1c);
 }
 .team-card.bypassed-status {
   background-color: #dc3545;
@@ -70,28 +88,25 @@ h3 {
   justify-content: center;
   align-items: center;
   border-radius: 0.2vw;
+  border: 0.3vw solid transparent;
+  box-sizing: border-box;
+  text-shadow: 0 0 0.3vw #000;
 }
 .playoff-alliance-card {
   font-size: 1.6vw;
   white-space: nowrap;
   color: inherit;
-  border: 0;
 }
-.team-card[data-card="yellow"] {
-  background-color: #c90;
-}
-.team-card[data-card="red"] {
-  background-color: #900;
-}
-.team-card[data-old-yellow-card="true"] {
-  border: 0.3vw solid #ff0;
+/* A team that comes into the match with a card from an earlier one. */
+.team-card[data-carried="true"] {
+  border: 0.3vw dashed #fff;
 }
 #scoringStatuses {
   margin-top: 0.5vw;
 }
 .scoring-status {
   margin-top: 0.5vw;
-  width: 8vw;
+  min-width: 8vw;
   padding: 0.2vw 0.5vw;
   border-radius: 0.5vw;
   background-color: #e66;
@@ -113,23 +128,29 @@ h3 {
 #foulButtons {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1vw 0;
+}
+.foul-button-row {
+  display: flex;
+  flex-direction: row;
 }
 .foul-button {
-  width: 16vw;
+  min-width: 13vw;
   height: 6vw;
-  font-size: 3vw;
+  padding: 0 1vw;
+  font-size: 2.2vw;
   font-weight: bold;
+  text-align: center;
+  line-height: 1.1;
   display: flex;
   justify-content: center;
   align-items: center;
-  margin: 0 1vw;
+  margin: 0 0.6vw;
   border-radius: 1vw;
-}
-.red-foul {
-  background-color: #933;
-}
-.blue-foul {
-  background-color: #26c;
+  background-color: #555;
+  background-color: color-mix(in srgb, var(--alliance-color) 75%, #000);
 }
 #foulList {
   margin: 1vw 0;
@@ -143,17 +164,18 @@ h3 {
   align-items: center;
   font-size: 1.8vw;
   border-radius: 0.5vw;
+  background-color: #555;
+  background-color: color-mix(in srgb, var(--alliance-color) 75%, #000);
 }
 .foul > * {
   margin: 0 1vw;
 }
-.type-button {
-  width: 9vw;
+.type-select {
+  width: 12vw;
   height: 3vw;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  color: #fff;
   background-color: rgba(255, 255, 255, 0.1);
+  border: 0;
   border-radius: 0.2vw;
 }
 .team-buttons {
@@ -174,11 +196,12 @@ h3 {
 .rule-select {
   width: 25vw;
   height: 3vw;
+  color: #fff;
   background-color: rgba(0, 0, 0, 0.1);
   border: 0;
   border-radius: 0.2vw;
 }
-.rule-select option {
+.type-select option, .rule-select option {
   background-color: #222;
   color: #fff;
 }
@@ -228,60 +251,63 @@ h3 {
   background-color: #666;
 }
 
-#scoreSummary {
+/* The scoring elements a referee may change, and the list of the latest changes to them. */
+#refereeScoring {
   width: 100%;
-  display: flex;
-  gap: 1vw;
-  padding: 0.8vw 1vw;
-  justify-content: center;
-  text-align: center;
+  padding: 0 1vw;
 }
-#scoreSummary[data-hr="false"] {
+#refereeScoring[data-hr="false"] {
   display: none;
 }
-
-#scoreSummary > div {
-  display: grid;
-  grid-template-columns: 7.5vw repeat(3, 5.2vw);
-  column-gap: 0.35vw;
-  row-gap: 0.25vw;
+#refereeElements {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1vw;
+}
+#refereeElements .score-section {
+  flex: 1 1 30vw;
+  margin-bottom: 0;
+  text-align: left;
+}
+#refereeElements .score-button {
+  min-width: 48px;
+  min-height: 48px;
+  font-size: 1rem;
+  padding: 4px 8px;
+}
+#changes {
+  list-style: none;
+  margin: 0.5vw 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5vw;
+}
+.change {
+  display: flex;
   align-items: center;
+  gap: 0.6vw;
+  padding: 0.3vw 0.6vw;
+  border: 1px solid #555;
+  border-radius: 0.5vw;
+  background-color: #2b2b2b;
+  font-size: 0.95rem;
 }
-
-#scoreSummary .placeholder {
-  visibility: hidden;
+.change[data-undone="true"] .change-text {
+  text-decoration: line-through;
+  opacity: 0.6;
 }
-
-#scoreSummary .wide-row {
-  grid-column: span 3;
+.change-undone {
+  opacity: 0.6;
 }
-
-#scoreSummary .label {
-  text-align: right;
-  padding-right: 0.35vw;
-}
-
-#scoreSummary .tower-status {
-  min-width: 4.8vw;
-  padding: 0.05vw 0.2vw;
-  border-radius: 0.25vw;
+.change-undo {
+  min-height: 40px;
+  padding: 0 12px;
   color: #fff;
-  font-weight: bold;
-  white-space: nowrap;
+  background-color: #6c4a00;
+  border: 2px solid #b58100;
+  border-radius: 8px;
 }
-
-#scoreSummary .tower-status[data-status="0"] {
-  background-color: #555;
-}
-
-#scoreSummary .tower-status[data-status="1"] {
-  background-color: #c1a313;
-}
-
-#scoreSummary .tower-status[data-status="2"] {
-  background-color: #286fbd;
-}
-
-#scoreSummary .tower-status[data-status="3"] {
-  background-color: #2a8c55;
+.change-undo:disabled {
+  opacity: 0.4;
 }

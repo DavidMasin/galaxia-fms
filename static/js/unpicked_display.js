@@ -8,12 +8,12 @@ $(function () {
 
   if (urlParams.get("inverted") === "true") {
     $("#unpickedTeamsContainer").css("transform", "rotate(180deg)");
-    $("#gameLogoContainer").css("transform", "rotate(180deg)");
+    $("#eventNameContainer").css("transform", "rotate(180deg)");
   }
 
   const $unpickedTeams = $("#unpickedTeams");
   const $container = $("#unpickedTeamsContainer");
-  const $logoContainer = $("#gameLogoContainer");
+  const $eventNameContainer = $("#eventNameContainer");
   const unpickedTeamsTemplate = Handlebars.compile($("#unpickedTeamsTemplate").html());
 
   let currentRankedTeams = [];
@@ -22,13 +22,13 @@ $(function () {
   const updateDisplay = function() {
     if (isAllianceSelection && currentRankedTeams.length > 0) {
       $container.css("display", "flex");
-      $logoContainer.hide();
+      $eventNameContainer.hide();
       
       const unpickedTeams = currentRankedTeams.filter(team => !team.Picked);
       $unpickedTeams.html(unpickedTeamsTemplate(unpickedTeams));
     } else {
       $container.hide();
-      $logoContainer.css("display", "flex");
+      $eventNameContainer.css("display", "flex");
     }
   };
 

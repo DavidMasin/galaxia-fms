@@ -6,7 +6,6 @@
 package web
 
 import (
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/websocket"
 	"net/http"
@@ -36,8 +35,8 @@ func (web *Web) wallDisplayHandler(w http.ResponseWriter, r *http.Request) {
 
 	data := struct {
 		*model.EventSettings
-		MatchSounds []*game.MatchSound
-	}{web.arena.EventSettings, game.MatchSounds}
+		MatchSounds []string // File names without the extension.
+	}{web.arena.EventSettings, web.arena.MatchSounds()}
 	err = template.ExecuteTemplate(w, "wall_display.html", data)
 	if err != nil {
 		handleWebErr(w, err)
@@ -64,7 +63,7 @@ func (web *Web) wallDisplayWebsocketHandler(w http.ResponseWriter, r *http.Reque
 	// Subscribe the websocket to the notifiers whose messages will be passed on to the client.
 	ws.HandleNotifiers(
 		display.Notifier,
-		web.arena.MatchTimingNotifier,
+		web.arena.GameNotifier,
 		web.arena.AudienceDisplayModeNotifier,
 		web.arena.MatchLoadNotifier,
 		web.arena.MatchTimeNotifier,

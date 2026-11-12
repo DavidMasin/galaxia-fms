@@ -47,8 +47,9 @@ Base template used by most pages to include common resources and optionally rend
               <a class="dropdown-item" href="/panels/referee?hr=false">Referee</a>
               <div class="dropdown-divider"></div>
               <div class="dropdown-header">Scoring</div>
-              <a class="dropdown-item" href="/panels/scoring/red">Red</a>
-              <a class="dropdown-item" href="/panels/scoring/blue">Blue</a>
+              {{range $panel := scoringPanels}}
+              <a class="dropdown-item" href="/panels/scoring/{{$panel.ID}}">{{$panel.Name | html}}</a>
+              {{end}}
             </div>
           </li>
           <li class="nav-item dropdown">
@@ -184,6 +185,13 @@ Base template used by most pages to include common resources and optionally rend
 <link href="/static/css/lib/bootstrap-icons.min.css" rel="stylesheet">
 <link href="/static/css/lib/tempus-dominus.min.css" rel="stylesheet">
 <link href="/static/css/cheesy-arena.css" rel="stylesheet">
+<style>
+  /* The colours of the active game's alliances, by position. A page that follows the game live updates them. */
+  :root {
+    {{range $index, $alliance := gameAlliances}}--alliance-{{$index}}-color: {{$alliance.Color}};
+    {{end}}
+  }
+</style>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 {{end}}
 

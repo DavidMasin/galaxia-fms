@@ -125,35 +125,67 @@ func (c *Change) bucket() string {
 
 // NewState returns the starting state for a match of the given game.
 func NewState(g *gamedef.Game) *State {
-	state := &State{Alliances: make(map[string]*AllianceState), Field: make(map[string]*Value)}
+	state := new(State)
+	state.Normalize(g)
+	return state
+}
+
+// Normalize fills in whatever a state is missing for the given game: alliances, robot positions, element values at
+// their starting value, and the maps that hold them. A state that has been stored and loaded again has lost its
+// empty maps and unset values, and one stored before an element was added to the game never had it; after
+// Normalize both can be changed and scored like a fresh state. It never alters a value that is present.
+func (s *State) Normalize(g *gamedef.Game) {
+	if s.Alliances == nil {
+		s.Alliances = make(map[string]*AllianceState)
+	}
+	if s.Field == nil {
+		s.Field = make(map[string]*Value)
+	}
 	for _, alliance := range g.Alliances.List {
-		allianceState := &AllianceState{
-			Elements: make(map[string]*Value),
-			Robots:   make([]map[string]*Value, g.Alliances.Size),
-			Cards:    make(map[int]string),
+		allianceState := s.Alliances[alliance.ID]
+		if allianceState == nil {
+			allianceState = new(AllianceState)
+			s.Alliances[alliance.ID] = allianceState
 		}
-		for i := range allianceState.Robots {
-			allianceState.Robots[i] = make(map[string]*Value)
+		if allianceState.Elements == nil {
+			allianceState.Elements = make(map[string]*Value)
 		}
-		state.Alliances[alliance.ID] = allianceState
+		if allianceState.Cards == nil {
+			allianceState.Cards = make(map[int]string)
+		}
+		for len(allianceState.Robots) < g.Alliances.Size {
+			allianceState.Robots = append(allianceState.Robots, nil)
+		}
+		for i, robot := range allianceState.Robots {
+			if robot == nil {
+				allianceState.Robots[i] = make(map[string]*Value)
+			}
+		}
+	}
+	fill := func(values map[string]*Value, element *gamedef.Element) {
+		value := values[element.ID]
+		if value == nil {
+			values[element.ID] = initialValue(element)
+		} else if element.Type == gamedef.TypeCounter && value.Counts == nil {
+			value.Counts = make(map[string]int)
+		}
 	}
 	for _, element := range g.Elements {
 		switch element.Scope {
 		case gamedef.ScopeField:
-			state.Field[element.ID] = initialValue(element)
+			fill(s.Field, element)
 		case gamedef.ScopeAlliance:
-			for _, allianceState := range state.Alliances {
-				allianceState.Elements[element.ID] = initialValue(element)
+			for _, alliance := range g.Alliances.List {
+				fill(s.Alliances[alliance.ID].Elements, element)
 			}
 		case gamedef.ScopeRobot:
-			for _, allianceState := range state.Alliances {
-				for _, robot := range allianceState.Robots {
-					robot[element.ID] = initialValue(element)
+			for _, alliance := range g.Alliances.List {
+				for _, robot := range s.Alliances[alliance.ID].Robots {
+					fill(robot, element)
 				}
 			}
 		}
 	}
-	return state
 }
 
 func initialValue(element *gamedef.Element) *Value {
@@ -183,13 +215,13 @@ func (s *State) value(g *gamedef.Game, element *gamedef.Element, alliance string
 		return s.Field[element.ID], nil
 	}
 	allianceState := s.Alliances[alliance]
-	if allianceState == nil {
+	if allianceState == nil || g.Alliance(alliance) == nil {
 		return nil, fmt.Errorf("there is no alliance %q", alliance)
 	}
 	if element.Scope == gamedef.ScopeAlliance {
 		return allianceState.Elements[element.ID], nil
 	}
-	if robot < 1 || robot > len(allianceState.Robots) {
+	if robot < 1 || robot > g.Alliances.Size {
 		return nil, fmt.Errorf("%s is scored per robot; robot position %d is out of range", element.ID, robot)
 	}
 	return allianceState.Robots[robot-1][element.ID], nil
@@ -198,6 +230,7 @@ func (s *State) value(g *gamedef.Game, element *gamedef.Element, alliance string
 // Apply performs one change on the state. It returns an error, leaving the state untouched, if the change does not
 // make sense for the game: an unknown element, the wrong kind of operation, or a value out of range.
 func (s *State) Apply(g *gamedef.Game, change *Change) error {
+	s.Normalize(g)
 	switch change.Element {
 	case TargetFoul:
 		return s.applyFoul(g, change)

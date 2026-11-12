@@ -8,6 +8,16 @@ let scoreIsReady;
 let isReplay;
 const lowBatteryThreshold = 8;
 
+// The value of model.MatchType for a test match.
+const testMatchType = 0;
+
+// The latest of each message whose presentation depends on the active game. They are kept so that the page can be
+// drawn again when the game arrives or changes, whatever order the messages came in.
+let lastMatchTime = null;
+let lastRealtimeScore = null;
+let lastScoringStatus = null;
+let lastMatchType = null;
+
 // Sends a websocket message to load the specified match.
 const loadMatch = function (matchId) {
   websocket.send("loadMatch", {matchId: matchId});
@@ -235,9 +245,7 @@ const handleArenaStatus = function (data) {
       $("#startTimeout").prop("disabled", false);
       break;
     case "START_MATCH":
-    case "AUTO_PERIOD":
-    case "PAUSE_PERIOD":
-    case "TELEOP_PERIOD":
+    case "IN_MATCH":
       $("#showOverlay").prop("disabled", true);
       $("#introRadio").prop("disabled", true);
       $("#scoreRadio").prop("disabled", true);
@@ -327,7 +335,9 @@ const handleMatchLoad = function (data) {
   $("#testMatchName").val(data.Match.LongName);
   $("#timeoutDescription").val(data.BreakDescription || "Field Break");
   $("#timeoutNextMatchText").val(data.BreakNextMatchName || "");
-  $("#testMatchSettings").toggle(data.Match.Type === matchTypeTest);
+  $("#testMatchSettings").toggle(data.Match.Type === testMatchType);
+  lastMatchType = data.Match.Type;
+  renderScoreSummary();
   $.each(data.Teams, function (station, team) {
     const teamId = $(`#status${station} .team-number`);
     teamId.val(team ? team.Id : "");
@@ -344,21 +354,86 @@ const handleMatchLoad = function (data) {
 
 // Handles a websocket message to update the match time countdown.
 const handleMatchTime = function (data) {
-  translateMatchTime(data, function (matchState, matchStateText, countdownSec) {
-    $("#matchState").text(matchStateText);
+  lastMatchTime = data;
+  translateMatchTime(data, function (matchState, matchStateText, countdownSec, phase) {
+    // While a phase is running, say which one: a game may split a stretch of the match into several.
+    $("#matchState").text(phase === null ? matchStateText : matchStateText + " \u2013 " + phase.name);
     $("#matchTime").text(countdownSec);
   });
 };
 
 // Handles a websocket message to update the match score.
 const handleRealtimeScore = function (data) {
-  $("#redScore").text(data.Red.ScoreSummary.Score);
-  $("#blueScore").text(data.Blue.ScoreSummary.Score);
+  lastRealtimeScore = data;
+  renderScoreSummary();
+};
+
+// Returns the alliance's part of the latest score if it belongs to the active game, or null.
+const getAllianceScore = function (allianceId) {
+  if (lastRealtimeScore === null || !GameView.isReady() || lastRealtimeScore.gameHash !== GameView.view.hash) {
+    return null;
+  }
+  return lastRealtimeScore.alliances[allianceId] || null;
+};
+
+// Shows the score of each alliance and, below the controls, how the game breaks it down: the breakdown rows and
+// ranking points come from the game, so this works for any of them.
+const renderScoreSummary = function () {
+  if (!GameView.isReady()) {
+    return;
+  }
+  const view = GameView.view;
+  const container = $("#scoreSummary").empty();
+  // The second alliance is on the left, as it is in the list of teams above.
+  GameView.alliances().slice().reverse().forEach(function (alliance) {
+    const slot = GameView.slot(alliance.id);
+    const score = getAllianceScore(alliance.id);
+    $(`#${slot}Score`).text(score === null ? "\u00a0" : GameView.formatNumber(score.score));
+
+    const table = $("<table class='table table-sm mb-0 score-summary-table'></table>");
+    const addRow = function (name, value, cssClass) {
+      const row = $("<tr></tr>").addClass(cssClass || "");
+      row.append($("<th scope='row'></th>").text(name));
+      row.append($("<td class='text-end font-monospace'></td>").text(value));
+      table.append(row);
+    };
+    const breakdown = score === null ? [] : score.breakdown || [];
+    view.breakdown.forEach(function (row) {
+      const computed = breakdown.find(function (candidate) { return candidate.id === row.id; });
+      addRow(row.name, computed ? GameView.formatNumber(computed.value) : "");
+    });
+    addRow("Score", score === null ? "" : GameView.formatNumber(score.score), "score-summary-total");
+    // Ranking points only mean something in a qualification match.
+    if (lastMatchType === matchTypeQualification) {
+      view.rankingPoints.forEach(function (rankingPoint) {
+        const value = score === null ? undefined : (score.rp || {})[rankingPoint.id];
+        addRow(rankingPoint.name, value === undefined ? "" : GameView.formatNumber(value));
+      });
+      addRow("Ranking Points", score === null ? "" : GameView.formatNumber(score.rpTotal), "score-summary-total");
+    }
+    const card = $("<div class='card card-body mb-2'></div>").addClass("bg-" + slot);
+    card.append($("<h6></h6>").text(alliance.name + " Score Summary"), table);
+    container.append($("<div class='col-lg-6'></div>").append(card));
+  });
+};
+
+// Fills in everything on the page that the game names, and draws again what depends on it.
+const renderGame = function () {
+  GameView.alliances().forEach(function (alliance, index) {
+    $(`[data-alliance-label=${index}]`).text(alliance.name + " Teams");
+  });
+  if (lastMatchTime !== null) {
+    handleMatchTime(lastMatchTime);
+  }
+  if (lastScoringStatus !== null) {
+    handleScoringStatus(lastScoringStatus);
+  }
+  renderScoreSummary();
 };
 
 // Handles a websocket message to populate the final score data.
 const handleScorePosted = function (data) {
-  let matchName = data.Match.LongName;
+  let matchName = data.match ? data.match.LongName : "";
   if (matchName) {
     $("#scoreRadio").prop("disabled", false);
   } else {
@@ -382,17 +457,27 @@ const handleScoringStatus = function (data) {
       break;
     }
   }
+  lastScoringStatus = data;
   $("#refereeScoreStatus").attr("data-ready", data.RefereeScoreReady);
-  updateScoreStatus(data, "red", "#redScoreStatus", "Red");
-  updateScoreStatus(data, "blue", "#blueScoreStatus", "Blue");
-};
 
-// Helper function to update a badge that shows scoring panel commit status.
-const updateScoreStatus = function (data, position, element, displayName) {
-  const status = data.PositionStatuses[position];
-  $(element).text(`${displayName} ${status.NumPanelsReady}/${status.NumPanels}`);
-  $(element).attr("data-present", status.NumPanels > 0);
-  $(element).attr("data-ready", status.Ready);
+  // One badge per scoring panel position of the game, under the name the game gives the panel.
+  const names = {};
+  if (GameView.isReady()) {
+    GameView.view.panels.forEach(function (panel) {
+      names[panel.id] = panel.name;
+    });
+    GameView.alliances().forEach(function (alliance) {
+      names[alliance.id] = names[alliance.id] || alliance.name;
+    });
+  }
+  const container = $("#panelScoreStatuses").empty();
+  Object.keys(data.PositionStatuses).sort().forEach(function (position) {
+    const status = data.PositionStatuses[position];
+    const badge = $("<span class='badge badge-scoring'></span>")
+      .text(`${names[position] || position} ${status.NumPanelsReady}/${status.NumPanels}`)
+      .attr("data-present", status.NumPanels > 0).attr("data-ready", status.Ready);
+    container.append("<br/>", badge);
+  });
 };
 
 // Handles a websocket message to update the alliance station display screen selector.
@@ -427,6 +512,9 @@ $(function () {
   const tooltipTriggerList = document.querySelectorAll("[data-bs-toggle=tooltip]");
   const tooltipList = [...tooltipTriggerList].map(element => new bootstrap.Tooltip(element));
 
+  // Draw what the game names when it arrives, and again whenever it changes.
+  GameView.onChange(renderGame);
+
   // Set up the websocket back to the server.
   websocket = new CheesyWebsocket("/match_play/websocket", {
     allianceStationDisplayMode: function (event) {
@@ -447,8 +535,8 @@ $(function () {
     matchTime: function (event) {
       handleMatchTime(event.data);
     },
-    matchTiming: function (event) {
-      handleMatchTiming(event.data);
+    game: function (event) {
+      handleGame(event.data);
     },
     realtimeScore: function (event) {
       handleRealtimeScore(event.data);

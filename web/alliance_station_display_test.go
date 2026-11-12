@@ -4,7 +4,6 @@
 package web
 
 import (
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/websocket"
 	gorillawebsocket "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
@@ -37,7 +36,7 @@ func TestAllianceStationDisplayWebsocket(t *testing.T) {
 
 	// Should get a few status updates right after connection.
 	readWebsocketType(t, ws, "displayConfiguration")
-	readWebsocketType(t, ws, "matchTiming")
+	readWebsocketType(t, ws, "game")
 	readWebsocketType(t, ws, "allianceStationDisplayMode")
 	readWebsocketType(t, ws, "arenaStatus")
 	readWebsocketType(t, ws, "matchLoad")
@@ -63,13 +62,13 @@ func TestAllianceStationDisplayWebsocket(t *testing.T) {
 	messages := readWebsocketMultiple(t, ws, 3)
 	_, ok := messages["matchTime"]
 	assert.True(t, ok)
-	web.arena.MatchStartTime = time.Now().Add(-time.Duration(game.MatchTiming.AutoDurationSec) * time.Second)
+	// Move the clock to the end of the first phase of the game; the display is told about the next one.
+	firstPhaseDuration := time.Duration(web.arena.Game.Match.Phases[0].Duration * float64(time.Second))
+	web.arena.MatchStartTime = time.Now().Add(-firstPhaseDuration)
 	web.arena.Update()
-	messages = readWebsocketMultiple(t, ws, 2)
-	_, ok = messages["arenaStatus"]
-	assert.True(t, ok)
-	_, ok = messages["matchTime"]
-	assert.True(t, ok)
+	matchTime := readWebsocketUntil(t, ws, "matchTime").(map[string]any)
+	assert.Equal(t, float64(1), matchTime["PhaseIndex"])
+	assert.Equal(t, web.arena.Game.Match.Phases[1].ID, matchTime["PhaseId"])
 	web.arena.RealtimeScoreNotifier.Notify()
-	readWebsocketType(t, ws, "realtimeScore")
+	readWebsocketUntil(t, ws, "realtimeScore")
 }

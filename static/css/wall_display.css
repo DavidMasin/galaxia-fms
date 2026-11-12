@@ -16,8 +16,9 @@
   bottom: 175px;
 }
 
+/* One box per side holds the items the game shows beside each score. It grows with what the game has to show. */
 .score-aux {
-  width: 230px;
+  min-width: 230px;
   height: 100px;
   display: flex;
   flex-direction: row;
@@ -36,12 +37,12 @@
   padding-left: 35px;
 }
 
-.score-aux .score-fuel {
-  width: 100px;
+.score-aux .score-items {
+  display: flex;
 }
 
-.score-aux .score-hub-active {
-  margin: 0;
+#rightScoreAux .score-items {
+  flex-direction: row-reverse;
 }
 
 #message {

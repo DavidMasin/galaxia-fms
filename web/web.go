@@ -8,13 +8,14 @@ package web
 import (
 	"fmt"
 	"github.com/DavidMasin/galaxia-fms/field"
-	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"log"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"text/template"
 )
 
@@ -26,6 +27,9 @@ const (
 type Web struct {
 	arena           *field.Arena
 	templateHelpers template.FuncMap
+	// Set when the game selection was changed while a match was on the field. The settings are reloaded, which
+	// is what takes the selection into use, once that match has been reset.
+	gameChangePending atomic.Bool
 }
 
 func NewWeb(arena *field.Arena) *Web {
@@ -67,6 +71,16 @@ func NewWeb(arena *field.Arena) *Web {
 		"toUpper": func(str string) string {
 			return strings.ToUpper(str)
 		},
+		// Formats a computed score value: whole numbers without decimals, others to at most two places.
+		"formatNumber": formatNumber,
+		// The scoring panel positions of the active game, for the navigation bar.
+		"scoringPanels": arena.ScoringPanels,
+		// The alliances of the active game, whose colours every page takes its two sides from.
+		"gameAlliances": func() []*gamedef.Alliance {
+			return arena.Game.Alliances.List
+		},
+		// The name of the form input holding the event's override of a game parameter.
+		"gameParamInputName": gameParamInputName,
 
 		// MatchType enum values.
 		"testMatch":          model.Test.Get,
@@ -75,11 +89,11 @@ func NewWeb(arena *field.Arena) *Web {
 		"playoffMatch":       model.Playoff.Get,
 
 		// MatchStatus enum values.
-		"matchScheduled": game.MatchScheduled.Get,
-		"matchHidden":    game.MatchHidden.Get,
-		"redWonMatch":    game.RedWonMatch.Get,
-		"blueWonMatch":   game.BlueWonMatch.Get,
-		"tieMatch":       game.TieMatch.Get,
+		"matchScheduled": model.MatchScheduled.Get,
+		"matchHidden":    model.MatchHidden.Get,
+		"redWonMatch":    model.RedWonMatch.Get,
+		"blueWonMatch":   model.BlueWonMatch.Get,
+		"tieMatch":       model.TieMatch.Get,
 	}
 
 	return web
@@ -190,7 +204,9 @@ func (web *Web) newHandler() http.Handler {
 	mux.HandleFunc("GET /match_review/{matchId}/edit", web.matchReviewEditGetHandler)
 	mux.HandleFunc("POST /match_review/{matchId}/edit", web.matchReviewEditPostHandler)
 	mux.HandleFunc("POST /match_review/{matchId}/summary", web.matchReviewSummaryPostHandler)
+	mux.HandleFunc("POST /match_review/{matchId}/undo", web.matchReviewUndoPostHandler)
 	mux.HandleFunc("GET /panels/scoring/{position}", web.scoringPanelHandler)
+	mux.HandleFunc("GET /panels/scoring/{position}/manifest", web.scoringPanelManifestHandler)
 	mux.HandleFunc("GET /panels/scoring/{position}/websocket", web.scoringPanelWebsocketHandler)
 	mux.HandleFunc("GET /panels/referee", web.refereePanelHandler)
 	mux.HandleFunc("GET /panels/referee/foul_list", web.refereePanelFoulListHandler)

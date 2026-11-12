@@ -30,38 +30,12 @@ Display shown on the audience screen overlayed over the video.
                 <img class="avatar" id="leftTeam2Avatar" src=""/>
                 <img class="avatar" id="leftTeam3Avatar" src=""/>
               </div>
-              <div class="score-fields">
-                <div class="score-fuel">
-                  <span id="leftFuelNumerator"></span>
-                  <span id="leftFuelDenominator"></span>
-                </div>
-                <div class="score-hub-active" id="leftHubActive">
-                  <svg width="70" height="100">
-                    <circle class="progress-guide" cx="35" cy="50" r="25" fill="none" stroke="white" stroke-width="2"/>
-                    <circle class="active-progress" cx="35" cy="50" r="25" fill="none" stroke="white" stroke-width="5"
-                      stroke-dasharray="158 158" stroke-dashoffset="5" transform="rotate(90, 35, 50)"/>
-                    <text class="progress-time" x="35" y="52" text-anchor="middle" dominant-baseline="middle" fill="white"></text>
-                  </svg>
-                </div>
-              </div>
+              <div class="score-fields score-items" id="leftScoreItems"></div>
               <div class="score-number" id="leftScoreNumber"></div>
             </div>
             <div class="score score-right reversible-right">
               <div class="score-number" id="rightScoreNumber"></div>
-              <div class="score-fields">
-                <div class="score-hub-active" id="rightHubActive">
-                  <svg width="70" height="100">
-                    <circle class="progress-guide" cx="35" cy="50" r="25" fill="none" stroke="white" stroke-width="2"/>
-                    <circle class="active-progress" cx="35" cy="50" r="25" fill="none" stroke="white" stroke-width="5"
-                      stroke-dasharray="158 158" stroke-dashoffset="-5" transform="rotate(90, 35, 50)"/>
-                    <text class="progress-time" x="35" y="52" text-anchor="middle" dominant-baseline="middle" fill="white"></text>
-                  </svg>
-                </div>
-                <div class="score-fuel">
-                  <span id="rightFuelNumerator"></span>
-                  <span id="rightFuelDenominator"></span>
-                </div>
-              </div>
+              <div class="score-fields score-items" id="rightScoreItems"></div>
               <div class="avatars">
                 <img class="avatar" id="rightTeam1Avatar" src=""/>
                 <img class="avatar" id="rightTeam2Avatar" src=""/>
@@ -85,7 +59,7 @@ Display shown on the audience screen overlayed over the video.
         <span id="leftPlayoffAllianceWins"></span>&nbsp;-&nbsp;<span id="rightPlayoffAllianceWins"></span>
       </div>
       <div class="text-center" id="matchCircle">
-        <img id="logo" src="/static/img/game-logo.png" alt="logo"/>
+        <div id="matchPhase"></div>
         <div id="matchTime"></div>
       </div>
       <div id="timeoutDetails">
@@ -124,91 +98,17 @@ Display shown on the audience screen overlayed over the video.
             <div class="final-breakdown final-breakdown-teams">
               <div class="final-teams reversible-left">
                 <div class="final-alliance playoff-only-field" id="leftFinalAlliance"></div>
-                {{range $i := seq 4}}
-                <div class="final-team-row">
-                  <img class="final-team-avatar" id="leftFinalTeam{{$i}}Avatar" src=""/>
-                  <div class="final-team-number" id="leftFinalTeam{{$i}}"></div>
-                  <div class="final-team-card">
-                    <div id="leftFinalTeam{{$i}}Card"></div>
-                  </div>
-                  <div class="final-team-rank playoff-hidden-field">
-                    <img id="leftFinalTeam{{$i}}RankIndicator" src=""/>
-                    <div id="leftFinalTeam{{$i}}RankNumber"></div>
-                  </div>
-                </div>
-                {{end}}
+                <div id="leftFinalTeams"></div>
               </div>
               <div class="playoff-only-field">
                 <div class="final-destination" id="leftFinalDestination"></div>
               </div>
             </div>
-            <div class="final-breakdown" id="leftFinalBreakdown">
-              <div id="leftFinalAutoFuelPoints"></div>
-              <div id="leftFinalAutoTowerPoints"></div>
-              <div id="leftFinalTeleopFuelPoints"></div>
-              <div id="leftFinalTeleopTowerPoints"></div>
-              <div id="leftFinalFoulPoints"></div>
-              <div class="playoff-hidden-field">
-                <div id="leftFinalEnergizedBonusRankingPoint"></div>
-                <div id="leftFinalSuperchargedBonusRankingPoint"></div>
-                <div class="traversal-bonus-field" id="leftFinalTraversalBonusRankingPoint"></div>
-                <div id="leftFinalRankingPoints"></div>
-              </div>
-              <div class="playoff-only-field">
-                <div>&nbsp;</div>
-                <div id="leftFinalWins"></div>
-              </div>
-            </div>
-            <div class="final-breakdown" id="centerFinalBreakdown">
-              <div>Auto Fuel</div>
-              <div>Auto Tower</div>
-              <div>Teleop Fuel</div>
-              <div>Teleop Tower</div>
-              <div>Foul</div>
-              <div class="playoff-hidden-field">
-                <div>Energized Bonus</div>
-                <div>Supercharged Bonus</div>
-                <div class="traversal-bonus-field">Traversal Bonus</div>
-                <div>Ranking Points</div>
-              </div>
-              <div class="playoff-only-field">
-                <div>&nbsp;</div>
-                <div>Wins</div>
-              </div>
-            </div>
-            <div class="final-breakdown" id="rightFinalBreakdown">
-              <div id="rightFinalAutoFuelPoints"></div>
-              <div id="rightFinalAutoTowerPoints"></div>
-              <div id="rightFinalTeleopFuelPoints"></div>
-              <div id="rightFinalTeleopTowerPoints"></div>
-              <div id="rightFinalFoulPoints"></div>
-              <div class="playoff-hidden-field">
-                <div id="rightFinalEnergizedBonusRankingPoint"></div>
-                <div id="rightFinalSuperchargedBonusRankingPoint"></div>
-                <div class="traversal-bonus-field" id="rightFinalTraversalBonusRankingPoint"></div>
-                <div id="rightFinalRankingPoints"></div>
-              </div>
-              <div class="playoff-only-field">
-                <div>&nbsp;</div>
-                <div id="rightFinalWins"></div>
-              </div>
-            </div>
+            <div class="final-breakdown" id="finalRows"></div>
             <div class="final-breakdown final-breakdown-teams">
               <div class="final-teams reversible-right">
                 <div class="final-alliance playoff-only-field" id="rightFinalAlliance"></div>
-                {{range $i := seq 4}}
-                <div class="final-team-row">
-                  <img class="final-team-avatar" id="rightFinalTeam{{$i}}Avatar" src=""/>
-                  <div class="final-team-number" id="rightFinalTeam{{$i}}"></div>
-                  <div class="final-team-card">
-                    <div id="rightFinalTeam{{$i}}Card"></div>
-                  </div>
-                  <div class="final-team-rank playoff-hidden-field">
-                    <img id="rightFinalTeam{{$i}}RankIndicator" src=""/>
-                    <div id="rightFinalTeam{{$i}}RankNumber"></div>
-                  </div>
-                </div>
-                {{end}}
+                <div id="rightFinalTeams"></div>
               </div>
               <div class="playoff-only-field">
                 <div class="final-destination" id="rightFinalDestination"></div>
@@ -273,8 +173,7 @@ Display shown on the audience screen overlayed over the video.
       </div>
     </script>
     {{range $sound := .MatchSounds}}
-    <audio id="sound-{{$sound.Name}}" src="/static/audio/{{$sound.Name}}.{{$sound.FileExtension}}" preload="auto">
-    </audio>
+    <audio id="sound-{{$sound}}" src="/static/audio/{{$sound}}.wav" preload="auto"></audio>
     {{end}}
     <script src="/static/js/lib/jquery.min.js"></script>
     <script src="/static/js/lib/jquery.json-2.4.min.js"></script>
@@ -283,7 +182,9 @@ Display shown on the audience screen overlayed over the video.
     <script src="/static/js/lib/handlebars-1.3.0.js"></script>
     <script src="/static/js/lib/bootstrap.bundle.min.js"></script>
     <script src="/static/js/cheesy-websocket.js"></script>
+    <script src="/static/js/game_view.js"></script>
     <script src="/static/js/match_timing.js"></script>
+    <script src="/static/js/display_shared.js"></script>
     <script src="/static/js/audience_display.js"></script>
   </body>
 </html>

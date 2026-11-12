@@ -2,11 +2,19 @@
 // Author: pat@patfairbank.com (Patrick Fairbank)
 //
 // Client-side methods for the alliance station display.
+//
+// The stations are the field's: R1 to R3 belong to the first alliance of the game and B1 to B3 to the second,
+// whatever the game calls them. Phases, alliance colours and scores come from the game view and the generic messages;
+// see game_view.js and display_shared.js, which must be loaded first.
 
 var station = "";
 var blinkInterval;
 var currentScreen = "blank";
 var websocket;
+
+// The last message of each kind, kept so that the display can be drawn again when the game arrives or changes.
+var lastMatchTime = null;
+var lastRealtimeScore = null;
 
 // Handles a websocket message to change which screen is displayed.
 var handleAllianceStationDisplayMode = function (targetScreen) {
@@ -103,35 +111,39 @@ var handleArenaStatus = function (data) {
 
 // Handles a websocket message to update the match time countdown.
 var handleMatchTime = function (data) {
-  translateMatchTime(data, function (matchState, matchStateText, countdownSec) {
+  lastMatchTime = data;
+  translateMatchTime(data, function (matchState, matchStateText, countdownSec, phase) {
     if (station[0] === "N") {
       // Pin the state for a non-alliance display to an in-match state, so as to always show time or score.
-      matchState = "TELEOP_PERIOD";
+      matchState = "IN_MATCH";
     }
-    var countdownString = String(countdownSec % 60);
-    if (countdownString.length === 1) {
-      countdownString = "0" + countdownString;
-    }
-    countdownString = Math.floor(countdownSec / 60) + ":" + countdownString;
-    $("#timeRemaining").text(countdownString);
+    $("#timeRemaining").text(getCountdownString(countdownSec));
+    $("#phaseName").text(phase === null ? "" : phase.name);
     $("#match").attr("data-state", matchState);
   });
 };
 
 // Handles a websocket message to update the match score.
 var handleRealtimeScore = function (data) {
-  $("#redScore").text(
-    data.Red.ScoreSummary.Score - data.Red.ScoreSummary.PostMatchPoints
-  );
-  $("#blueScore").text(
-    data.Blue.ScoreSummary.Score - data.Blue.ScoreSummary.PostMatchPoints
-  );
+  lastRealtimeScore = data;
+  $("#redScore").text(DisplayShared.scoreText(data, GameView.allianceIdForSlot("red")));
+  $("#blueScore").text(DisplayShared.scoreText(data, GameView.allianceIdForSlot("blue")));
 };
 
 $(function () {
   // Read the configuration for this display from the URL query string.
   var urlParams = new URLSearchParams(window.location.search);
   station = urlParams.get("station");
+
+  // Draw the clock and the scores again when the game arrives or changes.
+  GameView.onChange(function () {
+    if (lastMatchTime !== null) {
+      handleMatchTime(lastMatchTime);
+    }
+    if (lastRealtimeScore !== null) {
+      handleRealtimeScore(lastRealtimeScore);
+    }
+  });
 
   // Set up the websocket back to the server.
   websocket = new CheesyWebsocket("/displays/alliance_station/websocket", {
@@ -141,14 +153,14 @@ $(function () {
     arenaStatus: function (event) {
       handleArenaStatus(event.data);
     },
+    game: function (event) {
+      handleGame(event.data);
+    },
     matchLoad: function (event) {
       handleMatchLoad(event.data);
     },
     matchTime: function (event) {
       handleMatchTime(event.data);
-    },
-    matchTiming: function (event) {
-      handleMatchTiming(event.data);
     },
     realtimeScore: function (event) {
       handleRealtimeScore(event.data);

@@ -60,11 +60,13 @@ body {
   height: 100%;
   font-size: 6vw;
 }
+/* The first alliance of the game is on the left unless the display is reversed. The game sets the colours; the
+   fallbacks only show for the instant before it arrives. */
 .left-position[data-reversed=false], .right-position[data-reversed=true] {
-  background-color: #f44;
+  background-color: var(--alliance-0-color, #c9282d);
 }
 .left-position[data-reversed=true], .right-position[data-reversed=false] {
-  background-color: #2080ff;
+  background-color: var(--alliance-1-color, #1565c0);
 }
 .right-position[data-ds="true"] {
   display: none;
@@ -181,10 +183,13 @@ textarea {
 .left-score[data-fta="false"], .right-score[data-fta="false"] {
   display: none;
 }
+.left-score, .right-score {
+  border-radius: 0.3vw;
+}
 .left-score[data-reversed=false], .right-score[data-reversed=true] {
-  color: #f44;
+  background-color: var(--alliance-0-color, #c9282d);
 }
 .left-score[data-reversed=true], .right-score[data-reversed=false] {
-  color: #2080ff;
+  background-color: var(--alliance-1-color, #1565c0);
 }
 

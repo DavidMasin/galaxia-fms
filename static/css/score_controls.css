@@ -1,0 +1,144 @@
+/*
+  Styles for the scoring controls generated from the active game (see score_controls.js). Shared by the scoring panel
+  and the referee panel. Alliance colours come from the --alliance-<index>-color variables that game_view.js sets.
+*/
+
+.score-section {
+  --section-color: #8a9099;
+  border-top: 8px solid var(--section-color);
+  border-radius: 10px;
+  background-color: #1d2125;
+  padding: 10px 14px 14px;
+  margin-bottom: 14px;
+}
+.score-section[data-alliance-index="0"] {
+  --section-color: var(--alliance-0-color, #8a9099);
+}
+.score-section[data-alliance-index="1"] {
+  --section-color: var(--alliance-1-color, #8a9099);
+}
+.score-section[data-alliance-index="2"] {
+  --section-color: var(--alliance-2-color, #8a9099);
+}
+.score-section[data-alliance-index="3"] {
+  --section-color: var(--alliance-3-color, #8a9099);
+}
+.score-section-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+.score-group-title {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.65;
+  margin: 12px 0 6px;
+}
+.score-element {
+  margin-bottom: 12px;
+}
+.score-element-name {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.score-element-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.score-control {
+  flex: 1 1 150px;
+  min-width: 0;
+  border: 1px solid #3b4148;
+  border-radius: 10px;
+  padding: 8px;
+  background-color: #262b30;
+}
+.score-control[data-enabled="false"] {
+  opacity: 0.6;
+}
+.score-control-label {
+  font-size: 1.3rem;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 6px;
+}
+.score-control-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.score-button {
+  min-width: 68px;
+  min-height: 68px;
+  padding: 6px 14px;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #fff;
+  background-color: #353b42;
+  border: 2px solid #5b636c;
+  border-radius: 12px;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.score-button:active:not(:disabled) {
+  filter: brightness(1.35);
+}
+.score-button:disabled {
+  opacity: 0.4;
+}
+.score-button[data-selected="true"] {
+  background-color: var(--section-color);
+  border-color: #fff;
+}
+.score-stepper-minus, .score-stepper-plus {
+  min-width: 84px;
+  min-height: 84px;
+  font-size: 2.6rem;
+  line-height: 1;
+}
+.score-option {
+  flex: 1 1 40%;
+}
+.score-toggle {
+  min-width: 120px;
+}
+.score-readout {
+  min-width: 4ch;
+  font-size: 2rem;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.score-control[data-running="true"] .score-readout {
+  color: #4cd964;
+}
+.score-select, .score-input, .score-control-phase {
+  min-height: 52px;
+  font-size: 1.2rem;
+  color: #fff;
+  background-color: #353b42;
+  border: 2px solid #5b636c;
+  border-radius: 10px;
+  padding: 4px 10px;
+}
+.score-input[type="range"] {
+  flex: 1 1 160px;
+  padding: 0;
+}
+.score-input[type="number"] {
+  width: 7ch;
+  text-align: center;
+}
+.score-control-phase-label {
+  display: block;
+  margin-top: 8px;
+  text-align: center;
+  font-size: 0.95rem;
+}

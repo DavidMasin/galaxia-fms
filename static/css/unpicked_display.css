@@ -30,7 +30,7 @@ html, body {
   overflow: hidden;
 }
 
-#gameLogoContainer {
+#eventNameContainer {
   display: none; /* hidden by default */
   width: 100vw;
   height: 100vh;
@@ -38,9 +38,13 @@ html, body {
   align-items: center;
 }
 
-#gameLogoContainer img {
+#eventName {
   max-width: 80vw;
-  max-height: 80vh;
+  color: #222;
+  font-family: "FuturaLTBold";
+  font-size: 6vw;
+  line-height: 1.2;
+  text-align: center;
 }
 
 #unpickedTeams {

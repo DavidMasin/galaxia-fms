@@ -38,6 +38,7 @@ body {
 }
 #header {
   width: 100%;
+  table-layout: fixed;
   text-align: center;
   font-size: 15px;
   font-weight: bold;
@@ -62,8 +63,9 @@ body {
   border-bottom: 3px solid #666;
   margin: 0;
 }
+/* The number of columns depends on the game, so the script sets how wide each is. */
 .team-field {
-  width: 8%;
+  width: var(--ranking-field-width, 8%);
 }
 .team-nickname {
   width: 20%;

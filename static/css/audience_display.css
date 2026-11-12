@@ -177,22 +177,52 @@
   font-family: "FuturaLT";
   font-size: 24px;
 }
-#leftFinalBreakdown {
+#finalRows {
+  position: relative;
+  width: 400px;
+}
+#finalRows::before, #finalRows::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: #333;
+}
+#finalRows::before {
+  left: 60px;
+}
+#finalRows::after {
+  right: 60px;
+}
+.final-row {
+  display: flex;
+  flex-direction: row;
+}
+.final-row[data-kind=total], .final-row[data-kind=rp-total], .final-row[data-kind=wins] {
+  font-family: "FuturaLTBold";
+}
+.final-value, .final-label {
+  flex: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.final-value {
   width: 60px;
+}
+.final-value:first-child {
   padding-right: 10px;
-  align-items: flex-end;
+  text-align: right;
 }
-#rightFinalBreakdown {
-  width: 60px;
+.final-value:last-child {
   padding-left: 10px;
-  align-items: flex-start;
+  text-align: left;
 }
-#centerFinalBreakdown {
+.final-label {
   width: 280px;
-  align-items: center;
+  padding: 0 10px;
   text-align: center;
-  border-left: 2px solid #333;
-  border-right: 2px solid #333;
 }
 .final-breakdown-teams {
   flex-grow: 1;
@@ -240,21 +270,12 @@
   justify-content: center;
   align-items: center;
 }
+/* A card is only present for a team that holds one; its colour comes from the game. */
 .final-team-card div {
-  display: none;
-}
-.final-team-card div[data-card=yellow], .final-team-card div[data-card=red] {
-  display: inline-block;
   width: 15px;
   height: 20px;
   border-radius: 4px;
   border: 1px solid #333;
-}
-.final-team-card div[data-card=yellow] {
-  background-color: #da1;
-}
-.final-team-card div[data-card=red] {
-  background-color: #e00;
 }
 .final-team-rank {
   width: 50px;
@@ -297,12 +318,6 @@
   font-size: 28px;
   background-color: #444;
   color: #fff;
-}
-[data-checked=true] {
-  color: #0c0;
-}
-[data-checked=false] {
-  color: #e00;
 }
 .final-footer {
   float: left;

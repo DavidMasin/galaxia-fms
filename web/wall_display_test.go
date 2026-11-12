@@ -41,7 +41,7 @@ func TestWallDisplayWebsocket(t *testing.T) {
 
 	// Should get a few status updates right after connection.
 	readWebsocketType(t, ws, "displayConfiguration")
-	readWebsocketType(t, ws, "matchTiming")
+	readWebsocketType(t, ws, "game")
 	readWebsocketType(t, ws, "audienceDisplayMode")
 	readWebsocketType(t, ws, "matchLoad")
 	readWebsocketType(t, ws, "matchTime")

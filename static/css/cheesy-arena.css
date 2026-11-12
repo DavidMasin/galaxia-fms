@@ -21,23 +21,32 @@
   font-family: "FuturaLT";
   src: url("fonts/futura-lt.otf") format("opentype");
 }
+/*
+  The "red" and "blue" classes below name the two sides of a page and of a match record. Which colour a side has is
+  up to the game: its first alliance's colour is --alliance-0-color and its second's --alliance-1-color, set by the
+  base template and kept up to date by game_view.js. The plain greys are for browsers without color-mix().
+*/
 .red-text {
-  color: #f00;
+  color: var(--alliance-0-color, inherit);
 }
 .blue-text {
-  color: #00f;
+  color: var(--alliance-1-color, inherit);
 }
 .bg-red {
-  background-color: #422 !important;
+  background-color: #3a3a3a !important;
+  background-color: color-mix(in srgb, var(--alliance-0-color, #888) 28%, #17191c) !important;
 }
 .bg-dark-red {
-  background-color: #311 !important;
+  background-color: #2a2a2a !important;
+  background-color: color-mix(in srgb, var(--alliance-0-color, #888) 18%, #111315) !important;
 }
 .bg-blue {
-  background-color: #192945 !important;
+  background-color: #3a3a3a !important;
+  background-color: color-mix(in srgb, var(--alliance-1-color, #888) 28%, #17191c) !important;
 }
 .bg-dark-blue {
-  background-color: #113 !important;
+  background-color: #2a2a2a !important;
+  background-color: color-mix(in srgb, var(--alliance-1-color, #888) 18%, #111315) !important;
 }
 .bg-yellow {
   background-color: #442 !important;
@@ -63,17 +72,49 @@
 .score-summary-table td {
   width: 15%;
 }
-.score-summary-table-red tr:nth-child(odd) > * {
-  background-color: #4a2525;
+.score-summary-table tr:nth-child(odd) > * {
+  background-color: rgba(255, 255, 255, 0.07);
 }
-.score-summary-table-red tr:nth-child(even) > * {
-  background-color: #3a1d1d;
+.score-summary-table tr:nth-child(even) > * {
+  background-color: rgba(0, 0, 0, 0.12);
 }
-.score-summary-table-blue tr:nth-child(odd) > * {
-  background-color: #203657;
+.score-summary-total > * {
+  font-weight: 700;
 }
-.score-summary-table-blue tr:nth-child(even) > * {
-  background-color: #172743;
+/* The result editor: one generated control per scoring element of the game the result was played with. */
+.result-editor-element {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 0.5rem 0;
+}
+.result-editor-element:first-of-type {
+  border-top: 0;
+}
+.result-editor-phases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+.result-editor-phases label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+}
+.result-editor-phases input[type=number], .result-editor-number {
+  width: 6rem;
+}
+.result-editor-robots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.5rem 1rem;
+}
+.audit-log-undone > td {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.audit-log-undone > td.audit-log-action {
+  text-decoration: none;
+  opacity: 1;
 }
 .score-summary-rp {
   display: inline-block;

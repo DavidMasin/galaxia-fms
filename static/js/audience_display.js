@@ -3,10 +3,9 @@
 // Author: nick@team254.com (Nick Eyre)
 //
 // Client-side methods for the audience display.
-
-if (typeof DisplayShared === "undefined") {
-  $.ajax({async: false, cache: true, dataType: "script", url: "/static/js/display_shared.js"});
-}
+//
+// Everything about the game (alliances, phases, the items beside the score, the rows of the final score) comes from
+// the game view and the generic score messages; see game_view.js and display_shared.js, which must be loaded first.
 
 var websocket;
 let transitionMap;
@@ -15,12 +14,15 @@ let transitionInProgress = false;
 let currentScreen = "blank";
 let redSide;
 let blueSide;
-let currentMatch;
 let overlayCenteringHideParams;
 let overlayCenteringShowParams;
-const hubActiveController = DisplayShared.createHubActiveController(function () {
-  return currentScreen;
-});
+
+// The last message of each kind, kept so that the display can be drawn again when the game arrives or changes.
+let lastMatchLoad = null;
+let lastMatchTime = null;
+let lastRealtimeScore = null;
+let lastScorePosted = null;
+
 const allianceSelectionTemplate = Handlebars.compile($("#allianceSelectionTemplate").html());
 const sponsorImageTemplate = Handlebars.compile($("#sponsorImageTemplate").html());
 const sponsorTextTemplate = Handlebars.compile($("#sponsorTextTemplate").html());
@@ -30,17 +32,33 @@ const overlayCenteringTopUp = -130;
 const overlayCenteringBottomDown = parseFloat($("#overlayCentering").css("bottom"));
 const eventMatchInfoDown = "30px";
 const eventMatchInfoUp = $("#eventMatchInfo").css("height");
-const logoUp = "35px";
-const logoDown = $("#logo").css("top");
+const phaseUp = "35px";
+const phaseDown = $("#matchPhase").css("top");
 const scoreIn = $(".score").css("width");
 const scoreMid = "185px";
-const scoreOut = "400px";
-const scoreFieldsOut = "180px";
+const scoreNumberWidth = 220;  // The score itself, and the part of the box that is behind the match circle.
 const scoreLogoTop = "-530px";
 const bracketLogoTop = "-780px";
 const bracketLogoScale = 0.75;
 const timeoutDetailsIn = $("#timeoutDetails").css("width");
 const timeoutDetailsOut = "570px";
+
+// Returns the width on the match screen of the items the game shows beside each score.
+const getScoreFieldsOut = function () {
+  return DisplayShared.scoreItemsWidth() + "px";
+};
+
+// Returns the width on the match screen of each alliance's score box.
+const getScoreOut = function () {
+  return DisplayShared.scoreItemsWidth() + scoreNumberWidth + "px";
+};
+
+// Sizes the score boxes for the match screen without animating them, for when the game arrives or changes while the
+// screen is showing.
+const setMatchScreenWidths = function () {
+  $(".score-fields").css("width", getScoreFieldsOut());
+  $(".score").css("width", getScoreOut());
+};
 
 // Handles a websocket message to change which screen is displayed.
 const handleAudienceDisplayMode = function (targetScreen) {
@@ -58,11 +76,15 @@ const executeTransitionQueue = function () {
 
   if (transitionQueue.length > 0) {
     transitionInProgress = true;
-    const targetScreen = transitionQueue.shift();
+    const targetScreen = transitionQueue.splice(0, 1)[0];
     const callback = function () {
       // When the current transition is complete, call this method again to invoke the next one in the queue.
       currentScreen = targetScreen;
       transitionInProgress = false;
+      if (currentScreen === "match") {
+        // The game may have arrived or changed while the screen was coming in.
+        setMatchScreenWidths();
+      }
       setTimeout(executeTransitionQueue, 100);  // A small delay is needed to avoid visual glitches.
     };
 
@@ -89,146 +111,60 @@ const executeTransitionQueue = function () {
 
 // Handles a websocket message to update the teams for the current match.
 const handleMatchLoad = function (data) {
-  currentMatch = DisplayShared.handleMatchLoad(data, redSide, blueSide);
+  lastMatchLoad = data;
+  DisplayShared.handleMatchLoad(data, redSide, blueSide);
 };
 
 // Handles a websocket message to update the match time countdown.
 const handleMatchTime = function (data) {
+  lastMatchTime = data;
   DisplayShared.handleMatchTime(data);
 };
 
 // Handles a websocket message to update the match score.
 const handleRealtimeScore = function (data) {
-  DisplayShared.handle2026RealtimeScore(
-    data,
-    currentMatch,
-    redSide,
-    blueSide,
-    hubActiveController.updateHubActiveIndicator
-  );
-};
-
-const setFinalResultIndicator = function (side, label, result) {
-  const indicator = $(`#${side}FinalResultIndicator`);
-  indicator.text(label);
-  indicator.attr("data-result", result);
+  lastRealtimeScore = data;
+  DisplayShared.handleRealtimeScore(data, redSide, blueSide);
 };
 
 // Handles a websocket message to populate the final score data.
 const handleScorePosted = function (data) {
-  $(".traversal-bonus-field").toggle(data.TraversalBonusEnabled);
-
-  if (data.RedWon) {
-    setFinalResultIndicator(redSide, "WINNER", "winner");
-    setFinalResultIndicator(blueSide, "", "");
-  } else if (data.BlueWon) {
-    setFinalResultIndicator(redSide, "", "");
-    setFinalResultIndicator(blueSide, "WINNER", "winner");
-  } else {
-    setFinalResultIndicator(redSide, "TIE", "tie");
-    setFinalResultIndicator(blueSide, "TIE", "tie");
+  lastScorePosted = data;
+  if (!GameView.isReady()) {
+    // Which alliance goes on which side is not known yet; this runs again when the game arrives.
+    return;
   }
-  const tiebreakReason = data.TiebreakReason || "";
-  $("#finalTiebreakReason").text(tiebreakReason);
-  $("#finalTiebreakReason").attr("data-visible", tiebreakReason !== "");
 
-  $(`#${redSide}FinalScore`).text(data.RedScoreSummary.Score);
-  $(`#${redSide}FinalAlliance`).text("Alliance " + data.Match.PlayoffRedAlliance);
-  setTeamInfo(redSide, 1, data.Match.Red1, getPostedCard(data, "Red", data.Match.Red1), data.RedRankings);
-  setTeamInfo(redSide, 2, data.Match.Red2, getPostedCard(data, "Red", data.Match.Red2), data.RedRankings);
-  setTeamInfo(redSide, 3, data.Match.Red3, getPostedCard(data, "Red", data.Match.Red3), data.RedRankings);
-  if (data.RedOffFieldTeamIds.length > 0) {
-    setTeamInfo(redSide, 4, data.RedOffFieldTeamIds[0], getPostedCard(data, "Red", data.RedOffFieldTeamIds[0]), data.RedRankings);
-  } else {
-    setTeamInfo(redSide, 4, 0, getPostedCard(data, "Red", 0), data.RedRankings);
-  }
-  $(`#${redSide}FinalAutoFuelPoints`).text(data.RedScoreSummary.AutoFuelPoints);
-  $(`#${redSide}FinalAutoTowerPoints`).text(data.RedScoreSummary.AutoTowerPoints);
-  $(`#${redSide}FinalTeleopFuelPoints`).text(data.RedScoreSummary.TeleopFuelPoints);
-  $(`#${redSide}FinalTeleopTowerPoints`).text(data.RedScoreSummary.TeleopTowerPoints);
-  $(`#${redSide}FinalFoulPoints`).text(data.RedScoreSummary.FoulPoints);
-  $(`#${redSide}FinalEnergizedBonusRankingPoint`).html(
-    data.RedScoreSummary.EnergizedBonusRankingPoint ? "&#x2714;" : "&#x2718;"
-  );
-  $(`#${redSide}FinalEnergizedBonusRankingPoint`).attr(
-    "data-checked", data.RedScoreSummary.EnergizedBonusRankingPoint
-  );
-  $(`#${redSide}FinalSuperchargedBonusRankingPoint`).html(
-    data.RedScoreSummary.SuperchargedBonusRankingPoint ? "&#x2714;" : "&#x2718;"
-  );
-  $(`#${redSide}FinalSuperchargedBonusRankingPoint`).attr(
-    "data-checked", data.RedScoreSummary.SuperchargedBonusRankingPoint
-  );
-  $(`#${redSide}FinalTraversalBonusRankingPoint`).html(
-    data.RedScoreSummary.TraversalBonusRankingPoint ? "&#x2714;" : "&#x2718;"
-  );
-  $(`#${redSide}FinalTraversalBonusRankingPoint`).attr(
-    "data-checked", data.RedScoreSummary.TraversalBonusRankingPoint
-  );
-  $(`#${redSide}FinalRankingPoints`).html(data.RedRankingPoints);
-  $(`#${redSide}FinalWins`).text(data.RedWins);
-  const redFinalDestination = $(`#${redSide}FinalDestination`);
-  redFinalDestination.html(data.RedDestination.replace("Advances to ", "Advances to<br>"));
-  redFinalDestination.toggle(data.RedDestination !== "");
-  redFinalDestination.attr("data-won", data.RedWon);
+  const finalScore = DisplayShared.finalScore(data, redSide === "left" ? ["red", "blue"] : ["blue", "red"]);
+  ["left", "right"].forEach(function (side, index) {
+    const sideScore = finalScore.sides[index];
+    const indicator = $(`#${side}FinalResultIndicator`);
+    indicator.text(sideScore.resultLabel);
+    indicator.attr("data-result", sideScore.result);
+    $(`#${side}FinalScore`).text(sideScore.score);
+    $(`#${side}FinalAlliance`).text("Alliance " + sideScore.playoffAlliance);
+    $(`#${side}FinalTeams`).html(DisplayShared.finalTeamsHtml(sideScore.teams, finalScore.isQualification));
+    const destination = $(`#${side}FinalDestination`);
+    destination.html(DisplayShared.escapeHtml(sideScore.destination).replace("Advances to ", "Advances to<br>"));
+    destination.toggle(sideScore.destination !== "");
+    destination.attr("data-won", sideScore.won);
+  });
 
-  $(`#${blueSide}FinalScore`).text(data.BlueScoreSummary.Score);
-  $(`#${blueSide}FinalAlliance`).text("Alliance " + data.Match.PlayoffBlueAlliance);
-  setTeamInfo(blueSide, 1, data.Match.Blue1, getPostedCard(data, "Blue", data.Match.Blue1), data.BlueRankings);
-  setTeamInfo(blueSide, 2, data.Match.Blue2, getPostedCard(data, "Blue", data.Match.Blue2), data.BlueRankings);
-  setTeamInfo(blueSide, 3, data.Match.Blue3, getPostedCard(data, "Blue", data.Match.Blue3), data.BlueRankings);
-  if (data.BlueOffFieldTeamIds.length > 0) {
-    setTeamInfo(blueSide, 4, data.BlueOffFieldTeamIds[0], getPostedCard(data, "Blue", data.BlueOffFieldTeamIds[0]), data.BlueRankings);
-  } else {
-    setTeamInfo(blueSide, 4, 0, getPostedCard(data, "Blue", 0), data.BlueRankings);
-  }
-  $(`#${blueSide}FinalAutoFuelPoints`).text(data.BlueScoreSummary.AutoFuelPoints);
-  $(`#${blueSide}FinalAutoTowerPoints`).text(data.BlueScoreSummary.AutoTowerPoints);
-  $(`#${blueSide}FinalTeleopFuelPoints`).text(data.BlueScoreSummary.TeleopFuelPoints);
-  $(`#${blueSide}FinalTeleopTowerPoints`).text(data.BlueScoreSummary.TeleopTowerPoints);
-  $(`#${blueSide}FinalFoulPoints`).text(data.BlueScoreSummary.FoulPoints);
-  $(`#${blueSide}FinalEnergizedBonusRankingPoint`).html(
-    data.BlueScoreSummary.EnergizedBonusRankingPoint ? "&#x2714;" : "&#x2718;"
-  );
-  $(`#${blueSide}FinalEnergizedBonusRankingPoint`).attr(
-    "data-checked", data.BlueScoreSummary.EnergizedBonusRankingPoint
-  );
-  $(`#${blueSide}FinalSuperchargedBonusRankingPoint`).html(
-    data.BlueScoreSummary.SuperchargedBonusRankingPoint ? "&#x2714;" : "&#x2718;"
-  );
-  $(`#${blueSide}FinalSuperchargedBonusRankingPoint`).attr(
-    "data-checked", data.BlueScoreSummary.SuperchargedBonusRankingPoint
-  );
-  $(`#${blueSide}FinalTraversalBonusRankingPoint`).html(
-    data.BlueScoreSummary.TraversalBonusRankingPoint ? "&#x2714;" : "&#x2718;"
-  );
-  $(`#${blueSide}FinalTraversalBonusRankingPoint`).attr(
-    "data-checked", data.BlueScoreSummary.TraversalBonusRankingPoint
-  );
-  $(`#${blueSide}FinalRankingPoints`).html(data.BlueRankingPoints);
-  $(`#${blueSide}FinalWins`).text(data.BlueWins);
-  const blueFinalDestination = $(`#${blueSide}FinalDestination`);
-  blueFinalDestination.html(data.BlueDestination.replace("Advances to ", "Advances to<br>"));
-  blueFinalDestination.toggle(data.BlueDestination !== "");
-  blueFinalDestination.attr("data-won", data.BlueWon);
+  // One row per line of the game's breakdown, then the total and the ranking points or series wins, sized to fit.
+  const rowMetrics = DisplayShared.finalRowMetrics(finalScore.rows.length);
+  const finalRows = $("#finalRows");
+  finalRows.html(DisplayShared.finalRowsHtml(finalScore.rows));
+  finalRows.css({fontSize: rowMetrics.fontSize + "px", lineHeight: rowMetrics.lineHeight + "px"});
 
-  let matchName = data.Match.LongName;
-  if (data.Match.NameDetail !== "") {
-    matchName += " &ndash; " + data.Match.NameDetail;
-  }
-  $("#finalMatchName").html(matchName);
+  $("#finalTiebreakReason").text(finalScore.tiebreak);
+  $("#finalTiebreakReason").attr("data-visible", finalScore.tiebreak !== "");
+  $("#finalMatchName").text(finalScore.matchName);
 
   // Reload the bracket to reflect any changes.
   $("#bracketSvg").attr("src", "/api/bracket/svg?activeMatch=saved&v=" + new Date().getTime());
 
-  if (data.Match.Type === matchTypePlayoff) {
-    // Hide bonus ranking points and show playoff-only fields.
-    $(".playoff-hidden-field").hide();
-    $(".playoff-only-field").show();
-  } else {
-    $(".playoff-hidden-field").show();
-    $(".playoff-only-field").hide();
-  }
+  // The alliance number and where the alliance goes next only exist in the playoffs.
+  $(".playoff-only-field").toggle(finalScore.isPlayoff);
 };
 
 // Handles a websocket message to play a sound to signal match start/stop/etc.
@@ -238,7 +174,12 @@ const handlePlaySound = function (sound) {
     v.pause();
     v.currentTime = 0;
   });
-  $("#sound-" + sound)[0].play();
+  let audio = document.getElementById("sound-" + sound);
+  if (audio === null) {
+    // The game has changed since this page was loaded and plays a sound that was not preloaded.
+    audio = new Audio("/static/audio/" + encodeURIComponent(sound) + ".wav");
+  }
+  audio.play();
 };
 
 // Handles a websocket message to update the alliance selection screen.
@@ -353,15 +294,14 @@ const transitionBlankToMatch = function (callback) {
   $("#overlayCentering").transition(overlayCenteringShowParams, 500, "ease", function () {
     $(".teams").css("display", "flex");
     $(".score-fields").css("display", "flex");
-    $(".score-fields").transition({queue: false, width: scoreFieldsOut}, 500, "ease");
-    $("#logo").transition({queue: false, top: logoUp}, 500, "ease");
-    $(".score").transition({queue: false, width: scoreOut}, 500, "ease", function () {
+    $(".score-fields").transition({queue: false, width: getScoreFieldsOut()}, 500, "ease");
+    $("#matchPhase").transition({queue: false, top: phaseUp}, 500, "ease");
+    $(".score").transition({queue: false, width: getScoreOut()}, 500, "ease", function () {
       $("#eventMatchInfo").css("display", "flex");
       $("#eventMatchInfo").transition({queue: false, height: eventMatchInfoDown}, 500, "ease", callback);
       $(".score-number").transition({queue: false, opacity: 1}, 750, "ease");
       $("#matchTime").transition({queue: false, opacity: 1}, 750, "ease");
       $(".score-fields").transition({queue: false, opacity: 1}, 750, "ease");
-      hubActiveController.restartPendingHubActiveIndicators();
     });
   });
 };
@@ -390,7 +330,7 @@ const transitionBlankToSponsor = function (callback) {
 const transitionBlankToTimeout = function (callback) {
   $("#overlayCentering").transition(overlayCenteringShowParams, 500, "ease", function () {
     $("#timeoutDetails").transition({queue: false, width: timeoutDetailsOut}, 500, "ease");
-    $("#logo").transition({queue: false, top: logoUp}, 500, "ease", function () {
+    $("#matchPhase").transition({queue: false, top: phaseUp}, 500, "ease", function () {
       $(".timeout-detail").transition({queue: false, opacity: 1}, 750, "ease");
       $("#matchTime").transition({queue: false, opacity: 1}, 750, "ease", callback);
     });
@@ -448,13 +388,12 @@ const transitionIntroToMatch = function (callback) {
     $(".avatars").hide();
   });
   $(".score-fields").css("display", "flex");
-  $(".score-fields").transition({queue: false, width: scoreFieldsOut}, 500, "ease");
-  $("#logo").transition({queue: false, top: logoUp}, 500, "ease");
-  $(".score").transition({queue: false, width: scoreOut}, 500, "ease", function () {
+  $(".score-fields").transition({queue: false, width: getScoreFieldsOut()}, 500, "ease");
+  $("#matchPhase").transition({queue: false, top: phaseUp}, 500, "ease");
+  $(".score").transition({queue: false, width: getScoreOut()}, 500, "ease", function () {
     $(".score-number").transition({queue: false, opacity: 1}, 750, "ease");
     $("#matchTime").transition({queue: false, opacity: 1}, 750, "ease", callback);
     $(".score-fields").transition({queue: false, opacity: 1}, 750, "ease");
-    hubActiveController.restartPendingHubActiveIndicators();
   });
 };
 
@@ -466,7 +405,7 @@ const transitionIntroToTimeout = function (callback) {
       $(".avatars").hide();
       $(".teams").hide();
       $("#timeoutDetails").transition({queue: false, width: timeoutDetailsOut}, 500, "ease");
-      $("#logo").transition({queue: false, top: logoUp}, 500, "ease", function () {
+      $("#matchPhase").transition({queue: false, top: phaseUp}, 500, "ease", function () {
         $(".timeout-detail").transition({queue: false, opacity: 1}, 750, "ease");
         $("#matchTime").transition({queue: false, opacity: 1}, 750, "ease", callback);
       });
@@ -550,7 +489,7 @@ const transitionMatchToBlank = function (callback) {
   $(".score-number").transition({queue: false, opacity: 0}, 300, "linear", function () {
     $("#eventMatchInfo").hide();
     $(".score-fields").transition({queue: false, width: 0}, 500, "ease");
-    $("#logo").transition({queue: false, top: logoDown}, 500, "ease");
+    $("#matchPhase").transition({queue: false, top: phaseDown}, 500, "ease");
     $(".score").transition({queue: false, width: scoreIn}, 500, "ease", function () {
       $(".teams").hide();
       $(".score-fields").hide();
@@ -564,7 +503,7 @@ const transitionMatchToIntro = function (callback) {
   $(".score-fields").transition({queue: false, opacity: 0}, 300, "ease");
   $("#matchTime").transition({queue: false, opacity: 0}, 300, "linear", function () {
     $(".score-fields").transition({queue: false, width: 0}, 500, "ease");
-    $("#logo").transition({queue: false, top: logoDown}, 500, "ease");
+    $("#matchPhase").transition({queue: false, top: phaseDown}, 500, "ease");
     $(".score").transition({queue: false, width: scoreMid}, 500, "ease", function () {
       $(".score-fields").hide();
       $(".avatars").css("display", "flex");
@@ -642,7 +581,7 @@ const transitionTimeoutToBlank = function (callback) {
   $(".timeout-detail").transition({queue: false, opacity: 0}, 300, "linear");
   $("#matchTime").transition({queue: false, opacity: 0}, 300, "linear", function () {
     $("#timeoutDetails").transition({queue: false, width: timeoutDetailsIn}, 500, "ease");
-    $("#logo").transition({queue: false, top: logoDown}, 500, "ease", function () {
+    $("#matchPhase").transition({queue: false, top: phaseDown}, 500, "ease", function () {
       $("#overlayCentering").transition(overlayCenteringHideParams, 1000, "ease", callback);
     });
   });
@@ -652,7 +591,7 @@ const transitionTimeoutToIntro = function (callback) {
   $(".timeout-detail").transition({queue: false, opacity: 0}, 300, "linear");
   $("#matchTime").transition({queue: false, opacity: 0}, 300, "linear", function () {
     $("#timeoutDetails").transition({queue: false, width: timeoutDetailsIn}, 500, "ease");
-    $("#logo").transition({queue: false, top: logoDown}, 500, "ease", function () {
+    $("#matchPhase").transition({queue: false, top: phaseDown}, 500, "ease", function () {
       $(".avatars").css("display", "flex");
       $(".avatars").css("opacity", 1);
       $(".teams").css("display", "flex");
@@ -685,50 +624,6 @@ const initializeSponsorDisplay = function () {
   });
 };
 
-const getAvatarUrl = function (teamId) {
-  return DisplayShared.getAvatarUrl(teamId);
-};
-
-// Resolve the card without consulting individual team entries during playoffs.
-const getPostedCard = function (data, alliance, teamId) {
-  if (!teamId) return "";
-  return data.Match.Type === matchTypePlayoff
-    ? data[`Playoff${alliance}AllianceCard`]
-    : data[`${alliance}Cards`][teamId.toString()];
-};
-
-const setTeamInfo = function (side, position, teamId, card, rankings) {
-  const teamNumberElement = $(`#${side}FinalTeam${position}`);
-  teamNumberElement.html(teamId);
-  teamNumberElement.toggle(teamId > 0);
-  const avatarElement = $(`#${side}FinalTeam${position}Avatar`);
-  avatarElement.attr("src", getAvatarUrl(teamId));
-  avatarElement.toggle(teamId > 0);
-
-  const cardElement = $(`#${side}FinalTeam${position}Card`);
-  cardElement.attr("data-card", card || "");
-
-  const ranking = rankings[teamId];
-  let rankIndicator = "";
-  let rankNumber = "";
-  if (ranking !== undefined && ranking !== null && ranking.Rank !== 0) {
-    rankNumber = ranking.Rank;
-    if (rankNumber > ranking.PreviousRank && ranking.PreviousRank > 0) {
-      rankIndicator = "rank-down";
-    } else if (rankNumber < ranking.PreviousRank) {
-      rankIndicator = "rank-up";
-    }
-  }
-
-  const rankIndicatorElement = $(`#${side}FinalTeam${position}RankIndicator`);
-  rankIndicatorElement.attr("src", rankIndicator === "" ? "" : `/static/img/${rankIndicator}.svg`);
-  rankIndicatorElement.toggle(rankIndicator !== "" && teamId > 0);
-
-  const rankNumberElement = $(`#${side}FinalTeam${position}RankNumber`);
-  rankNumberElement.text(rankNumber);
-  rankNumberElement.toggle(teamId > 0);
-};
-
 $(function () {
   // Read the configuration for this display from the URL query string.
   const urlParams = new URLSearchParams(window.location.search);
@@ -752,6 +647,27 @@ $(function () {
     overlayCentering.css({transformOrigin: "center bottom", bottom: overlayCenteringHideParams.bottom});
   }
 
+  // Build everything that depends on the game when it arrives, and again whenever it changes, from the last
+  // messages received.
+  GameView.onChange(function () {
+    DisplayShared.buildScoreItems();
+    if (currentScreen === "match" && !transitionInProgress) {
+      setMatchScreenWidths();
+    }
+    if (lastMatchLoad !== null) {
+      handleMatchLoad(lastMatchLoad);
+    }
+    if (lastMatchTime !== null) {
+      handleMatchTime(lastMatchTime);
+    }
+    if (lastRealtimeScore !== null) {
+      handleRealtimeScore(lastRealtimeScore);
+    }
+    if (lastScorePosted !== null) {
+      handleScorePosted(lastScorePosted);
+    }
+  });
+
   // Set up the websocket back to the server.
   websocket = new CheesyWebsocket("/displays/audience/websocket", {
     allianceSelection: function (event) {
@@ -759,6 +675,9 @@ $(function () {
     },
     audienceDisplayMode: function (event) {
       handleAudienceDisplayMode(event.data);
+    },
+    game: function (event) {
+      handleGame(event.data);
     },
     lowerThird: function (event) {
       handleLowerThird(event.data);
@@ -768,9 +687,6 @@ $(function () {
     },
     matchTime: function (event) {
       handleMatchTime(event.data);
-    },
-    matchTiming: function (event) {
-      handleMatchTiming(event.data);
     },
     playSound: function (event) {
       handlePlaySound(event.data);

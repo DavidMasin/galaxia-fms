@@ -5,9 +5,8 @@ flows through it, and the exact messages browsers receive. The user-facing descr
 [game-definition.md](game-definition.md); the overall plan is [PLAN.md](PLAN.md).
 
 Status: sections marked **(M3b)** describe the arena running on the game engine. The Go core (`field`, `model`,
-`tournament`, `playoff`, `partner`, `plc`) is built to them, and upstream's hard-coded 2026 game (packages `game`
-and `led`) is gone. The `web` package, the templates and the JavaScript are the next stage and are written
-against this document; until they land, `web` does not compile.
+`tournament`, `playoff`, `partner`, `plc`) and the `web` package with its operator pages are built to them, and
+upstream's hard-coded 2026 game (packages `game` and `led`) is gone.
 
 ## Packages
 
@@ -257,6 +256,10 @@ Sent to scoring and referee panels for each change, so they can show an undo lis
 `{ "change": <scoring.Change>, "undone": false }`. After an undo, `change` is the scoring change whose effect
 was switched and `undone` says whether it is now out of effect.
 
+A panel that connects is first sent the latest changes of the loaded match (at most twenty, oldest first) as
+`scoreChange` messages, each with `undone` as it stands, so that its undo list survives a reload. They arrive
+before the `game` message; a panel keeps them and draws its list once it has the game.
+
 ### `scorePosted`
 
 The committed match, recomputed from the stored result with its own game snapshot:
@@ -268,8 +271,12 @@ The committed match, recomputed from the stored result with its own game snapsho
   "gameHash": "…",
   "winner": "blue",
   "tiebreak": "",
+  "allianceOrder": ["red", "blue"],
+  "cards": [ { "id": "yellow", "name": "Yellow card", "color": "#fdd835", "secondBecomes": "red", "disqualifies": false } ],
   "alliances": {
     "red": {
+      "name": "Red",
+      "color": "#d32f2f",
       "teams": [101, 102, 103],
       "offFieldTeams": [],
       "score": 133,
@@ -306,13 +313,79 @@ with one entry for every scoring panel position of the game.
 |-------|---------|------|
 | scoring, referee | `score` | `{ "alliance", "robot", "element", "op", "value", "bucket" }` |
 | scoring, referee | `undo` | `{ "seq" }` |
-| referee | `foul` | `{ "alliance", "robot", "type", "rule" }` adds; `{ "alliance", "remove": <foul id> }` removes |
+| referee | `foul` | `{ "alliance", "robot", "type", "rule" }` adds; `{ "alliance", "remove": <foul id> }` removes; `{ "alliance", "update": <foul id>, "robot", "type", "rule" }` corrects |
 | referee | `card` | `{ "alliance", "robot", "card" }`, empty card clears |
 | scoring | `commitMatch` | none |
 
+A refused command is answered with an `error` message that says why; nothing is recorded.
+
+- `score` only changes scoring elements. Fouls, cards and the disqualification flag are refused there, because
+  the commands of their own apply the rules that go with them. The source of a scoring panel's changes is
+  `{kind: scorer, id: <panel id>, name: <panel name>}`; the referee panel's is `{kind: referee, id: referee}`.
+- `foul` with `update` corrects the type, the rule or the robot of a foul that was already called. A foul is
+  never modified in place: the old one is removed and the corrected one added, so it gets a new id and the audit
+  log shows both. The new foul keeps the phase of the old one where the arena lets a referee name a phase (after
+  the match). A rule is only kept if the game's catalogue lists it for the foul's type.
+- `card` applies two rules from the game's card list before it changes anything. A card whose definition names a
+  `second_becomes` card is replaced by that card when the team carries a card from an earlier match
+  (`Team.YellowCard`, or `Alliance.YellowCard` in the playoffs) or already holds the same card in this match. A
+  card with `disqualifies` cannot be a team's first card: asked for directly, it is refused unless the team
+  already has a card in this match or carries one. In a playoff match `robot` may be 0, which gives the card to
+  the alliance as a whole, that is to every robot position; that is what the referee panel does in the playoffs.
+  The result editor of the match review page is not bound by these rules.
+
 Scoring panel positions come from the game's `layout.scoring_panels`. A game that declares none gets one
 panel per alliance, named by the alliance id, plus `field` if it has field elements. `Arena.ScoringPanels()`
-returns them.
+returns them, and the pages are `/panels/scoring/<panel id>`. What a panel shows:
+
+- an alliance or robot element, for each of the panel's `alliances` (all alliances if it lists none), if the
+  element's `ui.group` is one of the panel's `groups` (any group if it lists none);
+- a field element, if the panel lists no alliances and the group passes, or if the panel lists the element's
+  group;
+- nothing that has `ui.hidden`.
+
+`/panels/scoring/<panel id>/manifest` is the web app manifest of a panel, for pinning it to a tablet's home
+screen.
+
+## Web pages and API (M3b)
+
+- **Message order.** Every page that shows game content subscribes to `game` before `matchTime` and
+  `realtimeScore`, so on connect the game always arrives first. A page must still cope with any order
+  afterwards: when the game changes, the score of the new game and the new game can arrive either way round,
+  and `realtimeScore.gameHash` says which game a score belongs to.
+- **Colours.** `base.html` sets `--alliance-<index>-color` for the alliances of the active game; `game_view.js`
+  keeps them up to date on pages that follow the game live. The classes `red-text`, `blue-text`, `bg-red` and
+  `bg-blue` name the two sides of a page and take their colours from those variables.
+- **Settings.** The settings page lists `Arena.Games.List()` and marks the games that have errors or do not
+  pass `field.CheckGameSelectable`, with the reason. The event's overrides of the selected game's parameters are
+  posted as `gameParam.<game id>.<param id>`; an empty value removes the override. While a match is in progress
+  or uncommitted no other setting can be saved (reloading the settings reconnects the field hardware), but a
+  changed game selection or changed parameters are stored at once. The web layer then calls
+  `Arena.LoadSettings()` the next time a match is reset (load, commit or discard), which is what makes the
+  arena take the selection into use once it is back in `PreMatch`.
+- **Result editor** (`/match_review/<match id>/edit`, or `current` for the match on the field). The page embeds
+  the view of the game the result was played with, the raw state and the computed summary; the form is built
+  from them in the browser. Saving posts the edited raw state as `stateJson`. The server turns the difference
+  into changes by source `{kind: admin, id: match_review}`: a counter is set phase by phase, a boolean or an
+  enum is set in the phase the state names for it, a changed foul is removed and added again, and a part of
+  the state that is left out is unchanged. For a stored result they are applied with `MatchResult.Edit`
+  (`Phase: "post"`) and the match is committed again as an edit; for the match on the field they are applied
+  with `Arena.ApplyScoreChange`. If any change is refused nothing is saved and the editor says why.
+  `POST /match_review/<match id>/summary` takes the same JSON as its body and returns the summary without
+  saving: `{ "winner", "winnerName", "winnerSlot", "tiebreak", "alliances": [ { "id", "name", "slot", "color",
+  "teams", "score", "breakdown": [ { "id", "name", "value", "text" } ], "rankingPoints": [ ... ], "rpTotal",
+  "result", "disqualified" } ], "errors": [ ] }`. `POST /match_review/<match id>/undo` with `seq` undoes one
+  change of the audit log shown on the page, or brings an undone change back when given its undo record.
+- **`GET /api/rankings`** returns `{ "Columns": [ { "Name", "Decimals", "Random" } ], "Rankings": [ { "TeamId",
+  "Nickname", "Rank", "PreviousRank", "RP", "Played", "Wins", "Losses", "Ties", "Disqualifications", "Sort" } ],
+  "HighestPlayedMatch" }`. `Columns` is the active game's ranking order and every ranking's `Sort` has exactly
+  one value per column, whatever game the rankings were last calculated under.
+- **`GET /api/matches/<type>`** returns each match with `Result`: the stored `MatchResult` and, under
+  `Computed`, the `scoring.Result` it computes to with the game it was played with (`alliances` keyed by
+  alliance id, `field`, `winner`, `tiebreak`). `Result` is null for a match without one.
+- **Reports.** The rankings PDF and CSV print, between the ranking points and the win-loss-tie record, the
+  columns of the active game's ranking order except its random tiebreaker, to the decimals the game asks for.
+  The cycle time report measures referee time from `Game.Duration()` after the start of the match.
 
 ## The Blue Alliance (M3b)
 

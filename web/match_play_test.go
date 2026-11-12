@@ -6,13 +6,14 @@ package web
 import (
 	"bytes"
 	"github.com/DavidMasin/galaxia-fms/field"
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
+	"github.com/DavidMasin/galaxia-fms/scoring"
 	"github.com/DavidMasin/galaxia-fms/tournament"
 	"github.com/DavidMasin/galaxia-fms/websocket"
 	gorillawebsocket "github.com/gorilla/websocket"
 	"github.com/mitchellh/mapstructure"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"log"
 	"os"
 	"sync"
@@ -76,10 +77,10 @@ func TestMatchPlay(t *testing.T) {
 func TestMatchPlayMatchList(t *testing.T) {
 	web := setupTestWeb(t)
 
-	match1 := model.Match{Type: model.Practice, ShortName: "P1", Status: game.RedWonMatch}
+	match1 := model.Match{Type: model.Practice, ShortName: "P1", Status: model.RedWonMatch}
 	match2 := model.Match{Type: model.Practice, ShortName: "P2"}
-	match3 := model.Match{Type: model.Qualification, ShortName: "Q1", Status: game.BlueWonMatch}
-	match4 := model.Match{Type: model.Playoff, ShortName: "SF1-1", Status: game.TieMatch}
+	match3 := model.Match{Type: model.Qualification, ShortName: "Q1", Status: model.BlueWonMatch}
+	match4 := model.Match{Type: model.Playoff, ShortName: "SF1-1", Status: model.TieMatch}
 	match5 := model.Match{Type: model.Playoff, ShortName: "SF1-2"}
 	web.arena.Database.CreateMatch(&match1)
 	web.arena.Database.CreateMatch(&match2)
@@ -97,61 +98,88 @@ func TestMatchPlayMatchList(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "SF1-2")
 }
 
+// testResult builds a result of the active game for the given match from a list of changes, the way a played match
+// would have produced it.
+func testResult(t *testing.T, web *Web, match *model.Match, changes ...scoring.Change) *model.MatchResult {
+	g := web.arena.Game
+	require.NoError(t, web.arena.Database.SaveGameSnapshot(g))
+	matchResult := model.NewMatchResult(g)
+	matchResult.MatchId = match.Id
+	matchResult.MatchType = match.Type
+	matchResult.Teams = teamsForGame(g, match)
+	for _, change := range changes {
+		change.Source = scoring.Source{Kind: scoring.SourceAdmin, ID: "test"}
+		_, err := matchResult.Edit(g, change)
+		require.NoError(t, err)
+	}
+	return matchResult
+}
+
+// The changes the commit tests build results of the rebuilt-style example game from.
+func towerChange(alliance string, robot int, element, option string) scoring.Change {
+	return scoring.Change{Alliance: alliance, Robot: robot, Element: element, Op: scoring.OpSet, Value: option}
+}
+
+func fuelChange(alliance, phase string, count float64) scoring.Change {
+	return scoring.Change{Alliance: alliance, Element: "fuel", Op: scoring.OpSet, Value: count, Bucket: phase}
+}
+
+func foulChange(alliance, foulType string) scoring.Change {
+	return scoring.Change{Alliance: alliance, Element: scoring.TargetFoul, Op: scoring.OpAdd, Value: foulType}
+}
+
+func cardChange(alliance string, robot int, card string) scoring.Change {
+	return scoring.Change{Alliance: alliance, Robot: robot, Element: scoring.TargetCard, Op: scoring.OpSet, Value: card}
+}
+
 func TestCommitMatch(t *testing.T) {
 	web := setupTestWeb(t)
+	committed := web.arena.Bus.Subscribe([]string{"match.committed", "match.result_edited"}, 16)
+	defer committed.Close()
 
 	// Committing test match should update the stored saved match but not persist anything.
 	match := &model.Match{Id: 0, Type: model.Test, Red1: 101, Red2: 102, Red3: 103, Blue1: 104, Blue2: 105, Blue3: 106}
-	matchResult := &model.MatchResult{MatchId: match.Id, RedScore: &game.Score{}, BlueScore: &game.Score{}}
-	matchResult.BlueScore.EndgameTowerStatuses[2] = game.TowerLevel1
+	matchResult := testResult(t, web, match, towerChange("blue", 3, "endgame_tower", "level1"))
 	err := web.commitMatchScore(match, matchResult, false)
 	assert.Nil(t, err)
 	matchResult, err = web.arena.Database.GetMatchResultForMatch(match.Id)
 	assert.Nil(t, err)
 	assert.Nil(t, matchResult)
 	assert.Equal(t, match, web.arena.SavedMatch)
-	assert.Equal(t, game.BlueWonMatch, web.arena.SavedMatch.Status)
+	assert.Equal(t, model.BlueWonMatch, web.arena.SavedMatch.Status)
+	assert.Equal(t, "level1", web.arena.SavedMatchResult.State.Alliances["blue"].Robots[2]["endgame_tower"].Option)
 
 	// Committing the same match more than once should create a second match result record.
 	match.Type = model.Qualification
 	assert.Nil(t, web.arena.Database.CreateMatch(match))
-	matchResult = model.NewMatchResult()
-	matchResult.MatchId = match.Id
-	matchResult.BlueScore = &game.Score{
-		AutoTowerStatuses: [3]game.TowerStatus{
-			game.TowerLevel1,
-			game.TowerNone,
-			game.TowerNone,
-		},
-	}
+	matchResult = testResult(t, web, match, towerChange("blue", 1, "auto_tower", "level1"))
 	err = web.commitMatchScore(match, matchResult, true)
 	assert.Nil(t, err)
 	assert.Equal(t, 1, matchResult.PlayNumber)
 	match, _ = web.arena.Database.GetMatchById(1)
-	assert.Equal(t, game.BlueWonMatch, match.Status)
+	assert.Equal(t, model.BlueWonMatch, match.Status)
 
-	matchResult = model.NewMatchResult()
-	matchResult.MatchId = match.Id
-	matchResult.RedScore = &game.Score{
-		EndgameTowerStatuses: [3]game.TowerStatus{
-			game.TowerLevel2,
-			game.TowerNone,
-			game.TowerNone,
-		},
-	}
+	matchResult = testResult(t, web, match, towerChange("red", 1, "endgame_tower", "level2"))
 	err = web.commitMatchScore(match, matchResult, true)
 	assert.Nil(t, err)
 	assert.Equal(t, 2, matchResult.PlayNumber)
 	match, _ = web.arena.Database.GetMatchById(1)
-	assert.Equal(t, game.RedWonMatch, match.Status)
+	assert.Equal(t, model.RedWonMatch, match.Status)
 
-	matchResult = model.NewMatchResult()
-	matchResult.MatchId = match.Id
+	matchResult = testResult(t, web, match)
 	err = web.commitMatchScore(match, matchResult, true)
 	assert.Nil(t, err)
 	assert.Equal(t, 3, matchResult.PlayNumber)
 	match, _ = web.arena.Database.GetMatchById(1)
-	assert.Equal(t, game.TieMatch, match.Status)
+	assert.Equal(t, model.TieMatch, match.Status)
+
+	// The rankings were recalculated from the latest result with the game's own ranking order.
+	rankings, _ := web.arena.Database.GetAllRankings()
+	if assert.Equal(t, 6, len(rankings)) {
+		assert.Equal(t, 1, rankings[0].Ties)
+		assert.Equal(t, 1.0, rankings[0].RP)
+		assert.Equal(t, len(web.arena.Game.Ranking.Order), len(rankings[0].Sort))
+	}
 
 	// Verify TBA publishing by checking the log for the expected failure messages.
 	web.arena.TbaClient.BaseUrl = "fakeUrl"
@@ -169,13 +197,25 @@ func TestCommitMatch(t *testing.T) {
 	writer.Reset()
 	practiceMatch := &model.Match{Type: model.Practice, ShortName: "P1"}
 	assert.Nil(t, web.arena.Database.CreateMatch(practiceMatch))
-	practiceResult := model.NewMatchResult()
-	practiceResult.MatchId = practiceMatch.Id
+	practiceResult := testResult(t, web, practiceMatch)
 	err = web.commitMatchScore(practiceMatch, practiceResult, true)
 	assert.Nil(t, err)
 	writer.waitForWrites(t, 1)
 	assert.Contains(t, writer.String(), "Failed to publish matches")
 	assert.NotContains(t, writer.String(), "Failed to publish rankings")
+
+	// Every commit was announced on the event bus: the first as a commit, the others as edits of a result.
+	var eventTypes []string
+	for len(eventTypes) < 6 {
+		select {
+		case event := <-committed.C:
+			eventTypes = append(eventTypes, event.Type)
+		case <-time.After(time.Second):
+			t.Fatalf("only %d commits were announced on the event bus", len(eventTypes))
+		}
+	}
+	assert.Equal(t, "match.committed", eventTypes[0])
+	assert.Equal(t, "match.result_edited", eventTypes[1])
 }
 
 func TestCommitTiebreak(t *testing.T) {
@@ -193,29 +233,46 @@ func TestCommitTiebreak(t *testing.T) {
 		UseTiebreakCriteria: false,
 	}
 	web.arena.Database.CreateMatch(match)
-	matchResult := &model.MatchResult{
-		MatchId: match.Id,
-		// These should all be fields that aren't part of the tiebreaker.
-		RedScore: &game.Score{
-			Hub:   game.Hub{ShiftCounts: [game.ShiftCount]int{0, 5}},
-			Fouls: []game.Foul{{FoulId: 1, IsMajor: false}, {FoulId: 2, IsMajor: false}},
-		},
-		BlueScore: &game.Score{
-			Fouls: []game.Foul{{FoulId: 3, IsMajor: false}},
-		},
+
+	// The playoff tiebreakers of the rebuilt-style game are, in order: major fouls by the opponent, fuel scored in
+	// autonomous, and tower points. These two sides are level on points and on all three.
+	type side struct {
+		transitionFuel float64
+		fouls          []string
 	}
+	build := func(red, blue side) *model.MatchResult {
+		var changes []scoring.Change
+		for _, alliance := range []struct {
+			id   string
+			side side
+		}{{"red", red}, {"blue", blue}} {
+			if alliance.side.transitionFuel > 0 {
+				changes = append(changes, fuelChange(alliance.id, "transition", alliance.side.transitionFuel))
+			}
+			for _, foulType := range alliance.side.fouls {
+				changes = append(changes, foulChange(alliance.id, foulType))
+			}
+		}
+		return testResult(t, web, match, changes...)
+	}
+	scores := func(matchResult *model.MatchResult) (float64, float64) {
+		result, _, err := matchResult.Compute(web.arena.Database, match.UseTiebreakCriteria)
+		require.NoError(t, err)
+		return result.Alliances["red"].Score, result.Alliances["blue"].Score
+	}
+	level := side{transitionFuel: 5, fouls: []string{"minor", "minor"}}
+	other := side{fouls: []string{"minor"}}
+	matchResult := build(level, other)
 
 	// Sanity check that the test scores are equal; they will need to be updated accordingly for each new game.
-	assert.Equal(
-		t,
-		matchResult.RedScore.Summarize(matchResult.BlueScore).Score,
-		matchResult.BlueScore.Summarize(matchResult.RedScore).Score,
-	)
+	redScore, blueScore := scores(matchResult)
+	assert.Equal(t, redScore, blueScore)
+	assert.Equal(t, 10.0, redScore)
 
 	err := web.commitMatchScore(match, matchResult, true)
 	assert.Nil(t, err)
 	match, _ = web.arena.Database.GetMatchById(1)
-	assert.Equal(t, game.TieMatch, match.Status)
+	assert.Equal(t, model.TieMatch, match.Status)
 
 	// The match should still be tied since the tiebreaker criteria for a perfect tie are fulfilled.
 	match.UseTiebreakCriteria = true
@@ -223,38 +280,42 @@ func TestCommitTiebreak(t *testing.T) {
 	err = web.commitMatchScore(match, matchResult, true)
 	assert.Nil(t, err)
 	match, _ = web.arena.Database.GetMatchById(1)
-	assert.Equal(t, game.TieMatch, match.Status)
+	assert.Equal(t, model.TieMatch, match.Status)
 
-	// Change the score to still be equal nominally but trigger the tiebreaker criteria.
-	matchResult.BlueScore.Hub = game.Hub{ShiftCounts: [game.ShiftCount]int{0, 0, 5, 0, 5}}
-	matchResult.BlueScore.Fouls = []game.Foul{{FoulId: 4, IsMajor: true}}
+	// Change the score to still be equal nominally but trigger the tiebreaker criteria: blue commits a major foul
+	// instead of a minor one and scores ten fuel to make up for it.
+	breaker := side{transitionFuel: 10, fouls: []string{"major"}}
+	matchResult = build(level, breaker)
 
 	// Sanity check that the test scores are equal; they will need to be updated accordingly for each new game.
-	assert.Equal(
-		t,
-		matchResult.RedScore.Summarize(matchResult.BlueScore).Score,
-		matchResult.BlueScore.Summarize(matchResult.RedScore).Score,
-	)
+	redScore, blueScore = scores(matchResult)
+	assert.Equal(t, redScore, blueScore)
+	assert.Equal(t, 20.0, redScore)
 
 	err = web.commitMatchScore(match, matchResult, true)
 	assert.Nil(t, err)
 	match, _ = web.arena.Database.GetMatchById(1)
-	assert.Equal(t, game.RedWonMatch, match.Status)
+	assert.Equal(t, model.RedWonMatch, match.Status)
+	result, _, err := matchResult.Compute(web.arena.Database, true)
+	assert.Nil(t, err)
+	assert.Equal(t, "Major fouls by the opponent", result.Tiebreak)
+
+	// Without the tiebreak criteria the same result is a tie.
+	result, _, err = matchResult.Compute(web.arena.Database, false)
+	assert.Nil(t, err)
+	assert.Equal(t, "", result.Winner)
 
 	// Swap red and blue and verify that the tie is broken in the other direction.
-	matchResult.RedScore, matchResult.BlueScore = matchResult.BlueScore, matchResult.RedScore
+	matchResult = build(breaker, level)
 
 	// Sanity check that the test scores are equal; they will need to be updated accordingly for each new game.
-	assert.Equal(
-		t,
-		matchResult.RedScore.Summarize(matchResult.BlueScore).Score,
-		matchResult.BlueScore.Summarize(matchResult.RedScore).Score,
-	)
+	redScore, blueScore = scores(matchResult)
+	assert.Equal(t, redScore, blueScore)
 
 	err = web.commitMatchScore(match, matchResult, true)
 	assert.Nil(t, err)
 	match, _ = web.arena.Database.GetMatchById(1)
-	assert.Equal(t, game.BlueWonMatch, match.Status)
+	assert.Equal(t, model.BlueWonMatch, match.Status)
 }
 
 func TestCommitCards(t *testing.T) {
@@ -267,10 +328,8 @@ func TestCommitCards(t *testing.T) {
 	web.arena.Database.CreateTeam(team2)
 	match := &model.Match{Id: 0, Type: model.Qualification, Red1: 1, Red2: 2, Red3: 3, Blue1: 4, Blue2: 5, Blue3: 6}
 	assert.Nil(t, web.arena.Database.CreateMatch(match))
-	matchResult := model.NewMatchResult()
-	matchResult.MatchId = match.Id
-	matchResult.RedCards = map[string]string{"3": "yellow"}
-	matchResult.BlueCards = map[string]string{"5": "yellow"}
+	matchResult := testResult(t, web, match, cardChange("red", 3, "yellow"), cardChange("blue", 2, "yellow"))
+	assert.Equal(t, map[int]string{3: "yellow"}, matchResult.TeamCards("red"))
 	err := web.commitMatchScore(match, matchResult, true)
 	assert.Nil(t, err)
 	team1, _ = web.arena.Database.GetTeamById(3)
@@ -279,8 +338,7 @@ func TestCommitCards(t *testing.T) {
 	assert.True(t, team2.YellowCard)
 
 	// Check that editing a match result removes a yellow card from a team.
-	matchResult = model.NewMatchResult()
-	matchResult.MatchId = match.Id
+	matchResult = testResult(t, web, match)
 	err = web.commitMatchScore(match, matchResult, true)
 	assert.Nil(t, err)
 	team1, _ = web.arena.Database.GetTeamById(3)
@@ -288,23 +346,37 @@ func TestCommitCards(t *testing.T) {
 	team2, _ = web.arena.Database.GetTeamById(5)
 	assert.False(t, team2.YellowCard)
 
-	// Check that a red card causes a yellow card to stick with a team.
-	matchResult = model.NewMatchResult()
-	matchResult.MatchId = match.Id
-	matchResult.RedCards = map[string]string{"3": "red"}
-	matchResult.BlueCards = map[string]string{"5": "red"}
+	// Check that a red card causes a yellow card to stick with a team, and counts the match as a disqualification
+	// for that team only: its partners keep what the alliance earned.
+	matchResult = testResult(
+		t, web, match, cardChange("red", 3, "red"), cardChange("blue", 2, "red"),
+		towerChange("red", 1, "endgame_tower", "level1"),
+	)
 	err = web.commitMatchScore(match, matchResult, true)
 	assert.Nil(t, err)
 	team1, _ = web.arena.Database.GetTeamById(3)
 	assert.True(t, team1.YellowCard)
 	team2, _ = web.arena.Database.GetTeamById(5)
 	assert.True(t, team2.YellowCard)
+	match, _ = web.arena.Database.GetMatchById(match.Id)
+	assert.Equal(t, model.RedWonMatch, match.Status)
+	for teamId, disqualifications := range map[int]int{1: 0, 2: 0, 3: 1, 4: 0, 5: 1, 6: 0} {
+		ranking, _ := web.arena.Database.GetRankingForTeam(teamId)
+		if assert.NotNil(t, ranking) {
+			assert.Equal(t, disqualifications, ranking.Disqualifications, "team %d", teamId)
+		}
+	}
+	ranking, _ := web.arena.Database.GetRankingForTeam(1)
+	assert.Equal(t, 1, ranking.Wins)
+	ranking, _ = web.arena.Database.GetRankingForTeam(3)
+	assert.Equal(t, 0, ranking.Wins)
 
-	// Check that a DQ does not cause a yellow card to stick with a team.
-	matchResult = model.NewMatchResult()
-	matchResult.MatchId = match.Id
-	matchResult.RedCards = map[string]string{"3": "dq"}
-	matchResult.BlueCards = map[string]string{"5": "dq"}
+	// Check that disqualifying an alliance without a card does not cause a card to stick with a team.
+	matchResult = testResult(
+		t, web, match,
+		scoring.Change{Alliance: "red", Element: scoring.TargetDisqualified, Op: scoring.OpSet, Value: true},
+		scoring.Change{Alliance: "blue", Element: scoring.TargetDisqualified, Op: scoring.OpSet, Value: true},
+	)
 	err = web.commitMatchScore(match, matchResult, true)
 	assert.Nil(t, err)
 	team1, _ = web.arena.Database.GetTeamById(3)
@@ -322,37 +394,49 @@ func TestCommitCards(t *testing.T) {
 	match.PlayoffRedAlliance = 1
 	match.PlayoffBlueAlliance = 2
 	web.arena.Database.UpdateMatch(match)
-	matchResult = model.BuildTestMatchResult(match.Id, 0)
+	g := web.arena.Game
+	scores := func(matchResult *model.MatchResult) (float64, float64) {
+		result, _, err := matchResult.Compute(web.arena.Database, match.UseTiebreakCriteria)
+		require.NoError(t, err)
+		return result.Alliances["red"].Score, result.Alliances["blue"].Score
+	}
+	matchResult = model.BuildTestMatchResult(web.arena.Database, match.Id, 0)
 	matchResult.MatchType = match.Type
-	matchResult.PlayoffRedAllianceCard = "red"
+	_, err = matchResult.Edit(g, cardChange("red", 1, "red"))
+	assert.Nil(t, err)
 	assert.Nil(t, web.commitMatchScore(match, matchResult, true))
-	assert.Equal(t, 0, matchResult.RedScoreSummary().Score)
-	assert.NotEqual(t, 0, matchResult.BlueScoreSummary().Score)
+	redScore, blueScore := scores(matchResult)
+	assert.Equal(t, 0.0, redScore)
+	assert.NotEqual(t, 0.0, blueScore)
+	// The stored state holds the card, not the disqualification that follows from it.
+	assert.False(t, matchResult.State.Alliances["red"].Disqualified)
 
-	// Check that a DQ in playoffs zeroes out the score.
-	matchResult.PlayoffRedAllianceCard = ""
-	matchResult.PlayoffBlueAllianceCard = "dq"
+	// Check that disqualifying an alliance in playoffs zeroes out the score.
+	_, err = matchResult.Edit(g, cardChange("red", 1, ""))
+	assert.Nil(t, err)
+	_, err = matchResult.Edit(
+		g, scoring.Change{Alliance: "blue", Element: scoring.TargetDisqualified, Op: scoring.OpSet, Value: true},
+	)
+	assert.Nil(t, err)
 	assert.Nil(t, web.commitMatchScore(match, matchResult, true))
-	assert.NotEqual(t, 0, matchResult.RedScoreSummary().Score)
-	assert.Equal(t, 0, matchResult.BlueScoreSummary().Score)
+	redScore, blueScore = scores(matchResult)
+	assert.NotEqual(t, 0.0, redScore)
+	assert.Equal(t, 0.0, blueScore)
 
 	// Check that a red card in playoffs forces a loss even if both alliances score 0.
-	matchResult = model.NewMatchResult()
-	matchResult.MatchId = match.Id
-	matchResult.MatchType = match.Type
-	matchResult.PlayoffRedAllianceCard = "red"
+	matchResult = testResult(t, web, match, cardChange("red", 2, "red"))
 	assert.Nil(t, web.commitMatchScore(match, matchResult, true))
 	match, _ = web.arena.Database.GetMatchById(match.Id)
-	assert.Equal(t, game.BlueWonMatch, match.Status)
+	assert.Equal(t, model.BlueWonMatch, match.Status)
 
-	// Check that a DQ in playoffs forces a loss even if both alliances score 0.
-	matchResult = model.NewMatchResult()
-	matchResult.MatchId = match.Id
-	matchResult.MatchType = match.Type
-	matchResult.PlayoffBlueAllianceCard = "dq"
+	// Check that a disqualification in playoffs forces a loss even if both alliances score 0.
+	matchResult = testResult(
+		t, web, match,
+		scoring.Change{Alliance: "blue", Element: scoring.TargetDisqualified, Op: scoring.OpSet, Value: true},
+	)
 	assert.Nil(t, web.commitMatchScore(match, matchResult, true))
 	match, _ = web.arena.Database.GetMatchById(match.Id)
-	assert.Equal(t, game.RedWonMatch, match.Status)
+	assert.Equal(t, model.RedWonMatch, match.Status)
 }
 
 func TestMatchPlayWebsocketCommands(t *testing.T) {
@@ -367,7 +451,7 @@ func TestMatchPlayWebsocketCommands(t *testing.T) {
 	ws := websocket.NewTestWebsocket(conn)
 
 	// Should get a few status updates right after connection.
-	readWebsocketType(t, ws, "matchTiming")
+	readWebsocketType(t, ws, "game")
 	readWebsocketType(t, ws, "allianceStationDisplayMode")
 	readWebsocketType(t, ws, "arenaStatus")
 	readWebsocketType(t, ws, "audienceDisplayMode")
@@ -424,29 +508,34 @@ func TestMatchPlayWebsocketCommands(t *testing.T) {
 	ws.Write("abortMatch", nil)
 	readWebsocketType(t, ws, "audienceDisplayMode")
 	assert.Equal(t, field.PostMatch, web.arena.MatchState)
-	web.arena.RedRealtimeScore.CurrentScore.EndgameTowerStatuses = [3]game.TowerStatus{
-		game.TowerLevel1, game.TowerLevel2, game.TowerNone,
-	}
-	web.arena.BlueRealtimeScore.CurrentScore.AutoTowerStatuses = [3]game.TowerStatus{
-		game.TowerLevel1, game.TowerNone, game.TowerNone,
+
+	// Score something after the match, the way the panels would; each change sends the score once.
+	scorer := scoring.Source{Kind: scoring.SourceScorer, ID: "test"}
+	for _, change := range []scoring.Change{
+		towerChange("red", 1, "endgame_tower", "level1"), towerChange("red", 2, "endgame_tower", "level2"),
+		towerChange("blue", 1, "auto_tower", "level1"),
+	} {
+		change.Source = scorer
+		_, err = web.arena.ApplyScoreChange(change)
+		assert.Nil(t, err)
+		realtimeScore := readWebsocketType(t, ws, "realtimeScore").(map[string]any)
+		assert.Equal(t, web.arena.Game.Hash, realtimeScore["gameHash"])
 	}
 	ws.Write("commitAndPost", nil)
-	readWebsocketMultiple(
-		t, ws, 6,
-	) // scorePosted, matchLoad, realtimeScore, allianceStationDisplayMode, scoringStatus, audienceDisplayMode
-	assert.Equal(
-		t,
-		[3]game.TowerStatus{game.TowerLevel1, game.TowerLevel2, game.TowerNone},
-		web.arena.SavedMatchResult.RedScore.EndgameTowerStatuses,
+	readWebsocketTypes(
+		t, ws, 8, "scorePosted", "matchLoad", "realtimeScore", "allianceStationDisplayMode", "scoringStatus",
+		"audienceDisplayMode",
 	)
-	assert.Equal(
-		t,
-		[3]game.TowerStatus{game.TowerLevel1, game.TowerNone, game.TowerNone},
-		web.arena.SavedMatchResult.BlueScore.AutoTowerStatuses,
-	)
+	savedState := web.arena.SavedMatchResult.State
+	assert.Equal(t, "level1", savedState.Alliances["red"].Robots[0]["endgame_tower"].Option)
+	assert.Equal(t, "level2", savedState.Alliances["red"].Robots[1]["endgame_tower"].Option)
+	assert.Equal(t, "none", savedState.Alliances["red"].Robots[2]["endgame_tower"].Option)
+	assert.Equal(t, "level1", savedState.Alliances["blue"].Robots[0]["auto_tower"].Option)
+	assert.Equal(t, 3, len(web.arena.SavedMatchResult.Changes))
+	assert.Equal(t, model.RedWonMatch, web.arena.SavedMatch.Status)
 	assert.Equal(t, field.PreMatch, web.arena.MatchState)
 	ws.Write("discardResults", nil)
-	readWebsocketMultiple(t, ws, 4) // matchLoad, realtimeScore, allianceStationDisplayMode, scoringStatus
+	readWebsocketTypes(t, ws, 6, "matchLoad", "realtimeScore", "allianceStationDisplayMode", "scoringStatus")
 	assert.Equal(t, field.PreMatch, web.arena.MatchState)
 
 	// Test changing the displays.
@@ -467,7 +556,7 @@ func TestMatchPlayWebsocketCommands(t *testing.T) {
 		"startTimeout",
 		map[string]any{"Description": "Repair Break", "NextMatchName": "", "DurationSec": float64(90)},
 	)
-	messages := readWebsocketTypes(t, ws, 3, "matchTiming", "matchLoad", "allianceStationDisplayMode")
+	messages := readWebsocketTypes(t, ws, 3, "matchLoad", "allianceStationDisplayMode")
 	message = messages["matchLoad"].(map[string]any)
 	assert.Equal(t, field.TimeoutActive, web.arena.MatchState)
 	assert.Equal(t, "Repair Break", message["BreakDescription"])
@@ -498,7 +587,7 @@ func TestMatchPlayWebsocketLoadMatch(t *testing.T) {
 	match := model.Match{
 		Type:      model.Playoff,
 		ShortName: "QF4-3",
-		Status:    game.RedWonMatch,
+		Status:    model.RedWonMatch,
 		Red1:      101,
 		Red2:      102,
 		Red3:      103,
@@ -554,22 +643,25 @@ func TestMatchPlayWebsocketShowAndClearResult(t *testing.T) {
 	ws.Write("showResult", matchIdMessage)
 	assert.Contains(t, readWebsocketError(t, ws), "invalid match ID 1")
 
-	match := model.Match{Type: model.Qualification, ShortName: "Q1", Status: game.TieMatch}
+	match := model.Match{Type: model.Qualification, ShortName: "Q1", Status: model.TieMatch}
 	web.arena.Database.CreateMatch(&match)
 	ws.Write("showResult", matchIdMessage)
 	assert.Contains(t, readWebsocketError(t, ws), "No result found")
 
-	web.arena.Database.CreateMatchResult(model.BuildTestMatchResult(match.Id, 1))
+	web.arena.Database.CreateMatchResult(model.BuildTestMatchResult(web.arena.Database, match.Id, 1))
+	assert.Nil(t, web.arena.Database.CreateRanking(testRanking1()))
 	ws.Write("showResult", matchIdMessage)
 	readWebsocketType(t, ws, "scorePosted")
 	assert.Equal(t, match.Id, web.arena.SavedMatch.Id)
 	assert.Equal(t, match.Id, web.arena.SavedMatchResult.MatchId)
+	assert.Equal(t, 1, len(web.arena.SavedRankings))
 
 	matchIdMessage.MatchId = 0
 	ws.Write("showResult", matchIdMessage)
 	readWebsocketType(t, ws, "scorePosted")
 	assert.Equal(t, model.Match{}, *web.arena.SavedMatch)
-	assert.Equal(t, *model.NewMatchResult(), *web.arena.SavedMatchResult)
+	assert.Equal(t, *model.NewMatchResult(web.arena.Game), *web.arena.SavedMatchResult)
+	assert.Empty(t, web.arena.SavedRankings)
 }
 
 func TestMatchPlayWebsocketNotifications(t *testing.T) {
@@ -613,7 +705,8 @@ func TestMatchPlayWebsocketNotifications(t *testing.T) {
 	var matchTime field.MatchTimeMessage
 	err = mapstructure.Decode(readWebsocketTypeEventually(t, ws, "matchTime", 4), &matchTime)
 	assert.Nil(t, err)
-	assert.Equal(t, field.AutoPeriod, matchTime.MatchState)
+	assert.Equal(t, field.InMatch, matchTime.MatchState)
+	assert.Equal(t, "auto", matchTime.PhaseId)
 	assert.Equal(t, 3, matchTime.MatchTimeSec)
 	web.arena.ScoringStatusNotifier.Notify()
 	readWebsocketTypeEventually(t, ws, "scoringStatus", 4)
@@ -623,7 +716,8 @@ func TestMatchPlayWebsocketNotifications(t *testing.T) {
 	web.arena.Update()
 	err = mapstructure.Decode(readWebsocketTypeEventually(t, ws, "matchTime", 4), &matchTime)
 	assert.Nil(t, err)
-	assert.Equal(t, field.AutoPeriod, matchTime.MatchState)
+	assert.Equal(t, field.InMatch, matchTime.MatchState)
+	assert.Equal(t, "auto", matchTime.PhaseId)
 	assert.Equal(t, 1, matchTime.MatchTimeSec)
 	web.arena.MatchStartTime = time.Now().Add(-2*time.Second + 10*time.Millisecond) // Not crossed yet
 	web.arena.Update()
@@ -631,18 +725,30 @@ func TestMatchPlayWebsocketNotifications(t *testing.T) {
 	web.arena.Update()
 	err = mapstructure.Decode(readWebsocketTypeEventually(t, ws, "matchTime", 4), &matchTime)
 	assert.Nil(t, err)
-	assert.Equal(t, field.AutoPeriod, matchTime.MatchState)
+	assert.Equal(t, field.InMatch, matchTime.MatchState)
+	assert.Equal(t, "auto", matchTime.PhaseId)
 	assert.Equal(t, 2, matchTime.MatchTimeSec)
 
-	// Check across a match state boundary.
-	web.arena.MatchStartTime = time.Now().Add(
-		-time.Duration(game.MatchTiming.AutoDurationSec) * time.Second,
-	)
+	// Check across a phase boundary: the state stays the same and the phase moves on.
+	firstPhase := web.arena.Game.Match.Phases[0]
+	web.arena.MatchStartTime = time.Now().Add(-time.Duration(firstPhase.Duration * float64(time.Second)))
 	web.arena.Update()
 	statusReceived, matchTime := readWebsocketStatusMatchTime(t, ws)
 	assert.Equal(t, true, statusReceived)
-	assert.Equal(t, field.PausePeriod, matchTime.MatchState)
-	assert.Equal(t, game.MatchTiming.AutoDurationSec, matchTime.MatchTimeSec)
+	assert.Equal(t, field.InMatch, matchTime.MatchState)
+	assert.Equal(t, 1, matchTime.PhaseIndex)
+	assert.Equal(t, web.arena.Game.Match.Phases[1].ID, matchTime.PhaseId)
+	assert.Equal(t, int(firstPhase.Duration), matchTime.MatchTimeSec)
+
+	// At the end of the last phase the match is over and no phase is running.
+	endTestMatch(web)
+	_, matchTime = readWebsocketStatusMatchTime(t, ws)
+	for matchTime.MatchState != field.PostMatch {
+		err = mapstructure.Decode(readWebsocketTypeEventually(t, ws, "matchTime", 20), &matchTime)
+		assert.Nil(t, err)
+	}
+	assert.Equal(t, -1, matchTime.PhaseIndex)
+	assert.Equal(t, "", matchTime.PhaseId)
 }
 
 // Handles the status and matchTime messages arriving in either order.

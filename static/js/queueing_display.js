@@ -5,24 +5,32 @@
 
 var websocket;
 
+// The last matchTime message, kept so that the clock can be drawn again when the game arrives or changes and when the
+// list of matches is replaced.
+var lastMatchTime = null;
+
 // Handles a websocket message to update the teams for the current match.
 var handleMatchLoad = function (data) {
   fetch("/displays/queueing/match_load")
     .then(response => response.text())
-    .then(html => $("#matches").html(html));
+    .then(html => {
+      $("#matches").html(html);
+      if (lastMatchTime !== null) {
+        // The clock of the match on the field is part of the list that was just replaced.
+        handleMatchTime(lastMatchTime);
+      }
+    });
 };
 
 // Handles a websocket message to update the match time countdown.
 var handleMatchTime = function (data) {
-  translateMatchTime(data, function (matchState, matchStateText, countdownSec) {
-    $("#matchState").text(matchStateText);
-    var countdownString = String(countdownSec % 60);
-    if (countdownString.length === 1) {
-      countdownString = "0" + countdownString;
-    }
-    countdownString = Math.floor(countdownSec / 60) + ":" + countdownString;
-    $("#matchTime").text(countdownString);
-  });
+  lastMatchTime = data;
+  var clock = DisplayShared.clock(data);
+  if (clock === null) {
+    return;
+  }
+  $("#matchState").text(clock.stateLabel);
+  $("#matchTime").text(clock.countdown);
 };
 
 // Handles a websocket message to update the event status message.
@@ -31,19 +39,26 @@ var handleEventStatus = function (data) {
 };
 
 $(function () {
+  // Draw the clock again when the game arrives or changes.
+  GameView.onChange(function () {
+    if (lastMatchTime !== null) {
+      handleMatchTime(lastMatchTime);
+    }
+  });
+
   // Set up the websocket back to the server.
   websocket = new CheesyWebsocket("/displays/queueing/websocket", {
     eventStatus: function (event) {
       handleEventStatus(event.data);
+    },
+    game: function (event) {
+      handleGame(event.data);
     },
     matchLoad: function (event) {
       handleMatchLoad(event.data);
     },
     matchTime: function (event) {
       handleMatchTime(event.data);
-    },
-    matchTiming: function (event) {
-      handleMatchTiming(event.data);
     },
   });
 });

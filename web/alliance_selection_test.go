@@ -6,8 +6,8 @@ package web
 import (
 	"testing"
 
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
+	"github.com/DavidMasin/galaxia-fms/scoring"
 	"github.com/DavidMasin/galaxia-fms/websocket"
 	gorillawebsocket "github.com/gorilla/websocket"
 	"github.com/mitchellh/mapstructure"
@@ -21,7 +21,9 @@ func TestAllianceSelection(t *testing.T) {
 	web.arena.EventSettings.NumPlayoffAlliances = 15
 	web.arena.EventSettings.SelectionRound3Order = "L"
 	for i := 1; i <= 10; i++ {
-		web.arena.Database.CreateRanking(&game.Ranking{TeamId: 100 + i, Rank: i})
+		web.arena.Database.CreateRanking(
+			&model.Ranking{TeamId: 100 + i, TeamRanking: scoring.TeamRanking{TeamID: 100 + i, Rank: i}},
+		)
 	}
 
 	// Check that there are no alliance placeholders to start.
@@ -112,7 +114,9 @@ func TestAllianceSelectionErrors(t *testing.T) {
 	web.arena.EventSettings.PlayoffType = model.SingleEliminationPlayoff
 	web.arena.EventSettings.NumPlayoffAlliances = 2
 	for i := 1; i <= 6; i++ {
-		web.arena.Database.CreateRanking(&game.Ranking{TeamId: 100 + i, Rank: i})
+		web.arena.Database.CreateRanking(
+			&model.Ranking{TeamId: 100 + i, TeamRanking: scoring.TeamRanking{TeamID: 100 + i, Rank: i}},
+		)
 	}
 
 	// Start an alliance selection that is already underway.
@@ -175,7 +179,9 @@ func TestAllianceSelectionReset(t *testing.T) {
 	web.arena.EventSettings.PlayoffType = model.SingleEliminationPlayoff
 	web.arena.EventSettings.NumPlayoffAlliances = 2
 	for i := 1; i <= 6; i++ {
-		web.arena.Database.CreateRanking(&game.Ranking{TeamId: 100 + i, Rank: i})
+		web.arena.Database.CreateRanking(
+			&model.Ranking{TeamId: 100 + i, TeamRanking: scoring.TeamRanking{TeamID: 100 + i, Rank: i}},
+		)
 	}
 
 	// Start, populate, and finalize the alliance selection.
@@ -217,7 +223,7 @@ func TestAllianceSelectionReset(t *testing.T) {
 	assert.NotEmpty(t, matches)
 
 	// Mark a match as played and verify that the alliance selection can no longer be reset.
-	matches[0].Status = game.RedWonMatch
+	matches[0].Status = model.RedWonMatch
 	assert.Nil(t, web.arena.Database.UpdateMatch(&matches[0]))
 	recorder = web.postHttpResponse("/alliance_selection/reset", "")
 	assert.Equal(t, 200, recorder.Code)

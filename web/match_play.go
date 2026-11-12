@@ -8,7 +8,6 @@ package web
 import (
 	"fmt"
 	"github.com/DavidMasin/galaxia-fms/field"
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/tournament"
 	"github.com/DavidMasin/galaxia-fms/websocket"
@@ -24,7 +23,7 @@ type MatchPlayListItem struct {
 	Id         int
 	ShortName  string
 	Time       string
-	Status     game.MatchStatus
+	Status     model.MatchStatus
 	ColorClass string
 }
 
@@ -127,7 +126,7 @@ func (web *Web) matchPlayWebsocketHandler(w http.ResponseWriter, r *http.Request
 
 	// Subscribe the websocket to the notifiers whose messages will be passed on to the client, in a separate goroutine.
 	go ws.HandleNotifiers(
-		web.arena.MatchTimingNotifier,
+		web.arena.GameNotifier,
 		web.arena.AllianceStationDisplayModeNotifier,
 		web.arena.ArenaStatusNotifier,
 		web.arena.AudienceDisplayModeNotifier,
@@ -166,6 +165,7 @@ func (web *Web) matchPlayWebsocketHandler(w http.ResponseWriter, r *http.Request
 				writeWebsocketError(ws, err.Error())
 				continue
 			}
+			web.applyPendingGameChange()
 			if args.MatchId == 0 {
 				err = web.arena.LoadTestMatch()
 			} else {
@@ -194,9 +194,15 @@ func (web *Web) matchPlayWebsocketHandler(w http.ResponseWriter, r *http.Request
 				continue
 			}
 			if args.MatchId == 0 {
-				// Load an empty match to effectively clear the buffer.
+				// Load an empty match to effectively clear the buffer. Like any result, an empty one needs the game it
+				// belongs to stored in order to be computed.
+				if err = web.arena.Database.SaveGameSnapshot(web.arena.Game); err != nil {
+					writeWebsocketError(ws, err.Error())
+					continue
+				}
 				web.arena.SavedMatch = &model.Match{}
-				web.arena.SavedMatchResult = model.NewMatchResult()
+				web.arena.SavedMatchResult = model.NewMatchResult(web.arena.Game)
+				web.arena.SavedRankings = []model.Ranking{}
 				web.arena.ScorePostedNotifier.Notify()
 				continue
 			}
@@ -225,7 +231,7 @@ func (web *Web) matchPlayWebsocketHandler(w http.ResponseWriter, r *http.Request
 					continue
 				}
 			} else {
-				web.arena.SavedRankings = game.Rankings{}
+				web.arena.SavedRankings = []model.Ranking{}
 			}
 			web.arena.SavedMatch = match
 			web.arena.SavedMatchResult = matchResult
@@ -297,6 +303,7 @@ func (web *Web) matchPlayWebsocketHandler(w http.ResponseWriter, r *http.Request
 				writeWebsocketError(ws, err.Error())
 				continue
 			}
+			web.applyPendingGameChange()
 			err = web.arena.LoadNextMatch(false)
 			if err != nil {
 				writeWebsocketError(ws, err.Error())
@@ -394,21 +401,39 @@ func (web *Web) commitPostAndLoadNextMatch() error {
 	if err != nil {
 		return err
 	}
+	web.applyPendingGameChange()
 
 	return web.arena.LoadNextMatch(true)
 }
 
-// Saves the given match and result to the database, supplanting any previous result for the match.
-func (web *Web) commitMatchScore(match *model.Match, matchResult *model.MatchResult, isMatchReviewEdit bool) error {
-	var updatedRankings game.Rankings
+// applyPendingGameChange takes into use a game selection that was saved while a match was on the field. It is
+// called once that match has been reset: reloading the settings also reconnects the field hardware, which must not
+// happen in the middle of a match.
+func (web *Web) applyPendingGameChange() {
+	if !web.gameChangePending.CompareAndSwap(true, false) {
+		return
+	}
+	if err := web.arena.LoadSettings(); err != nil {
+		log.Printf("Failed to apply the game selection that was waiting for the match to end: %v", err)
+	}
+}
 
-	normalizeMatchResult(match, matchResult)
+// Saves the given match and result to the database, supplanting any previous result for the match. The winner is
+// worked out from the result with the game it was played with, and the rankings, the carried cards and the playoff
+// bracket are brought up to date; an edit made from match review goes through exactly the same steps.
+func (web *Web) commitMatchScore(match *model.Match, matchResult *model.MatchResult, isMatchReviewEdit bool) error {
+	var updatedRankings []model.Ranking
+
+	// Whether a card disqualifies the whole alliance depends on the kind of match the result belongs to.
+	matchResult.MatchType = match.Type
+	result, resultGame, err := matchResult.Compute(web.arena.Database, match.UseTiebreakCriteria)
+	if err != nil {
+		return err
+	}
 
 	// Update the match record.
 	match.ScoreCommittedAt = time.Now()
-	redScoreSummary := matchResult.RedScoreSummary()
-	blueScoreSummary := matchResult.BlueScoreSummary()
-	match.Status, _ = game.DetermineMatchStatus(redScoreSummary, blueScoreSummary, match.UseTiebreakCriteria)
+	match.Status = model.MatchStatusFromResult(resultGame, result)
 
 	if match.Type != model.Test {
 		if matchResult.PlayNumber == 0 {
@@ -454,7 +479,7 @@ func (web *Web) commitMatchScore(match *model.Match, matchResult *model.MatchRes
 
 		if match.ShouldUpdateRankings() {
 			// Recalculate all the rankings.
-			rankings, err := tournament.CalculateRankings(web.arena.Database, isMatchReviewEdit)
+			rankings, err := tournament.CalculateRankings(web.arena.Database, web.arena.Game, isMatchReviewEdit)
 			if err != nil {
 				return err
 			}
@@ -497,7 +522,7 @@ func (web *Web) commitMatchScore(match *model.Match, matchResult *model.MatchRes
 					log.Printf("Failed to publish matches: %s", err.Error())
 				}
 				if match.ShouldUpdateRankings() {
-					if err := web.arena.TbaClient.PublishRankings(web.arena.Database); err != nil {
+					if err := web.arena.TbaClient.PublishRankings(web.arena.Database, web.arena.Game); err != nil {
 						log.Printf("Failed to publish rankings: %s", err.Error())
 					}
 				}
@@ -533,25 +558,17 @@ func (web *Web) commitMatchScore(match *model.Match, matchResult *model.MatchRes
 		web.arena.ScorePostedNotifier.Notify()
 	}
 
+	web.arena.PublishMatchCommitted(match, result, isMatchReviewEdit)
 	return nil
-}
-
-func (web *Web) getCurrentMatchResult() *model.MatchResult {
-	return &model.MatchResult{
-		MatchId:                 web.arena.CurrentMatch.Id,
-		MatchType:               web.arena.CurrentMatch.Type,
-		RedScore:                &web.arena.RedRealtimeScore.CurrentScore,
-		BlueScore:               &web.arena.BlueRealtimeScore.CurrentScore,
-		RedCards:                web.arena.RedRealtimeScore.Cards,
-		BlueCards:               web.arena.BlueRealtimeScore.Cards,
-		PlayoffRedAllianceCard:  web.arena.RedRealtimeScore.PlayoffAllianceCard,
-		PlayoffBlueAllianceCard: web.arena.BlueRealtimeScore.PlayoffAllianceCard,
-	}
 }
 
 // Saves the realtime result as the final score for the match currently loaded into the arena.
 func (web *Web) commitCurrentMatchScore() error {
-	return web.commitMatchScore(web.arena.CurrentMatch, web.getCurrentMatchResult(), false)
+	matchResult, err := web.arena.BuildMatchResult()
+	if err != nil {
+		return err
+	}
+	return web.commitMatchScore(web.arena.CurrentMatch, matchResult, false)
 }
 
 // Helper function to implement the required interface for Sort.
@@ -561,7 +578,7 @@ func (list MatchPlayList) Len() int {
 
 // Helper function to implement the required interface for Sort.
 func (list MatchPlayList) Less(i, j int) bool {
-	return list[i].Status == game.MatchScheduled && list[j].Status != game.MatchScheduled
+	return list[i].Status == model.MatchScheduled && list[j].Status != model.MatchScheduled
 }
 
 // Helper function to implement the required interface for Sort.
@@ -583,11 +600,11 @@ func (web *Web) buildMatchPlayList(matchType model.MatchType) (MatchPlayList, er
 		matchPlayList[i].Time = match.Time.Local().Format("3:04 PM")
 		matchPlayList[i].Status = match.Status
 		switch match.Status {
-		case game.RedWonMatch:
+		case model.RedWonMatch:
 			matchPlayList[i].ColorClass = "red"
-		case game.BlueWonMatch:
+		case model.BlueWonMatch:
 			matchPlayList[i].ColorClass = "blue"
-		case game.TieMatch:
+		case model.TieMatch:
 			matchPlayList[i].ColorClass = "yellow"
 		default:
 			matchPlayList[i].ColorClass = ""

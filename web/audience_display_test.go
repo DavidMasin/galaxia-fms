@@ -4,8 +4,8 @@
 package web
 
 import (
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
+	"github.com/DavidMasin/galaxia-fms/scoring"
 	"github.com/DavidMasin/galaxia-fms/websocket"
 	gorillawebsocket "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
@@ -50,7 +50,7 @@ func TestAudienceDisplayWebsocket(t *testing.T) {
 
 	// Should get a few status updates right after connection.
 	readWebsocketType(t, ws, "displayConfiguration")
-	readWebsocketType(t, ws, "matchTiming")
+	readWebsocketType(t, ws, "game")
 	readWebsocketType(t, ws, "audienceDisplayMode")
 	readWebsocketType(t, ws, "matchLoad")
 	readWebsocketType(t, ws, "matchTime")
@@ -71,6 +71,8 @@ func TestAudienceDisplayWebsocket(t *testing.T) {
 	web.arena.StartMatch()
 	web.arena.Update()
 	web.arena.Update()
+	// Starting the match switches the display to the match screen, plays the first cue of the game, starts the
+	// clock and, because the game has a value that depends on the clock, sends the score again.
 	messages := readWebsocketMultiple(t, ws, 4)
 	screen, ok := messages["audienceDisplayMode"]
 	if assert.True(t, ok) {
@@ -86,27 +88,51 @@ func TestAudienceDisplayWebsocket(t *testing.T) {
 	assert.True(t, ok)
 	web.arena.RealtimeScoreNotifier.Notify()
 	readWebsocketType(t, ws, "realtimeScore")
-	web.arena.SavedMatch = &model.Match{
-		Status:              game.RedWonMatch,
-		UseTiebreakCriteria: true,
+
+	// A tied playoff result of the rebuilt-style game is decided by the game's tiebreakers: blue committed a major
+	// foul, which gives each alliance fifteen points and the red alliance the match.
+	g := model.TestGame("rebuilt-style")
+	matchResult := model.NewMatchResult(g)
+	matchResult.MatchType = model.Playoff
+	for _, change := range []scoring.Change{
+		{Alliance: "red", Element: "fuel", Op: scoring.OpSet, Value: 0.0, Bucket: "auto"},
+		{Alliance: "blue", Robot: 1, Element: "auto_tower", Op: scoring.OpSet, Value: "level1", Bucket: "auto"},
+		{Alliance: "blue", Element: scoring.TargetFoul, Op: scoring.OpAdd, Value: "major"},
+	} {
+		change.Source = scoring.Source{Kind: scoring.SourceAdmin}
+		_, err = matchResult.Edit(g, change)
+		assert.Nil(t, err)
 	}
-	web.arena.SavedMatchResult = &model.MatchResult{
-		RedScore: &game.Score{},
-		BlueScore: &game.Score{
-			AutoTowerStatuses: [3]game.TowerStatus{game.TowerLevel1},
-			Fouls:             []game.Foul{{FoulId: 1, IsMajor: true}},
-		},
-		RedCards:  map[string]string{},
-		BlueCards: map[string]string{},
-	}
+	web.arena.SavedMatch = &model.Match{Type: model.Playoff, Status: model.RedWonMatch, UseTiebreakCriteria: true}
+	web.arena.SavedMatchResult = matchResult
 	web.arena.ScorePostedNotifier.Notify()
 	scorePosted := readWebsocketType(t, ws, "scorePosted").(map[string]any)
-	assert.Equal(t, "TIEBREAK: MAJOR FOULS", scorePosted["TiebreakReason"])
-	for _, threshold := range []int{0, 50, 0, 42} {
-		web.arena.EventSettings.TraversalBonusThreshold = threshold
+	assert.Equal(t, "rebuilt-style", scorePosted["gameId"])
+	assert.Equal(t, "red", scorePosted["winner"])
+	assert.Equal(t, "Major fouls by the opponent", scorePosted["tiebreak"])
+	alliances := scorePosted["alliances"].(map[string]any)
+	assert.Equal(t, 15.0, alliances["red"].(map[string]any)["score"])
+	assert.Equal(t, 15.0, alliances["blue"].(map[string]any)["score"])
+
+	// The parameters the result was played with go with it: a win is worth three ranking points while the
+	// traversal bonus exists and two when the event turned it off.
+	winRankingPoints := func(message map[string]any) float64 {
+		for _, rankingPoint := range message["alliances"].(map[string]any)["red"].(map[string]any)["rankingPoints"].([]any) {
+			if rankingPoint.(map[string]any)["id"] == "win" {
+				return rankingPoint.(map[string]any)["value"].(float64)
+			}
+		}
+		return -1
+	}
+	for _, threshold := range []float64{0, 50, 0, 42} {
+		matchResult.Params["traversal_threshold"] = threshold
 		web.arena.ScorePostedNotifier.Notify()
 		scorePosted = readWebsocketType(t, ws, "scorePosted").(map[string]any)
-		assert.Equal(t, threshold != 0, scorePosted["TraversalBonusEnabled"])
+		if threshold == 0 {
+			assert.Equal(t, 2.0, winRankingPoints(scorePosted))
+		} else {
+			assert.Equal(t, 3.0, winRankingPoints(scorePosted))
+		}
 	}
 
 	// Test other overlays.

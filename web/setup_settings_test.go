@@ -6,8 +6,9 @@ package web
 import (
 	"bytes"
 	"github.com/DavidMasin/galaxia-fms/field"
-	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/model"
+	"github.com/DavidMasin/galaxia-fms/scoring"
 	"github.com/DavidMasin/galaxia-fms/tournament"
 	"github.com/stretchr/testify/assert"
 	"io"
@@ -25,18 +26,24 @@ func TestSetupSettings(t *testing.T) {
 	assert.Equal(t, 200, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "Untitled Event")
 	assert.Contains(t, recorder.Body.String(), "8")
-	assert.Contains(t, recorder.Body.String(), "transitionShiftDurationSec")
-	assert.Contains(t, recorder.Body.String(), "shiftDurationSec")
-	assert.Contains(t, recorder.Body.String(), "endgameDurationSec")
-	assert.Contains(t, recorder.Body.String(), "placeholder=\"10.0.100.60\"")
 	assert.NotContains(t, recorder.Body.String(), "tbaPublishingEnabled\"  checked")
+	// The game-specific settings are a selector of the games that are installed and the parameters of each.
+	assert.Contains(t, recorder.Body.String(), `<select class="form-select" id="gameId" name="gameId"`)
+	assert.Regexp(t, `<option value="rebuilt-style" selected\s*>\s*Rebuilt-style\s*</option>`, recorder.Body.String())
+	assert.Regexp(t, `<option value="ball-count"\s*>\s*Ball Count\s*</option>`, recorder.Body.String())
+	assert.Contains(t, recorder.Body.String(), `name="gameParam.rebuilt-style.energized_threshold"`)
+	assert.Contains(t, recorder.Body.String(), "Energized fuel threshold")
+	assert.Contains(t, recorder.Body.String(), `placeholder="100"`)
+	assert.Contains(t, recorder.Body.String(), "At least 0.")
+	assert.Contains(t, recorder.Body.String(), "takes effect when the arena returns to pre-match")
+	assert.NotContains(t, recorder.Body.String(), "LED Lighting")
+	assert.NotContains(t, recorder.Body.String(), "ledControllerAddress")
 
 	// Change the settings and check the response.
 	recorder = web.postHttpResponse(
 		"/setup/settings",
 		"name=Chezy Champs&code=CC&playoffType=single&numPlayoffAlliances=16&tbaPublishingEnabled=on&"+
-			"tbaEventCode=2014cc&tbaSecretId=secretId&tbaSecret=tbasec&transitionShiftDurationSec=12&"+
-			"shiftDurationSec=24&endgameDurationSec=32&ledControllerAddress=10.0.100.61&ledUniverseMode=two",
+			"tbaEventCode=2014cc&tbaSecretId=secretId&tbaSecret=tbasec",
 	)
 	assert.Equal(t, 303, recorder.Code)
 	assert.Equal(t, "/setup/settings#event", recorder.Header().Get("Location"))
@@ -47,22 +54,122 @@ func TestSetupSettings(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "2014cc")
 	assert.Contains(t, recorder.Body.String(), "secretId")
 	assert.Contains(t, recorder.Body.String(), "tbasec")
-	assert.Equal(t, 12, web.arena.EventSettings.TransitionShiftDurationSec)
-	assert.Equal(t, 24, web.arena.EventSettings.ShiftDurationSec)
-	assert.Equal(t, 32, web.arena.EventSettings.EndgameDurationSec)
-	assert.Equal(t, "10.0.100.61", web.arena.EventSettings.LedControllerAddress)
-	assert.Equal(t, "two", web.arena.EventSettings.LedUniverseMode)
-	assert.Equal(t, 140, game.GetTeleopDurationSec())
+	// A form without a game selection leaves the game alone.
+	assert.Equal(t, "rebuilt-style", web.arena.EventSettings.GameId)
+	assert.Equal(t, "rebuilt-style", web.arena.Game.ID)
 
 	recorder = web.postHttpResponse("/setup/settings", "name=Field Tab Event&activeSettingsTab=field")
 	assert.Equal(t, 303, recorder.Code)
 	assert.Equal(t, "/setup/settings#field", recorder.Header().Get("Location"))
 }
 
+func TestSetupSettingsGame(t *testing.T) {
+	web := setupTestWeb(t)
+
+	// Override two parameters of the selected game. An empty input means the game's own value.
+	recorder := web.postHttpResponse(
+		"/setup/settings",
+		"activeSettingsTab=game&gameId=rebuilt-style&gameParam.rebuilt-style.energized_threshold=80&"+
+			"gameParam.rebuilt-style.supercharged_threshold=&gameParam.rebuilt-style.traversal_threshold=0",
+	)
+	assert.Equal(t, 303, recorder.Code, recorder.Body.String())
+	assert.Equal(t, "/setup/settings#game", recorder.Header().Get("Location"))
+	assert.Equal(
+		t, map[string]float64{"energized_threshold": 80, "traversal_threshold": 0}, web.arena.EventSettings.GameParams,
+	)
+	stored, _ := web.arena.Database.GetEventSettings()
+	assert.Equal(t, web.arena.EventSettings.GameParams, stored.GameParams)
+	recorder = web.getHttpResponse("/setup/settings")
+	assert.Regexp(
+		t, `name="gameParam.rebuilt-style.energized_threshold"\s+value="80" placeholder="100"`, recorder.Body.String(),
+	)
+	assert.Regexp(
+		t, `name="gameParam.rebuilt-style.supercharged_threshold"\s+value="" placeholder="360"`, recorder.Body.String(),
+	)
+
+	// The overrides are what the match on the field is scored with: 80 fuel now earns the bonus, and a win is
+	// worth two ranking points with the traversal bonus turned off.
+	startTestMatch(t, web)
+	_, err := web.arena.ApplyScoreChange(
+		scoring.Change{
+			Alliance: "red", Element: "fuel", Op: scoring.OpIncrement, Value: 80,
+			Source: scoring.Source{Kind: scoring.SourceScorer},
+		},
+	)
+	assert.Nil(t, err)
+	result, _, _ := web.arena.ScoreSnapshot()
+	assert.Equal(t, 1.0, result.Alliances["red"].RP["energized"])
+	assert.Equal(t, 2.0, result.Alliances["red"].RP["win"])
+	assert.Nil(t, web.arena.AbortMatch())
+	assert.Nil(t, web.arena.ResetMatch())
+	assert.Nil(t, web.arena.LoadTestMatch())
+
+	// Values a parameter does not accept are refused, and nothing is saved.
+	for body, message := range map[string]string{
+		"gameId=rebuilt-style&gameParam.rebuilt-style.energized_threshold=lots": "Energized fuel threshold must be a number",
+		"gameId=rebuilt-style&gameParam.rebuilt-style.energized_threshold=-1":   "Energized fuel threshold cannot be less than 0",
+		"gameId=rebuilt-style&gameParam.rebuilt-style.energized_threshold=1.5":  "Energized fuel threshold must be a whole number",
+		"gameId=nonexistent": "Game &#34;nonexistent&#34; is missing or has errors",
+		// The orbital-rush example has three alliances, which the field cannot seat yet.
+		"gameId=orbital-rush": "cannot be selected",
+	} {
+		recorder = web.postHttpResponse("/setup/settings", "name=Should Not Save&activeSettingsTab=game&"+body)
+		assert.Equal(t, 200, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), message, body)
+		assert.Equal(t, "Untitled Event", web.arena.EventSettings.Name)
+		assert.Equal(t, "rebuilt-style", web.arena.EventSettings.GameId)
+		assert.Equal(t, 80.0, web.arena.EventSettings.GameParams["energized_threshold"])
+	}
+
+	// A game that cannot be played on this field is listed, cannot be picked, and says why.
+	recorder = web.getHttpResponse("/setup/settings")
+	assert.Regexp(
+		t, `<option value="orbital-rush"\s+disabled>\s*Orbital Rush \(cannot be selected\)`, recorder.Body.String(),
+	)
+	assert.Contains(t, recorder.Body.String(), "This game cannot be selected:")
+	assert.Contains(t, recorder.Body.String(), "only games with exactly two alliances")
+
+	// Select another game. Its own parameters are read, and those of the previous game are dropped.
+	recorder = web.postHttpResponse(
+		"/setup/settings", "gameId=ball-count&gameParam.rebuilt-style.energized_threshold=70&activeSettingsTab=game",
+	)
+	assert.Equal(t, 303, recorder.Code, recorder.Body.String())
+	assert.Equal(t, "ball-count", web.arena.EventSettings.GameId)
+	assert.Empty(t, web.arena.EventSettings.GameParams)
+	assert.Equal(t, "ball-count", web.arena.Game.ID)
+	recorder = web.getHttpResponse("/setup/settings")
+	assert.Regexp(t, `<option value="ball-count" selected\s*>`, recorder.Body.String())
+	assert.Contains(t, recorder.Body.String(), "This game has no parameters to set.")
+}
+
+func TestParseGameParam(t *testing.T) {
+	minimum, maximum := 1.0, 5.0
+	number := &gamedef.Param{ID: "ratio", Type: "number", Min: &minimum, Max: &maximum}
+	value, err := parseGameParam(number, "2.5")
+	assert.Nil(t, err)
+	assert.Equal(t, 2.5, value)
+	_, err = parseGameParam(number, "5.5")
+	assert.EqualError(t, err, "ratio cannot be more than 5.")
+	_, err = parseGameParam(number, "NaN")
+	assert.NotNil(t, err)
+
+	flag := &gamedef.Param{ID: "overdrive", Name: "Overdrive", Type: "bool"}
+	for raw, expected := range map[string]float64{"true": 1, "on": 1, "1": 1, "false": 0, "Off": 0, "0": 0} {
+		value, err = parseGameParam(flag, raw)
+		assert.Nil(t, err)
+		assert.Equal(t, expected, value, raw)
+	}
+	_, err = parseGameParam(flag, "maybe")
+	assert.EqualError(t, err, "Overdrive must be on or off.")
+	assert.Equal(t, "true", formatGameParam(flag, 1))
+	assert.Equal(t, "false", formatGameParam(flag, 0))
+	assert.Equal(t, "2.5", formatGameParam(number, 2.5))
+}
+
 func TestSetupSettingsBlockedDuringMatch(t *testing.T) {
 	web := setupTestWeb(t)
 	web.arena.EventSettings.Name = "Original Event"
-	web.arena.MatchState = field.AutoPeriod
+	web.arena.MatchState = field.InMatch
 
 	recorder := web.postHttpResponse("/setup/settings", "name=Changed Event&activeSettingsTab=field")
 
@@ -72,6 +179,45 @@ func TestSetupSettingsBlockedDuringMatch(t *testing.T) {
 	)
 	assert.Contains(t, recorder.Body.String(), "hash = \"#field\"")
 	assert.Equal(t, "Original Event", web.arena.EventSettings.Name)
+}
+
+func TestSetupSettingsGameDuringMatch(t *testing.T) {
+	web := setupTestWeb(t)
+	web.arena.EventSettings.Name = "Original Event"
+
+	// With a match on the field, the game selection is the one thing that is saved; it does not take effect yet.
+	startTestMatch(t, web)
+	recorder := web.postHttpResponse("/setup/settings", "name=Changed Event&activeSettingsTab=game&gameId=ball-count")
+	assert.Equal(t, 200, recorder.Code)
+	assert.Contains(
+		t, recorder.Body.String(), "The game selection was saved and will be used once the match on the field is over.",
+	)
+	assert.Contains(t, recorder.Body.String(), "settings cannot be changed while a match is in progress")
+	assert.Contains(t, recorder.Body.String(), "The field is currently playing <b>Rebuilt-style</b>")
+	assert.Equal(t, "Original Event", web.arena.EventSettings.Name)
+	assert.Equal(t, "ball-count", web.arena.EventSettings.GameId)
+	stored, _ := web.arena.Database.GetEventSettings()
+	assert.Equal(t, "ball-count", stored.GameId)
+	assert.Equal(t, "rebuilt-style", web.arena.Game.ID)
+
+	// A selection that cannot be played is refused during a match as it is before one.
+	recorder = web.postHttpResponse("/setup/settings", "activeSettingsTab=game&gameId=orbital-rush")
+	assert.Equal(t, 200, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "cannot be selected")
+	assert.Equal(t, "ball-count", web.arena.EventSettings.GameId)
+
+	// The match is finished and committed with the game it started with, and the next one is loaded with the new.
+	endTestMatch(web)
+	assert.Equal(t, field.PostMatch, web.arena.MatchState)
+	assert.Equal(t, "rebuilt-style", web.arena.Game.ID)
+	assert.Nil(t, web.commitPostAndLoadNextMatch())
+	assert.Equal(t, "rebuilt-style", web.arena.SavedMatchResult.GameId)
+	assert.Equal(t, "ball-count", web.arena.Game.ID)
+	assert.Equal(t, field.PreMatch, web.arena.MatchState)
+	_, hasBalls := liveState(t, web).Alliances["red"].Elements["balls"]
+	assert.True(t, hasBalls)
+	recorder = web.getHttpResponse("/setup/settings")
+	assert.NotContains(t, recorder.Body.String(), "The field is currently playing")
 }
 
 func TestSetupSettingsAllowedDuringTimeoutStates(t *testing.T) {
@@ -93,9 +239,7 @@ func TestSettingsSaveAllowed(t *testing.T) {
 	}{
 		{field.PreMatch, true},
 		{field.StartMatch, false},
-		{field.AutoPeriod, false},
-		{field.PausePeriod, false},
-		{field.TeleopPeriod, false},
+		{field.InMatch, false},
 		{field.PostMatch, false},
 		{field.TimeoutActive, true},
 		{field.PostTimeout, true},
@@ -152,7 +296,7 @@ func TestSetupSettingsClearDb(t *testing.T) {
 		assert.Nil(t, web.arena.Database.CreateMatchResult(&model.MatchResult{MatchId: 1, PlayNumber: 2}))
 		assert.Nil(t, web.arena.Database.CreateMatchResult(&model.MatchResult{MatchId: 2, PlayNumber: 1}))
 		assert.Nil(t, web.arena.Database.CreateMatchResult(&model.MatchResult{MatchId: 3, PlayNumber: 1}))
-		assert.Nil(t, web.arena.Database.CreateRanking(&game.Ranking{TeamId: 254}))
+		assert.Nil(t, web.arena.Database.CreateRanking(&model.Ranking{TeamId: 254}))
 		assert.Nil(t, web.arena.Database.CreateAlliance(&model.Alliance{Id: 1}))
 		web.arena.AllianceSelectionAlliances = append(web.arena.AllianceSelectionAlliances, model.Alliance{Id: 1})
 	}
@@ -178,7 +322,7 @@ func TestSetupSettingsClearDb(t *testing.T) {
 	assert.NotNil(t, matchResult)
 	rankings, _ := web.arena.Database.GetAllRankings()
 	assert.NotEmpty(t, rankings)
-	tournament.CalculateRankings(web.arena.Database, false)
+	tournament.CalculateRankings(web.arena.Database, web.arena.Game, false)
 	assert.NotEmpty(t, rankings)
 	alliances, _ := web.arena.Database.GetAllAlliances()
 	assert.NotEmpty(t, alliances)
@@ -205,7 +349,7 @@ func TestSetupSettingsClearDb(t *testing.T) {
 	assert.NotNil(t, matchResult)
 	rankings, _ = web.arena.Database.GetAllRankings()
 	assert.Empty(t, rankings)
-	tournament.CalculateRankings(web.arena.Database, false)
+	tournament.CalculateRankings(web.arena.Database, web.arena.Game, false)
 	assert.Empty(t, rankings)
 	alliances, _ = web.arena.Database.GetAllAlliances()
 	assert.NotEmpty(t, alliances)
@@ -232,7 +376,7 @@ func TestSetupSettingsClearDb(t *testing.T) {
 	assert.Nil(t, matchResult)
 	rankings, _ = web.arena.Database.GetAllRankings()
 	assert.NotEmpty(t, rankings)
-	tournament.CalculateRankings(web.arena.Database, false)
+	tournament.CalculateRankings(web.arena.Database, web.arena.Game, false)
 	assert.NotEmpty(t, rankings)
 	alliances, _ = web.arena.Database.GetAllAlliances()
 	assert.Empty(t, alliances)

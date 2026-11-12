@@ -1,6 +1,10 @@
 // Copyright 2026 Team 254. All Rights Reserved.
 
 // Client-side logic for the FMS field monitor display.
+//
+// The stations are the field's: R1 to R3 belong to the first alliance of the game and B1 to B3 to the second,
+// whatever the game calls them. Phases, alliance names and colours and scores come from the game view and the generic
+// messages; see game_view.js and display_shared.js, which must be loaded first.
 
 let websocket;
 let currentMatchId;
@@ -10,7 +14,15 @@ const lowBatteryThreshold = 8;
 const highBtuThreshold = 7.0;
 const minBatteryTracker = {};
 const disconnectTracker = { radio: {}, rio: {} };
-let previousMatchStateText = null;
+
+// Where the match stands, from the last matchTime message: a value of matchStates, and what the robots are being told
+// ("auto", "teleop", "disabled", or "" when no phase is running).
+let currentMatchState = null;
+let currentRobots = "";
+
+// The last message of each kind, kept so that the display can be drawn again when the game arrives or changes.
+let lastMatchTime = null;
+let lastRealtimeScore = null;
 
 function formatDisconnectTimer(ms) {
   const s = Math.floor(ms / 1000);
@@ -34,8 +46,7 @@ const handleArenaStatus = function (data) {
     location.reload();
   }
 
-  const matchStateText = $("#matchState").text();
-  const inMatch = (matchStateText === "AUTONOMOUS" || matchStateText === "TELEOPERATED" || matchStateText === "PAUSE");
+  const inMatch = currentMatchState === "START_MATCH" || currentMatchState === "IN_MATCH";
 
   $.each(data.AllianceStations, function (station, stationStatus) {
     let teamElementPrefix;
@@ -106,8 +117,8 @@ const handleArenaStatus = function (data) {
         teamDsElement.attr("data-status-warning", true);
         let moveText = "x WRONG DS";
         if (dsConn.WrongStation.length >= 2) {
-          const color = dsConn.WrongStation[0] === 'R' ? "RED " : "BLUE ";
-          moveText = "MOVE TO " + color + dsConn.WrongStation[1];
+          const allianceName = DisplayShared.stationAllianceName(dsConn.WrongStation).toUpperCase();
+          moveText = "MOVE TO " + allianceName + " " + dsConn.WrongStation[1];
         }
         teamDsText.text(moveText);
       } else if (stationStatus.Ethernet) {
@@ -173,8 +184,7 @@ const handleArenaStatus = function (data) {
 
       // Stats
       teamStatsElement.removeAttr("data-status-ok");
-      
-      const matchStateText = $("#matchState").text();
+
       let minBat = minBatteryTracker[station] || 99.9;
       
       if (dsConn.RobotLinked && dsConn.BatteryVoltage > 0) {
@@ -182,7 +192,7 @@ const handleArenaStatus = function (data) {
           minBat = dsConn.BatteryVoltage;
           minBatteryTracker[station] = minBat;
         }
-      } else if (!dsConn.RobotLinked && matchStateText === "PRE-MATCH") {
+      } else if (!dsConn.RobotLinked && currentMatchState === "PRE_MATCH") {
         minBatteryTracker[station] = null;
         minBat = 0.0;
       }
@@ -229,8 +239,7 @@ const handleArenaStatus = function (data) {
       
       teamStatsElement.removeAttr("data-status-ok");
       
-      const matchStateText = $("#matchState").text();
-      if (matchStateText === "PRE-MATCH") {
+      if (currentMatchState === "PRE_MATCH") {
         minBatteryTracker[station] = null;
       }
       let minBat = minBatteryTracker[station];
@@ -303,7 +312,7 @@ const handleArenaStatus = function (data) {
         isAuto = ds.Auto;
         isEnabled = ds.Enabled;
       } else {
-        isAuto = (matchStateText === "AUTONOMOUS");
+        isAuto = currentRobots === "auto";
         isEnabled = false;
       }
 
@@ -330,36 +339,39 @@ const handleArenaStatus = function (data) {
       teamRobotElement.text("READY");
     }
 
-    const isFaded = stationStatus.Bypass || stationStatus.EStop || matchStateText === "POST-MATCH";
+    const isFaded = stationStatus.Bypass || stationStatus.EStop || currentMatchState === "POST_MATCH";
     teamElement.attr("data-faded", isFaded ? "true" : "false");
   });
 };
 
 const handleMatchTime = function (data) {
-  translateMatchTime(data, function (matchState, matchStateText, countdownSec) {
-    if (previousMatchStateText === "PRE-MATCH" && matchStateText === "AUTONOMOUS") {
-      for (const stationId in minBatteryTracker) {
-        minBatteryTracker[stationId] = null;
-      }
+  lastMatchTime = data;
+  const clock = DisplayShared.clock(data);
+  if (clock === null) {
+    return;
+  }
+  if (currentMatchState === "PRE_MATCH" && (clock.state === "START_MATCH" || clock.state === "IN_MATCH")) {
+    // A match is starting: forget the lowest battery voltages seen before it.
+    for (const stationId in minBatteryTracker) {
+      minBatteryTracker[stationId] = null;
     }
-    previousMatchStateText = matchStateText;
-    
-    $("#matchState").text(matchStateText);
-    $("#matchTime").text(countdownSec);
-    if (matchStateText === "PRE-MATCH" || matchStateText === "POST-MATCH") {
-      $(".ds-dependent").attr("data-preMatch", "true");
-    } else {
-      $(".ds-dependent").attr("data-preMatch", "false");
-    }
-  });
+  }
+  currentMatchState = clock.state;
+  currentRobots = clock.robots;
+
+  $("#matchState").text(clock.stateLabel);
+  $("#matchTime").text(clock.countdownSec);
+  if (clock.state === "PRE_MATCH" || clock.state === "POST_MATCH") {
+    $(".ds-dependent").attr("data-preMatch", "true");
+  } else {
+    $(".ds-dependent").attr("data-preMatch", "false");
+  }
 };
 
-const handleRealtimeScore = function (data, reversed) {
-  const leftScore = reversed ? data.Blue.ScoreSummary.Score : data.Red.ScoreSummary.Score;
-  const rightScore = reversed ? data.Red.ScoreSummary.Score : data.Blue.ScoreSummary.Score;
-  
-  $("#leftScore").text(leftScore);
-  $("#rightScore").text(rightScore);
+const handleRealtimeScore = function (data) {
+  lastRealtimeScore = data;
+  $(`#${redSide}Score`).text(DisplayShared.scoreText(data, GameView.allianceIdForSlot("red")));
+  $(`#${blueSide}Score`).text(DisplayShared.scoreText(data, GameView.allianceIdForSlot("blue")));
 };
 
 const handleMatchLoad = function (data) {
@@ -422,6 +434,16 @@ $(function () {
   $(".reversible-left").attr("data-reversed", reversed ? "true" : "false");
   $(".reversible-right").attr("data-reversed", reversed ? "true" : "false");
 
+  // Draw the clock and the scores again when the game arrives or changes.
+  GameView.onChange(function () {
+    if (lastMatchTime !== null) {
+      handleMatchTime(lastMatchTime);
+    }
+    if (lastRealtimeScore !== null) {
+      handleRealtimeScore(lastRealtimeScore);
+    }
+  });
+
   websocket = new CheesyWebsocket("/displays/fms_field_monitor/websocket", {
     arenaStatus: function (event) {
       handleArenaStatus(event.data);
@@ -429,17 +451,17 @@ $(function () {
     eventStatus: function (event) {
       handleEventStatus(event.data);
     },
+    game: function (event) {
+      handleGame(event.data);
+    },
     matchLoad: function (event) {
       handleMatchLoad(event.data);
-    },
-    matchTiming: function (event) {
-      handleMatchTiming(event.data);
     },
     matchTime: function (event) {
       handleMatchTime(event.data);
     },
     realtimeScore: function (event) {
-      handleRealtimeScore(event.data, reversed);
+      handleRealtimeScore(event.data);
     },
   });
 });

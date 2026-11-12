@@ -1,6 +1,7 @@
 package scoring
 
 import (
+	"encoding/json"
 	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/rules"
 	"github.com/stretchr/testify/assert"
@@ -470,4 +471,63 @@ func TestRankings(t *testing.T) {
 	orbitalRankings := []TeamRanking{many, few}
 	assert.NoError(t, SortRankings(orbital, orbitalRankings))
 	assert.Equal(t, 1, orbitalRankings[0].TeamID)
+}
+
+func TestApplyToStateDecodedFromJson(t *testing.T) {
+	// A stored state has been through JSON, which drops empty maps and unset values. Every kind of change must
+	// still apply to it, and give the same score as applying it to a fresh state.
+	game := loadGame(t, "orbital-rush")
+	changes := []Change{
+		{Seq: 1, Alliance: "red", Element: "cargo", Op: OpIncrement, Value: 3, Phase: "orbit"},
+		{Seq: 2, Alliance: "red", Robot: 2, Element: "relays", Op: OpIncrement, Phase: "orbit"},
+		{Seq: 3, Element: "comets", Op: OpIncrement, Phase: "orbit"},
+		{Seq: 4, Alliance: "red", Element: "beacon", Op: OpToggle, Phase: "launch"},
+		{Seq: 5, Alliance: "blue", Robot: 1, Element: "dock", Op: OpSet, Value: "high", Phase: "reentry"},
+		{Seq: 6, Alliance: "blue", Element: "station_hold", Op: OpSet, Value: 12.0},
+		{Seq: 7, Alliance: "green", Element: "payload_mass", Op: OpSet, Value: 11.0},
+		{Seq: 8, Alliance: "green", Robot: 1, Element: TargetCard, Op: OpSet, Value: "yellow"},
+		{Seq: 9, Alliance: "green", Element: TargetFoul, Op: OpAdd, Value: "minor", Phase: "orbit"},
+		{Seq: 10, Alliance: "green", Element: TargetDisqualified, Op: OpSet, Value: false},
+	}
+
+	fresh := NewState(game)
+	encoded, err := json.Marshal(NewState(game))
+	assert.NoError(t, err)
+	decoded := new(State)
+	assert.NoError(t, json.Unmarshal(encoded, decoded))
+	assert.Nil(t, decoded.Alliances["red"].Elements["cargo"].Counts, "the empty counts map is not stored")
+
+	// The worst case: a state with nothing in it but its alliances and robot slots.
+	bare := &State{Alliances: map[string]*AllianceState{}}
+	for _, id := range game.AllianceIDs() {
+		bare.Alliances[id] = &AllianceState{Robots: make([]map[string]*Value, game.Alliances.Size)}
+	}
+
+	for _, state := range []*State{fresh, decoded, bare} {
+		for _, change := range changes {
+			change := change
+			assert.NoError(t, state.Apply(game, &change), "%+v", change)
+		}
+	}
+	want, err := Compute(game, fresh, Options{})
+	assert.NoError(t, err)
+	for name, state := range map[string]*State{"decoded": decoded, "bare": bare} {
+		got, err := Compute(game, state, Options{})
+		if assert.NoError(t, err, name) {
+			for _, id := range game.AllianceIDs() {
+				assert.Equal(t, want.Alliances[id].Score, got.Alliances[id].Score, "%s %s", name, id)
+				assert.Equal(t, want.Alliances[id].RP, got.Alliances[id].RP, "%s %s", name, id)
+			}
+		}
+	}
+	// Red: 3 cargo in orbit, 1 relay pass, the beacon (5), and 6 for two full tanks, plus 2 from green's foul.
+	assert.Equal(t, 17.0, want.Alliances["red"].Score)
+
+	// Normalizing never disturbs what is already there.
+	before, err := json.Marshal(fresh)
+	assert.NoError(t, err)
+	fresh.Normalize(game)
+	after, err := json.Marshal(fresh)
+	assert.NoError(t, err)
+	assert.Equal(t, string(before), string(after))
 }

@@ -43,7 +43,7 @@ func TestFieldMonitorDisplayWebsocket(t *testing.T) {
 	ws := websocket.NewTestWebsocket(conn)
 
 	// Should get a few status updates right after connection.
-	readWebsocketType(t, ws, "matchTiming")
+	readWebsocketType(t, ws, "game")
 	readWebsocketType(t, ws, "displayConfiguration")
 	readWebsocketType(t, ws, "arenaStatus")
 	readWebsocketType(t, ws, "eventStatus")
@@ -72,7 +72,7 @@ func TestFieldMonitorFtaDisplayWebsocket(t *testing.T) {
 	ws := websocket.NewTestWebsocket(conn)
 
 	// Should get a few status updates right after connection.
-	readWebsocketType(t, ws, "matchTiming")
+	readWebsocketType(t, ws, "game")
 	readWebsocketType(t, ws, "displayConfiguration")
 	readWebsocketType(t, ws, "arenaStatus")
 	readWebsocketType(t, ws, "eventStatus")

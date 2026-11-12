@@ -42,11 +42,13 @@ body {
   line-height: 48px;
   font-size: 42px;
 }
+/* "red" is the first alliance of the game and "blue" the second. The game sets the colours; the fallbacks only show
+   for the instant before it arrives. */
 .red-teams {
-  color: #ff4444;
+  color: var(--alliance-0-color, #c9282d);
 }
 .blue-teams {
-  color: #2080ff;
+  color: var(--alliance-1-color, #1565c0);
 }
 .avatars {
   line-height: 48px;

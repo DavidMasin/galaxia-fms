@@ -1,28 +1,22 @@
 // Copyright 2018 Team 254. All Rights Reserved.
 // Author: pat@patfairbank.com (Patrick Fairbank)
 //
-// Web routes for testing the field sounds, LEDs, and PLC.
+// Web routes for testing the field sounds and PLC.
 
 package web
 
 import (
 	"fmt"
 	"github.com/DavidMasin/galaxia-fms/field"
-	"github.com/DavidMasin/galaxia-fms/game"
-	"github.com/DavidMasin/galaxia-fms/led"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/websocket"
 	"github.com/mitchellh/mapstructure"
 	"io"
 	"log"
 	"net/http"
-	"time"
 )
 
-const (
-	fieldTestingOverrideDisabledMessage = "Cannot override coil while match is in progress."
-	fieldTestingLedModeDisabledMessage  = "Cannot set LED mode while match is in progress."
-)
+const fieldTestingOverrideDisabledMessage = "Cannot override coil while match is in progress."
 
 // Shows the Field Testing page.
 func (web *Web) fieldTestingGetHandler(w http.ResponseWriter, r *http.Request) {
@@ -36,24 +30,15 @@ func (web *Web) fieldTestingGetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	plc := web.arena.Plc
-	redLedMode, blueLedMode := web.arena.Leds.GetModes()
 	data := struct {
 		*model.EventSettings
-		MatchSounds      []*game.MatchSound
-		RedLedModeNames  map[led.Mode]string
-		BlueLedModeNames map[led.Mode]string
-		RedLedMode       led.Mode
-		BlueLedMode      led.Mode
-		InputNames       []string
-		RegisterNames    []string
-		CoilNames        []string
+		MatchSounds   []string // File names without the extension: the active game's cues and the arena's own.
+		InputNames    []string
+		RegisterNames []string
+		CoilNames     []string
 	}{
 		web.arena.EventSettings,
-		game.UniqueMatchSounds(),
-		led.RedModeNames,
-		led.BlueModeNames,
-		redLedMode,
-		blueLedMode,
+		web.arena.MatchSounds(),
 		plc.GetInputNames(),
 		plc.GetRegisterNames(),
 		plc.GetCoilNames(),
@@ -80,31 +65,6 @@ func (web *Web) fieldTestingWebsocketHandler(w http.ResponseWriter, r *http.Requ
 
 	// Subscribe the websocket to the notifiers whose messages will be passed on to the client, in a separate goroutine.
 	go ws.HandleNotifiers(web.arena.Plc.IoChangeNotifier(), web.arena.ArenaStatusNotifier)
-
-	// Stream the LED status to the client periodically.
-	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-		for range ticker.C {
-			redPixels, bluePixels := web.arena.Leds.GetPixels()
-			redMode, blueMode := web.arena.Leds.GetModes()
-			type ledStatusPayload struct {
-				Red      [64]led.Color
-				Blue     [64]led.Color
-				RedMode  led.Mode
-				BlueMode led.Mode
-			}
-			err := ws.Write("ledStatus", ledStatusPayload{
-				Red:      redPixels,
-				Blue:     bluePixels,
-				RedMode:  redMode,
-				BlueMode: blueMode,
-			})
-			if err != nil {
-				return
-			}
-		}
-	}()
 
 	// Loop, waiting for commands and responding to them, until the client closes the connection.
 	for {
@@ -153,30 +113,6 @@ func (web *Web) fieldTestingWebsocketHandler(w http.ResponseWriter, r *http.Requ
 				continue
 			}
 			web.arena.Plc.IoChangeNotifier().Notify()
-		case "setLedMode":
-			args := struct {
-				RedMode  led.Mode
-				BlueMode led.Mode
-			}{}
-			err = mapstructure.Decode(data, &args)
-			if err != nil {
-				ws.WriteError(err.Error())
-				continue
-			}
-			if !fieldTestingOverridesAllowed(web.arena.MatchState) {
-				ws.WriteError(fieldTestingLedModeDisabledMessage)
-				continue
-			}
-			if !led.IsValidMode(args.RedMode) {
-				ws.WriteError(fmt.Sprintf("Invalid LED mode '%d'.", args.RedMode))
-				continue
-			}
-			if !led.IsValidMode(args.BlueMode) {
-				ws.WriteError(fmt.Sprintf("Invalid LED mode '%d'.", args.BlueMode))
-				continue
-			}
-
-			web.arena.Leds.SetMode(args.RedMode, args.BlueMode)
 		default:
 			writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
 			continue

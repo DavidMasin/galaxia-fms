@@ -87,7 +87,7 @@ func (web *Web) fieldMonitorDisplayWebsocketHandler(w http.ResponseWriter, r *ht
 
 	// Subscribe the websocket to the notifiers whose messages will be passed on to the client, in a separate goroutine.
 	go ws.HandleNotifiers(
-		web.arena.MatchTimingNotifier,
+		web.arena.GameNotifier,
 		display.Notifier,
 		web.arena.ArenaStatusNotifier,
 		web.arena.EventStatusNotifier,

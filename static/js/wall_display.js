@@ -2,10 +2,9 @@
 // Author: pat@patfairbank.com (Patrick Fairbank)
 //
 // Client-side methods for the wall display.
-
-if (typeof DisplayShared === "undefined") {
-  $.ajax({async: false, cache: true, dataType: "script", url: "/static/js/display_shared.js"});
-}
+//
+// Everything about the game (alliances, phases, the items shown above the score) comes from the game view and the
+// generic score messages; see game_view.js and display_shared.js, which must be loaded first.
 
 var websocket;
 let transitionMap;
@@ -14,18 +13,19 @@ let transitionInProgress = false;
 let currentScreen = "blank";
 let redSide;
 let blueSide;
-let currentMatch;
 let messageText = "";
 let hasMessage = false;
-const hubActiveController = DisplayShared.createHubActiveController(function () {
-  return currentScreen;
-});
+
+// The last message of each kind, kept so that the display can be drawn again when the game arrives or changes.
+let lastMatchLoad = null;
+let lastMatchTime = null;
+let lastRealtimeScore = null;
 
 // Constants for overlay positioning. The CSS is the source of truth for the values that represent initial state.
 const eventMatchInfoDown = "30px";
 const eventMatchInfoUp = $("#eventMatchInfo").css("height");
-const logoUp = "35px";
-const logoDown = $("#logo").css("top");
+const phaseUp = "35px";
+const phaseDown = $("#matchPhase").css("top");
 const scoreIn = $(".score").css("width");
 const scoreMid = "185px";
 const scoreOut = "250px";
@@ -62,7 +62,7 @@ const executeTransitionQueue = function () {
 
   if (transitionQueue.length > 0) {
     transitionInProgress = true;
-    const targetScreen = transitionQueue.shift();
+    const targetScreen = transitionQueue.splice(0, 1)[0];
     const callback = function () {
       // When the current transition is complete, call this method again to invoke the next one in the queue.
       currentScreen = targetScreen;
@@ -89,23 +89,20 @@ const executeTransitionQueue = function () {
 
 // Handles a websocket message to update the teams for the current match.
 const handleMatchLoad = function (data) {
-  currentMatch = DisplayShared.handleMatchLoad(data, redSide, blueSide);
+  lastMatchLoad = data;
+  DisplayShared.handleMatchLoad(data, redSide, blueSide);
 };
 
 // Handles a websocket message to update the match time countdown.
 const handleMatchTime = function (data) {
+  lastMatchTime = data;
   DisplayShared.handleMatchTime(data);
 };
 
 // Handles a websocket message to update the match score.
 const handleRealtimeScore = function (data) {
-  DisplayShared.handle2026RealtimeScore(
-    data,
-    currentMatch,
-    redSide,
-    blueSide,
-    hubActiveController.updateHubActiveIndicator
-  );
+  lastRealtimeScore = data;
+  DisplayShared.handleRealtimeScore(data, redSide, blueSide);
 };
 
 const transitionBlankToIntro = function (callback) {
@@ -129,7 +126,7 @@ const transitionBlankToMatch = function (callback) {
     $(".teams").css("display", "flex");
     $(".score-fields").css("display", "flex");
     $(".score-fields").transition({queue: false, width: scoreFieldsOut}, 500, "ease");
-    $("#logo").transition({queue: false, top: logoUp}, 500, "ease");
+    $("#matchPhase").transition({queue: false, top: phaseUp}, 500, "ease");
     $(".score").transition({queue: false, width: scoreOut}, 500, "ease", function () {
       $("#eventMatchInfo").css("display", "flex");
       $("#eventMatchInfo").transition({queue: false, height: eventMatchInfoDown}, 500, "ease", callback);
@@ -137,7 +134,6 @@ const transitionBlankToMatch = function (callback) {
       $("#matchTime").transition({queue: false, opacity: 1}, 750, "ease");
       $(".score-fields").transition({queue: false, opacity: 1}, 750, "ease");
       $(".score-aux").transition({queue: false, opacity: 1}, 750, "ease");
-      hubActiveController.restartPendingHubActiveIndicators();
     });
   });
 };
@@ -145,7 +141,7 @@ const transitionBlankToMatch = function (callback) {
 const transitionBlankToTimeout = function (callback) {
   hideMessage(function () {
     $("#timeoutDetails").transition({queue: false, width: timeoutDetailsOut}, 500, "ease");
-    $("#logo").transition({queue: false, top: logoUp}, 500, "ease", function () {
+    $("#matchPhase").transition({queue: false, top: phaseUp}, 500, "ease", function () {
       $(".timeout-detail").transition({queue: false, opacity: 1}, 750, "ease");
       $("#matchTime").transition({queue: false, opacity: 1}, 750, "ease", callback);
     });
@@ -170,13 +166,12 @@ const transitionIntroToMatch = function (callback) {
   });
   $(".score-fields").css("display", "flex");
   $(".score-fields").transition({queue: false, width: scoreFieldsOut}, 500, "ease");
-  $("#logo").transition({queue: false, top: logoUp}, 500, "ease");
+  $("#matchPhase").transition({queue: false, top: phaseUp}, 500, "ease");
   $(".score").transition({queue: false, width: scoreOut}, 500, "ease", function () {
     $(".score-number").transition({queue: false, opacity: 1}, 750, "ease");
     $("#matchTime").transition({queue: false, opacity: 1}, 750, "ease", callback);
     $(".score-fields").transition({queue: false, opacity: 1}, 750, "ease");
     $(".score-aux").transition({queue: false, opacity: 1}, 750, "ease");
-    hubActiveController.restartPendingHubActiveIndicators();
   });
 };
 
@@ -188,7 +183,7 @@ const transitionIntroToTimeout = function (callback) {
       $(".avatars").hide();
       $(".teams").hide();
       $("#timeoutDetails").transition({queue: false, width: timeoutDetailsOut}, 500, "ease");
-      $("#logo").transition({queue: false, top: logoUp}, 500, "ease", function () {
+      $("#matchPhase").transition({queue: false, top: phaseUp}, 500, "ease", function () {
         $(".timeout-detail").transition({queue: false, opacity: 1}, 750, "ease");
         $("#matchTime").transition({queue: false, opacity: 1}, 750, "ease", callback);
       });
@@ -208,7 +203,7 @@ const transitionMatchToBlank = function (callback) {
   $(".score-number").transition({queue: false, opacity: 0}, 300, "linear", function () {
     $("#eventMatchInfo").hide();
     $(".score-fields").transition({queue: false, width: 0}, 500, "ease");
-    $("#logo").transition({queue: false, top: logoDown}, 500, "ease");
+    $("#matchPhase").transition({queue: false, top: phaseDown}, 500, "ease");
     $(".score").transition({queue: false, width: scoreIn}, 500, "ease", function () {
       $(".teams").hide();
       $(".score-fields").hide();
@@ -223,7 +218,7 @@ const transitionMatchToIntro = function (callback) {
   $(".score-aux").transition({queue: false, opacity: 0}, 750, "ease");
   $("#matchTime").transition({queue: false, opacity: 0}, 300, "linear", function () {
     $(".score-fields").transition({queue: false, width: 0}, 500, "ease");
-    $("#logo").transition({queue: false, top: logoDown}, 500, "ease");
+    $("#matchPhase").transition({queue: false, top: phaseDown}, 500, "ease");
     $(".score").transition({queue: false, width: scoreMid}, 500, "ease", function () {
       $(".score-fields").hide();
       $(".avatars").css("display", "flex");
@@ -236,7 +231,7 @@ const transitionTimeoutToBlank = function (callback) {
   $(".timeout-detail").transition({queue: false, opacity: 0}, 300, "linear");
   $("#matchTime").transition({queue: false, opacity: 0}, 300, "linear", function () {
     $("#timeoutDetails").transition({queue: false, width: timeoutDetailsIn}, 500, "ease");
-    $("#logo").transition({queue: false, top: logoDown}, 500, "ease", function () {
+    $("#matchPhase").transition({queue: false, top: phaseDown}, 500, "ease", function () {
       showMessage(callback);
     });
   });
@@ -246,7 +241,7 @@ const transitionTimeoutToIntro = function (callback) {
   $(".timeout-detail").transition({queue: false, opacity: 0}, 300, "linear");
   $("#matchTime").transition({queue: false, opacity: 0}, 300, "linear", function () {
     $("#timeoutDetails").transition({queue: false, width: timeoutDetailsIn}, 500, "ease");
-    $("#logo").transition({queue: false, top: logoDown}, 500, "ease", function () {
+    $("#matchPhase").transition({queue: false, top: phaseDown}, 500, "ease", function () {
       $(".avatars").css("display", "flex");
       $(".avatars").css("opacity", 1);
       $(".teams").css("display", "flex");
@@ -306,6 +301,23 @@ $(function () {
     showMessage();
   }
 
+  // Build everything that depends on the game when it arrives, and again whenever it changes, from the last
+  // messages received. The boxes above the score are only there for a game that has something to show in them.
+  $("#matchOverlayAux").hide();
+  GameView.onChange(function () {
+    DisplayShared.buildScoreItems();
+    $("#matchOverlayAux").toggle(DisplayShared.scoreItemsWidth() > 0);
+    if (lastMatchLoad !== null) {
+      handleMatchLoad(lastMatchLoad);
+    }
+    if (lastMatchTime !== null) {
+      handleMatchTime(lastMatchTime);
+    }
+    if (lastRealtimeScore !== null) {
+      handleRealtimeScore(lastRealtimeScore);
+    }
+  });
+
   // Set up the websocket back to the server.
   websocket = new CheesyWebsocket("/displays/wall/websocket", {
     allianceSelection: function (event) {
@@ -314,14 +326,14 @@ $(function () {
     audienceDisplayMode: function (event) {
       handleAudienceDisplayMode(event.data);
     },
+    game: function (event) {
+      handleGame(event.data);
+    },
     matchLoad: function (event) {
       handleMatchLoad(event.data);
     },
     matchTime: function (event) {
       handleMatchTime(event.data);
-    },
-    matchTiming: function (event) {
-      handleMatchTiming(event.data);
     },
     realtimeScore: function (event) {
       handleRealtimeScore(event.data);

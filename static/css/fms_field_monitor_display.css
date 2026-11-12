@@ -56,11 +56,17 @@ body {
   display: none;
 }
 
+/* The first alliance of the game is on the left unless the display is reversed. The game sets the colours; the
+   fallbacks only show for the instant before it arrives. */
+.left-score, .right-score {
+  border-radius: 4px;
+  color: #fff;
+}
 .left-score[data-reversed=false], .right-score[data-reversed=true] {
-  color: #d32f2f;
+  background-color: var(--alliance-0-color, #c9282d);
 }
 .left-score[data-reversed=true], .right-score[data-reversed=false] {
-  color: #1976d2;
+  background-color: var(--alliance-1-color, #1565c0);
 }
 
 .fms-row[data-ds="true"] .right-column,
@@ -93,12 +99,12 @@ body {
   min-height: 0;
 }
 
-/* Colored borders for the columns */
+/* Each column has a border in its alliance's colour. */
 .left-column[data-reversed="false"], .right-column[data-reversed="true"] {
-  border: 3px solid #d32f2f; /* Red */
+  border: 3px solid var(--alliance-0-color, #c9282d);
 }
 .left-column[data-reversed="true"], .right-column[data-reversed="false"] {
-  border: 3px solid #1976d2; /* Blue */
+  border: 3px solid var(--alliance-1-color, #1565c0);
 }
 
 /* On very small screens or vertical screens, make it a single column and scale up fonts. */
@@ -173,10 +179,10 @@ body {
   margin-right: 0.5vw;
 }
 .badge-left[data-reversed="false"], .badge-right[data-reversed="true"] {
-  background-color: #d32f2f;
+  background-color: var(--alliance-0-color, #c9282d);
 }
 .badge-left[data-reversed="true"], .badge-right[data-reversed="false"] {
-  background-color: #1976d2;
+  background-color: var(--alliance-1-color, #1565c0);
 }
 
 

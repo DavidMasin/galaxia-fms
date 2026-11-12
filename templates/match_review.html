@@ -33,10 +33,12 @@ UI for listing matches and their results.
           <tr>
             <th>Match</th>
             <th>Time</th>
-            <th class="text-center">Red Alliance</th>
-            <th class="text-center">Blue Alliance</th>
-            <th class="text-center">Red Score</th>
-            <th class="text-center">Blue Score</th>
+            {{range $alliance := gameAlliances}}
+            <th class="text-center">{{$alliance.Name | html}} Alliance</th>
+            {{end}}
+            {{range $alliance := gameAlliances}}
+            <th class="text-center">{{$alliance.Name | html}} Score</th>
+            {{end}}
             <th class="text-center">Action</th>
           </tr>
         </thead>
@@ -45,28 +47,21 @@ UI for listing matches and their results.
           <tr>
             <td class="bg-{{$m.ColorClass}}">{{$m.ShortName}}</td>
             <td class="bg-{{$m.ColorClass}}">{{$m.Time}}</td>
-            <td class="bg-{{$m.ColorClass}} text-center red-text">
-              {{index $m.RedTeams 0}}, {{index $m.RedTeams 1}}, {{index $m.RedTeams 2}}
+            {{range $side := $m.Sides}}
+            <td class="bg-{{$m.ColorClass}} text-center {{$side.Slot}}-text">
+              {{range $i, $team := $side.Teams}}{{if $i}}, {{end}}{{$team}}{{end}}
             </td>
-            <td class="bg-{{$m.ColorClass}} text-center blue-text">
-              {{index $m.BlueTeams 0}}, {{index $m.BlueTeams 1}}, {{index $m.BlueTeams 2}}
-            </td>
-            <td class="bg-{{$m.ColorClass}} text-center red-text">
+            {{end}}
+            {{range $side := $m.Sides}}
+            <td class="bg-{{$m.ColorClass}} text-center {{$side.Slot}}-text">
               {{if $m.IsComplete}}
-              {{$m.RedScore}}
-              {{if ne $type playoffMatch}}
-              {{template "rankingPointSymbols" $m.RedSummary}}
+              {{$side.Score}}
+              {{if and (ne $type playoffMatch) $side.RankingPoints}}
+              {{template "rankingPoints" $side}}
               {{end}}
               {{end}}
             </td>
-            <td class="bg-{{$m.ColorClass}} text-center blue-text">
-              {{if $m.IsComplete}}
-              {{$m.BlueScore}}
-              {{if ne $type playoffMatch}}
-              {{template "rankingPointSymbols" $m.BlueSummary}}
-              {{end}}
-              {{end}}
-            </td>
+            {{end}}
             <td class="bg-{{$m.ColorClass}} text-center nowrap">
               <a href="/match_review/{{$m.Id}}/edit"><b class="btn btn-primary btn-sm">Edit</b></a>
             </td>
@@ -81,13 +76,9 @@ UI for listing matches and their results.
 {{end}}
 {{define "script"}}
 {{end}}
-{{define "rankingPointSymbols"}}
-<span class="match-review-rps nowrap" title="Energized, Supercharged, Traversal bonus RPs">
-  <span class="match-review-rp" title="Energized Bonus">{{template "rankingPointSymbol" .EnergizedBonusRankingPoint}}</span>
-  <span class="match-review-rp" title="Supercharged Bonus">{{template "rankingPointSymbol" .SuperchargedBonusRankingPoint}}</span>
-  <span class="match-review-rp" title="Traversal Bonus">{{template "rankingPointSymbol" .TraversalBonusRankingPoint}}</span>
+{{define "rankingPoints"}}
+<span class="match-review-rps nowrap"
+  title="{{range $i, $rankingPoint := .RankingPoints}}{{if $i}}, {{end}}{{$rankingPoint.Name | html}}: {{$rankingPoint.Text}}{{end}}">
+  ({{.RpTotal}} RP)
 </span>
-{{end}}
-{{define "rankingPointSymbol"}}
-{{if .}}<span class="text-success">&#x2611;</span>{{else}}<span class="text-danger">&#x2612;</span>{{end}}
 {{end}}

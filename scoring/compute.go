@@ -290,7 +290,10 @@ func (env *environment) elementPoints(
 
 // Compute works out every alliance's points, score, breakdown, match result, ranking points and ranking stats
 // from the raw state.
+//
+// The state is completed in place first (see State.Normalize), so a state loaded from storage can be scored.
 func Compute(g *gamedef.Game, s *State, opts Options) (*Result, error) {
+	s.Normalize(g)
 	env := buildEnvironment(g, s, opts)
 	result := &Result{Alliances: make(map[string]*AllianceResult), Field: make(map[string]any), env: env}
 	ids := g.AllianceIDs()

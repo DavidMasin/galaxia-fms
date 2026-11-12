@@ -41,7 +41,7 @@ Display showing robot connection status in the style of FMS Field Monitor.
         {{template "team" dict "side" "left" "position" "2" "station" "2"}}
         {{template "team" dict "side" "left" "position" "3" "station" "3"}}
       </div>
-      <!-- Right side (Red by default, Blue if reversed) -->
+      <!-- Right side: the second alliance of the game by default, the first if reversed. -->
       <div id="rightTeams" class="fms-column right-column reversible-right">
         {{template "team" dict "side" "right" "position" "3" "station" "3"}}
         {{template "team" dict "side" "right" "position" "2" "station" "2"}}
@@ -50,11 +50,11 @@ Display showing robot connection status in the style of FMS Field Monitor.
     </div>
 
     <div id="eventStatusRow" class="ds-dependent">
-      <div id="leftScore" class="fta-dependent ds-dependent left-score text-start reversible-left"
+      <div id="leftScore" class="fta-dependent ds-dependent left-score text-center reversible-left"
         style="width:8%; vertical-align:middle;"></div>
       <div id="cycleTimeMessage" class="text-center ds-dependent" style="width: 46%;"></div>
       <div id="earlyLateMessage" class="text-center ds-dependent" style="width: 38%;"></div>
-      <div id="rightScore" class="right-score ds-dependent text-end fta-dependent reversible-right "
+      <div id="rightScore" class="right-score ds-dependent text-center fta-dependent reversible-right "
         style="width: 8%;"></div>
     </div>
   </body>
@@ -64,7 +64,9 @@ Display showing robot connection status in the style of FMS Field Monitor.
   <script src="/static/js/cheesy-websocket.js"></script>
   <script src="/static/js/lib/jquery.transit.min.js"></script>
   <script src="/static/js/lib/bootstrap.bundle.min.js"></script>
+  <script src="/static/js/game_view.js"></script>
   <script src="/static/js/match_timing.js"></script>
+  <script src="/static/js/display_shared.js"></script>
   <script src="/static/js/fms_field_monitor_display.js"></script>
 
 </html>

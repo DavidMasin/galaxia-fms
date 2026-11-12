@@ -2,46 +2,27 @@
 Copyright 2023 Team 254. All Rights Reserved.
 Author: pat@patfairbank.com (Patrick Fairbank)
 
-UI for entering and tracking fouls and red/yellow cards.
+UI for entering and tracking fouls and cards. The alliances, foul types, rules, cards and the scoring elements a
+referee may change all come from the active game and are generated in the browser.
 */}}
 {{define "title"}}Referee Panel{{end}}
 {{define "body"}}
 <div id="matchName"></div>
+<div id="panelMessage" role="alert"></div>
 <div id="refereePanel">
   <div id="cards" class="headRef-dependent">
-    <h3 id="teamTitle">Red/Yellow Cards</h3>
-    <div class="alliance-cards" id="redCards">
-      <button type="button" class="team-card playoff-alliance-card" id="redAllianceCard" data-alliance="red"
-        style="display: none;" onclick="cycleCard(this);"></button>
-      {{range $i := seq 3}}
-      {{template "teamCard" dict "alliance" "red" "position" $i}}
-      {{end}}
-    </div>
-    <div class="alliance-cards" id="blueCards">
-      <button type="button" class="team-card playoff-alliance-card" id="blueAllianceCard" data-alliance="blue"
-        style="display: none;" onclick="cycleCard(this);"></button>
-      {{range $i := seq 3}}
-      {{template "teamCard" dict "alliance" "blue" "position" $i}}
-      {{end}}
-    </div>
-    <div id="scoringStatuses">
-      <div class="scoring-status" id="redScoreStatus"></div>
-      <div class="scoring-status" id="blueScoreStatus"></div>
-    </div>
+    <h3 id="teamTitle">Cards</h3>
+    <div id="allianceCards"></div>
+    <div id="scoringStatuses"></div>
   </div>
   <div id="fouls">
-    <div id="scoreSummary" class="headRef-dependent">
-      {{template "scoreSummary" dict "id" "blueScoreSummary"}}
-      {{template "scoreSummary" dict "id" "redScoreSummary"}}
-    </div>
     <h3>Fouls</h3>
-    <div id="foulButtons">
-      <div class="foul-button blue-foul" onclick="addFoul('blue', false);">Blue</div>
-      <div class="foul-button blue-foul" onclick="addFoul('blue', true);">Blue Major</div>
-      <div class="foul-button red-foul" onclick="addFoul('red', false);">Red</div>
-      <div class="foul-button red-foul" onclick="addFoul('red', true);">Red Major</div>
-    </div>
+    <div id="foulButtons"></div>
     <div id="foulList"></div>
+    <div id="refereeScoring" class="headRef-dependent">
+      <div id="refereeElements"></div>
+      <ul id="changes"></ul>
+    </div>
   </div>
 </div>
 <p>Note: Team and rule assignment are optional.</p>
@@ -93,31 +74,12 @@ UI for entering and tracking fouls and red/yellow cards.
 {{define "head"}}
 <link rel="manifest" href="/static/manifest/referee.manifest">
 <meta name="viewport" content="width=device-width, user-scalable=no">
+<link href="/static/css/score_controls.css" rel="stylesheet">
 <link href="/static/css/referee_panel.css" rel="stylesheet">
 {{end}}
 {{define "script"}}
+<script src="/static/js/game_view.js"></script>
 <script src="/static/js/match_timing.js"></script>
+<script src="/static/js/score_controls.js"></script>
 <script src="/static/js/referee_panel.js"></script>
-{{end}}
-{{define "teamCard"}}
-<div class="team-card station-card" id="{{.alliance}}{{.position}}Card" data-alliance="{{.alliance}}" data-station="{{slice .alliance 0 1}}{{.position}}" onclick="cycleCard(this);">
-</div>
-{{end}}
-{{define "scoreSummary"}}
-<div id="{{.id}}" class="scoreSummary">
-  <div class="placeholder"></div>
-  <div class="team-1">0</div>
-  <div class="team-2">0</div>
-  <div class="team-3">0</div>
-
-  <div class="label">Auto Tower</div>
-  <div class="tower-status team-1-auto-tower" data-status="0">None</div>
-  <div class="tower-status team-2-auto-tower" data-status="0">None</div>
-  <div class="tower-status team-3-auto-tower" data-status="0">None</div>
-
-  <div class="label">Endgame Tower</div>
-  <div class="tower-status team-1-endgame-tower" data-status="0">None</div>
-  <div class="tower-status team-2-endgame-tower" data-status="0">None</div>
-  <div class="tower-status team-3-endgame-tower" data-status="0">None</div>
-</div>
 {{end}}

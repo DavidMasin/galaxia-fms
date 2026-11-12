@@ -202,9 +202,11 @@ playoff:
 
 layout:
   scoring_panels:
-    - { id: red_near, name: Red near side, alliances: [red], groups: [Tower] }
+    # The near-side scorer also counts fuel by hand, for fields without hub sensors, and can correct the
+    # autonomous winner.
+    - { id: red_near, name: Red near side, alliances: [red], groups: [Hub, Tower] }
     - { id: red_far, name: Red far side, alliances: [red], groups: [Tower] }
-    - { id: blue_near, name: Blue near side, alliances: [blue], groups: [Tower] }
+    - { id: blue_near, name: Blue near side, alliances: [blue], groups: [Hub, Tower] }
     - { id: blue_far, name: Blue far side, alliances: [blue], groups: [Tower] }
   audience:
     live: [fuel.total]

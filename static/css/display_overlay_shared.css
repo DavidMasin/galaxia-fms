@@ -91,6 +91,10 @@ html {
   background-color: #fc0;
 }
 
+.teams div[data-unused=true], .avatar[data-unused=true] {
+  display: none;
+}
+
 #leftTeams {
   border-right: 1px solid #222;
 }
@@ -99,12 +103,14 @@ html {
   border-left: 1px solid #222;
 }
 
+/* The first alliance of the game is on the left unless the display is reversed. The game sets the colours; the
+   fallbacks only show for the instant before it arrives. */
 .reversible-left[data-reversed=false], .reversible-right[data-reversed=true] {
-  background-color: #ff4444;
+  background-color: var(--alliance-0-color, #c9282d);
 }
 
 .reversible-left[data-reversed=true], .reversible-right[data-reversed=false] {
-  background-color: #2080ff;
+  background-color: var(--alliance-1-color, #1565c0);
 }
 
 .score {
@@ -151,58 +157,85 @@ html {
   opacity: 0;
 }
 
-.score-right .score-fields {
-  justify-content: flex-end;
+/* The items a game shows beside each score: its audience items, then its indicators nearest the score. The second
+   side mirrors the first. The widths here match the ones display_shared.js sizes the score boxes with. */
+.score-items {
+  height: 100%;
+  flex-direction: row;
+  align-items: center;
 }
 
-.score-fuel {
+.score-right .score-items {
+  flex-direction: row-reverse;
+}
+
+.score-live {
+  flex: none;
   width: 80px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  font-family: "FuturaLTBold";
   color: #fff;
 }
 
-.score-fuel > span {
+.score-live-value, .score-live-name {
+  max-width: 76px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.score-live-value {
+  font-family: "FuturaLTBold";
   font-size: 27px;
-  line-height: 40px;
+  line-height: 36px;
 }
 
-.score-fuel > span:last-child {
-  border-top: 2px solid rgba(255, 255, 255, 0.6);
+.score-live-value[data-long=true] {
+  font-size: 15px;
 }
 
-.score-hub-active {
-  width: 70px;
-  margin: 0 20px;
+.score-live-name {
+  font-family: "FuturaLT";
+  font-size: 12px;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.score-indicators {
+  flex: none;
+  width: 100px;
+  height: 100%;
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
 }
 
-.progress-guide,
-.active-progress,
-.progress-time {
-  opacity: 0;
-  transition: opacity 300ms linear;
-}
-
-.score-hub-active[data-active=true] .progress-guide,
-.score-hub-active[data-active=true] .active-progress,
-.score-hub-active[data-active=true] .progress-time {
-  opacity: 1;
-}
-
-.score-hub-active[data-active=true] .progress-guide {
-  opacity: 0.35;
-}
-
-.progress-time {
+.score-indicator {
+  width: 90px;
+  height: 24px;
+  margin: 3px 0;
+  padding: 0 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.45);
   font-family: "FuturaLTBold";
-  font-size: 23px;
-  dominant-baseline: middle;
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+  text-transform: uppercase;
+  transition: background-color 300ms linear, border-color 300ms linear, color 300ms linear;
+}
+
+.score-indicator[data-lit=true] {
+  background-color: #fff;
+  border-color: #fff;
+  color: #222;
 }
 
 #matchCircle {
@@ -215,15 +248,27 @@ html {
   border: 1px solid #222;
 }
 
-#logo {
+/* The name of the phase that is running, or of the game when none is. */
+#matchPhase {
   position: relative;
   top: 55px;
+  width: 120px;
   height: 40px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  color: #222;
+  font-family: "FuturaLTBold";
+  font-size: 15px;
+  line-height: 18px;
+  text-transform: uppercase;
 }
 
 #matchTime {
   position: relative;
-  top: 40px;
+  top: 47px;
   height: 60px;
   color: #222;
   font-family: "FuturaLTBold";

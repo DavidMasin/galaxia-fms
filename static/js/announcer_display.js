@@ -2,9 +2,17 @@
 // Author: pat@patfairbank.com (Patrick Fairbank)
 //
 // Client-side logic for the announcer display.
+//
+// The teams and the final results are rendered by the server and fetched when they change. The clock and the live
+// scores are drawn here, from the game view and the generic messages; see game_view.js and display_shared.js, which
+// must be loaded first.
 
 var websocket;
 let isFirstScorePosted = true;
+
+// The last message of each kind, kept so that the display can be drawn again when the game arrives or changes.
+let lastMatchTime = null;
+let lastRealtimeScore = null;
 
 // Handles a websocket message to hide the score dialog once the next match is being introduced.
 var handleAudienceDisplayMode = function (targetScreen) {
@@ -38,16 +46,23 @@ var handleMatchLoad = function (data) {
 
 // Handles a websocket message to update the match time countdown.
 var handleMatchTime = function (data) {
-  translateMatchTime(data, function (matchState, matchStateText, countdownSec) {
-    $("#matchState").text(matchStateText);
-    $("#matchTime").text(getCountdown(data.MatchState, data.MatchTimeSec));
-  });
+  lastMatchTime = data;
+  const clock = DisplayShared.clock(data);
+  if (clock === null) {
+    return;
+  }
+  $("#matchState").text(clock.stateLabel);
+  $("#matchTime").text(clock.countdownSec);
 };
 
-// Handles a websocket message to update the match score.
+// Handles a websocket message to update the match score. The first alliance of the game is in the box on the left.
 var handleRealtimeScore = function (data) {
-  $("#redScore").text(data.Red.ScoreSummary.Score - data.Red.ScoreSummary.PostMatchPoints);
-  $("#blueScore").text(data.Blue.ScoreSummary.Score - data.Blue.ScoreSummary.PostMatchPoints);
+  lastRealtimeScore = data;
+  if (!GameView.isReady()) {
+    return;
+  }
+  $("#redScore").text(DisplayShared.scoreText(data, GameView.allianceIdForSlot("red")));
+  $("#blueScore").text(DisplayShared.scoreText(data, GameView.allianceIdForSlot("blue")));
 };
 
 // Handles a websocket message to populate the final score data.
@@ -73,6 +88,16 @@ var handleScorePosted = function (data) {
 };
 
 $(function () {
+  // Draw the clock and the scores again when the game arrives or changes.
+  GameView.onChange(function () {
+    if (lastMatchTime !== null) {
+      handleMatchTime(lastMatchTime);
+    }
+    if (lastRealtimeScore !== null) {
+      handleRealtimeScore(lastRealtimeScore);
+    }
+  });
+
   // Set up the websocket back to the server.
   websocket = new CheesyWebsocket("/displays/announcer/websocket", {
     audienceDisplayMode: function (event) {
@@ -81,14 +106,14 @@ $(function () {
     eventStatus: function (event) {
       handleEventStatus(event.data);
     },
+    game: function (event) {
+      handleGame(event.data);
+    },
     matchLoad: function (event) {
       handleMatchLoad(event.data);
     },
     matchTime: function (event) {
       handleMatchTime(event.data);
-    },
-    matchTiming: function (event) {
-      handleMatchTiming(event.data);
     },
     realtimeScore: function (event) {
       handleRealtimeScore(event.data);

@@ -4,7 +4,6 @@
 package web
 
 import (
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/tournament"
 	"github.com/stretchr/testify/assert"
@@ -15,31 +14,48 @@ import (
 func TestRankingsCsvReport(t *testing.T) {
 	web := setupTestWeb(t)
 
-	ranking1 := game.TestRanking2()
-	ranking2 := game.TestRanking1()
-	web.arena.Database.CreateRanking(ranking1)
-	web.arena.Database.CreateRanking(ranking2)
+	web.arena.Database.CreateRanking(testRanking2())
+	web.arena.Database.CreateRanking(testRanking1())
 
+	// The columns between the ranking points and the record are the ranking order of the active game, without its
+	// random tiebreaker, each to the number of decimals the game asks for.
 	recorder := web.getHttpResponse("/reports/csv/rankings")
 	assert.Equal(t, 200, recorder.Code)
 	assert.Equal(t, "text/plain", recorder.Header()["Content-Type"][0])
-	expectedBody := "Rank,TeamId,RankingPoints,MatchPoints,AutoFuelPoints,TowerPoints,Wins,Losses,Ties," +
-		"Disqualifications,Played\n1,254,20,625,90,554,3,2,1,0,10\n2,1114,18,700,625,90,1,3,2,0,10\n\n"
+	expectedBody := "Rank,TeamId,RankingPoints,Ranking score,Avg match,Avg auto fuel,Avg tower,Wins,Losses,Ties," +
+		"Disqualifications,Played\n1,254,20,2.00,62.50,9.00,55.40,3,2,1,0,10\n" +
+		"2,1114,18,1.80,70.00,62.50,9.00,1,3,2,0,10\n\n"
 	assert.Equal(t, expectedBody, recorder.Body.String())
+
+	// Another game, other columns. Its second column is printed to one decimal.
+	selectTestGame(t, web, "ball-count")
+	recorder = web.getHttpResponse("/reports/csv/rankings")
+	assert.Equal(t, 200, recorder.Code)
+	expectedBody = "Rank,TeamId,RankingPoints,Ranking score,Avg match points,Wins,Losses,Ties,Disqualifications," +
+		"Played\n1,254,20,2.00,62.5,3,2,1,0,10\n2,1114,18,1.80,70.0,1,3,2,0,10\n\n"
+	assert.Equal(t, expectedBody, recorder.Body.String())
+}
+
+func TestCsvLine(t *testing.T) {
+	line, err := csvLine([]string{"1", "Avg, per match", "say \"hi\""})
+	assert.Nil(t, err)
+	assert.Equal(t, "1,\"Avg, per match\",\"say \"\"hi\"\"\"", line)
 }
 
 func TestRankingsPdfReport(t *testing.T) {
 	web := setupTestWeb(t)
 
-	ranking1 := game.TestRanking2()
-	ranking2 := game.TestRanking1()
-	web.arena.Database.CreateRanking(ranking1)
-	web.arena.Database.CreateRanking(ranking2)
+	web.arena.Database.CreateRanking(testRanking2())
+	web.arena.Database.CreateRanking(testRanking1())
 
-	// Can't really parse the PDF content and check it, so just check that what's sent back is a PDF.
-	recorder := web.getHttpResponse("/reports/pdf/rankings")
-	assert.Equal(t, 200, recorder.Code)
-	assert.Equal(t, "application/pdf", recorder.Header()["Content-Type"][0])
+	// Can't really parse the PDF content and check it, so just check that what's sent back is a PDF, for a game
+	// with several ranking columns and for one with few.
+	for _, gameId := range []string{"rebuilt-style", "ball-count"} {
+		selectTestGame(t, web, gameId)
+		recorder := web.getHttpResponse("/reports/pdf/rankings")
+		assert.Equal(t, 200, recorder.Code)
+		assert.Equal(t, "application/pdf", recorder.Header()["Content-Type"][0])
+	}
 }
 
 func TestScheduleCsvReport(t *testing.T) {

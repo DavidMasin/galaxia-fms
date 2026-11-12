@@ -74,8 +74,7 @@ body[data-mode=timeout] .mode#match {
   width: 100%;
   height: 100%;
 }
-#match[data-state=AUTO_PERIOD], #match[data-state=PAUSE_PERIOD], #match[data-state=TELEOP_PERIOD],
-#match[data-state=TIMEOUT_ACTIVE], #match[data-state=POST_TIMEOUT] {
+#match[data-state=IN_MATCH], #match[data-state=TIMEOUT_ACTIVE], #match[data-state=POST_TIMEOUT] {
   background-color: #fff;
   color: #000;
 }
@@ -85,8 +84,7 @@ body[data-mode=timeout] .mode#match {
 #match[data-state=PRE_MATCH] #preMatch, #match[data-state=POST_MATCH] #preMatch {
   display: block;
 }
-#match[data-state=AUTO_PERIOD] #inMatch, #match[data-state=PAUSE_PERIOD] #inMatch,
-#match[data-state=TELEOP_PERIOD] #inMatch, #match[data-state=TIMEOUT_ACTIVE] #inMatch,
+#match[data-state=IN_MATCH] #inMatch, #match[data-state=TIMEOUT_ACTIVE] #inMatch,
 #match[data-state=POST_TIMEOUT] #inMatch {
   display: block;
 }
@@ -105,9 +103,12 @@ body[data-mode=timeout] .mode#match {
   line-height: 500px;
   text-align: center;
 }
+/* The left screen of each station wall shows the first alliance's score, the right the second's, and the middle the
+   clock with the name of the phase under it. The game sets the colours; the fallbacks only show for the instant
+   before it arrives. */
 body[data-position=left] #inMatch #redScore {
   display: block;
-  color: #f43;
+  color: var(--alliance-0-color, #c9282d);
 }
 body[data-position=middle] #inMatch #timeRemaining {
   display: block;
@@ -115,7 +116,21 @@ body[data-position=middle] #inMatch #timeRemaining {
 }
 body[data-position=right] #inMatch #blueScore {
   display: block;
-  color: #07f;
+  color: var(--alliance-1-color, #1565c0);
+}
+#inMatch #phaseName {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 4vh;
+  font-size: 6vw;
+  line-height: 1.2;
+  text-align: center;
+  text-transform: uppercase;
+}
+body[data-position=middle] #inMatch #phaseName {
+  display: block;
 }
 
 /* Pre Match */
@@ -156,10 +171,10 @@ body[data-position=right] #inMatch #blueScore {
   display: none;
 }
 [data-alliance-bg=R], [data-status=R] {
-  background-color: #d00;
+  background-color: var(--alliance-0-color, #c9282d);
 }
 [data-alliance-bg=B], [data-status=B] {
-  background-color: #00c;
+  background-color: var(--alliance-1-color, #1565c0);
 }
 #teamRank {
   background-color: transparent;

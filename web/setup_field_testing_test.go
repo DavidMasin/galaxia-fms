@@ -5,13 +5,11 @@ package web
 
 import (
 	"github.com/DavidMasin/galaxia-fms/field"
-	"github.com/DavidMasin/galaxia-fms/led"
 	"github.com/DavidMasin/galaxia-fms/websocket"
 	gorillawebsocket "github.com/gorilla/websocket"
 	"github.com/mitchellh/mapstructure"
 	"github.com/stretchr/testify/assert"
 	"testing"
-	"time"
 )
 
 type plcIoChangeMessage struct {
@@ -26,9 +24,20 @@ func TestSetupFieldTesting(t *testing.T) {
 
 	recorder := web.getHttpResponse("/setup/field_testing")
 	assert.Equal(t, 200, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "LED Lighting")
-	assert.Contains(t, recorder.Body.String(), "Red Hub")
-	assert.Contains(t, recorder.Body.String(), "Blue Hub")
+	// The sounds on offer are the ones the cues of the active game play, then the arena's own.
+	assert.Contains(t, recorder.Body.String(), "Game Sounds")
+	for _, sound := range web.arena.MatchSounds() {
+		assert.Contains(t, recorder.Body.String(), "playSound('"+sound+"');")
+	}
+	assert.Contains(t, recorder.Body.String(), "playSound('shift_change');")
+	assert.Contains(t, recorder.Body.String(), "playSound('field_reset');")
+	assert.NotContains(t, recorder.Body.String(), "LED Lighting")
+
+	selectTestGame(t, web, "ball-count")
+	recorder = web.getHttpResponse("/setup/field_testing")
+	assert.Equal(t, 200, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "playSound('warning');")
+	assert.NotContains(t, recorder.Body.String(), "playSound('shift_change');")
 }
 
 func TestSetupFieldTestingWebsocket(t *testing.T) {
@@ -131,9 +140,7 @@ func TestSetupFieldTestingWebsocketSetPlcCoilOverrideDisallowedStates(t *testing
 
 	for _, matchState := range []field.MatchState{
 		field.StartMatch,
-		field.AutoPeriod,
-		field.PausePeriod,
-		field.TeleopPeriod,
+		field.InMatch,
 	} {
 		web.arena.MatchState = matchState
 		ws.Write("setPlcCoilOverride", map[string]any{"Index": 8, "Override": "on"})
@@ -157,7 +164,7 @@ func TestSetupFieldTestingWebsocketSetPlcCoilOverrideInvalidArgs(t *testing.T) {
 	assert.Equal(t, "Invalid coil override state 'invalid'.", readWebsocketError(t, ws))
 }
 
-func TestSetupFieldTestingWebsocketSetLedMode(t *testing.T) {
+func TestSetupFieldTestingWebsocketNoLedMode(t *testing.T) {
 	web := setupTestWeb(t)
 
 	server, wsUrl := web.startTestServer()
@@ -169,54 +176,9 @@ func TestSetupFieldTestingWebsocketSetLedMode(t *testing.T) {
 
 	readWebsocketMultiple(t, ws, 2)
 
-	ws.Write("setLedMode", map[string]any{"RedMode": led.PurpleMode, "BlueMode": led.GreenMode})
-	assert.Eventually(t, func() bool {
-		redMode, blueMode := web.arena.Leds.GetModes()
-		return redMode == led.PurpleMode && blueMode == led.GreenMode
-	}, time.Second, 10*time.Millisecond)
-}
-
-func TestSetupFieldTestingWebsocketSetLedModeDisallowedStates(t *testing.T) {
-	web := setupTestWeb(t)
-
-	server, wsUrl := web.startTestServer()
-	defer server.Close()
-	conn, _, err := gorillawebsocket.DefaultDialer.Dial(wsUrl+"/setup/field_testing/websocket", nil)
-	assert.Nil(t, err)
-	defer conn.Close()
-	ws := websocket.NewTestWebsocket(conn)
-
-	readWebsocketMultiple(t, ws, 2)
-
-	for _, matchState := range []field.MatchState{
-		field.StartMatch,
-		field.AutoPeriod,
-		field.PausePeriod,
-		field.TeleopPeriod,
-	} {
-		web.arena.MatchState = matchState
-		ws.Write("setLedMode", map[string]any{"RedMode": led.PurpleMode, "BlueMode": led.GreenMode})
-		assert.Equal(t, fieldTestingLedModeDisabledMessage, readWebsocketError(t, ws))
-	}
-}
-
-func TestSetupFieldTestingWebsocketSetLedModeInvalidArgs(t *testing.T) {
-	web := setupTestWeb(t)
-
-	server, wsUrl := web.startTestServer()
-	defer server.Close()
-	conn, _, err := gorillawebsocket.DefaultDialer.Dial(wsUrl+"/setup/field_testing/websocket", nil)
-	assert.Nil(t, err)
-	defer conn.Close()
-	ws := websocket.NewTestWebsocket(conn)
-
-	readWebsocketMultiple(t, ws, 2)
-
-	ws.Write("setLedMode", map[string]any{"RedMode": 999, "BlueMode": led.GreenMode})
-	assert.Equal(t, "Invalid LED mode '999'.", readWebsocketError(t, ws))
-
-	ws.Write("setLedMode", map[string]any{"RedMode": led.PurpleMode, "BlueMode": 999})
-	assert.Equal(t, "Invalid LED mode '999'.", readWebsocketError(t, ws))
+	// Field lighting is no longer driven from here, so there is no such command, and nothing is streamed.
+	ws.Write("setLedMode", map[string]any{"RedMode": 1, "BlueMode": 2})
+	assert.Equal(t, "Invalid message type 'setLedMode'.", readWebsocketError(t, ws))
 }
 
 func readPlcIoChangeMessage(t *testing.T, ws *websocket.Websocket) plcIoChangeMessage {

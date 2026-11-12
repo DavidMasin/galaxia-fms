@@ -10,7 +10,7 @@ UI for configuring event settings.
   {{if .ErrorMessage}}
   <div class="alert alert-danger alert-dismissible">
     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    {{.ErrorMessage}}
+    {{.ErrorMessage | html}}
   </div>
   {{end}}
   <div class="col-lg-8">
@@ -191,62 +191,80 @@ UI for configuring event settings.
           </div>
           <div class="tab-pane" id="game" role="tabpanel">
             <fieldset class="mb-4">
-              <legend>Game-Specific</legend>
+              <legend>Game</legend>
+              <p>The game the event is played with. Games are defined in files that can be viewed, edited and tried
+                out on the <a href="/setup/games">Games</a> page.</p>
               <div class="row mb-3">
-                <label class="col-lg-6 control-label">Autonomous Period Duration<br/>(seconds)</label>
+                <label class="col-lg-6 control-label" for="gameId">Game</label>
                 <div class="col-lg-6">
-                  <input type="text" class="form-control" name="autoDurationSec" value="{{.AutoDurationSec}}">
+                  <select class="form-select" id="gameId" name="gameId" onchange="showGameParams();">
+                    {{range $game := .Games}}
+                    <option value="{{$game.Id}}"{{if $game.Selected}} selected{{end}}
+                      {{if not $game.Selectable}} disabled{{end}}>
+                      {{$game.Name | html}}{{if not $game.Selectable}} (cannot be selected){{end}}
+                    </option>
+                    {{end}}
+                  </select>
                 </div>
               </div>
-              <div class="row mb-3">
-                <label class="col-lg-6 control-label">Pause Duration<br/>(seconds)</label>
-                <div class="col-lg-6">
-                  <input type="text" class="form-control" name="pauseDurationSec" value="{{.PauseDurationSec}}">
+              {{range $game := .Games}}
+              <div class="game-details" data-game="{{$game.Id}}" style="display: none;">
+                {{if $game.Description}}<p class="form-text">{{$game.Description | html}}</p>{{end}}
+                {{if $game.Problem}}
+                <div class="alert alert-warning">
+                  This game cannot be selected: {{$game.Problem | html}}
                 </div>
-              </div>
-              <div class="row mb-3">
-                <label class="col-lg-6 control-label">Transition Shift Duration<br/>(seconds)</label>
-                <div class="col-lg-6">
-                  <input type="text" class="form-control" name="transitionShiftDurationSec"
-                    value="{{.TransitionShiftDurationSec}}">
+                {{end}}
+                {{range $param := $game.Params}}
+                <div class="row mb-3">
+                  <label class="col-lg-6 control-label">
+                    {{$param.Name | html}}
+                    {{if or $param.Min $param.Max}}
+                    <br><small class="text-muted">
+                      {{if $param.Min}}At least {{$param.Min}}.{{end}} {{if $param.Max}}At most {{$param.Max}}.{{end}}
+                    </small>
+                    {{end}}
+                  </label>
+                  <div class="col-lg-6">
+                    {{if eq $param.Type "bool"}}
+                    <select class="form-select" name="{{gameParamInputName $game.Id $param.Id}}">
+                      <option value=""{{if not $param.Value}} selected{{end}}>
+                        Default ({{if eq $param.Default "true"}}on{{else}}off{{end}})
+                      </option>
+                      <option value="true"{{if eq $param.Value "true"}} selected{{end}}>On</option>
+                      <option value="false"{{if eq $param.Value "false"}} selected{{end}}>Off</option>
+                    </select>
+                    {{else}}
+                    <input type="text" class="form-control" name="{{gameParamInputName $game.Id $param.Id}}"
+                      value="{{$param.Value}}" placeholder="{{$param.Default}}">
+                    {{end}}
+                  </div>
                 </div>
+                {{end}}
+                {{if $game.Params}}
+                <p class="form-text">Leave a parameter empty to use the game's own value, which is shown in its
+                  place.</p>
+                {{else if $game.Selectable}}
+                <p class="form-text">This game has no parameters to set.</p>
+                {{end}}
               </div>
-              <div class="row mb-3">
-                <label class="col-lg-6 control-label">Shift Duration<br/>(seconds)</label>
-                <div class="col-lg-6">
-                  <input type="text" class="form-control" name="shiftDurationSec" value="{{.ShiftDurationSec}}">
-                </div>
+              {{end}}
+              <p class="form-text">
+                The game and its parameters can be changed while a match is in progress: the change is saved and
+                takes effect when the arena returns to pre-match, so the match on the field is finished and scored
+                with the game it started with. No other setting can be changed during a match.
+              </p>
+              {{if ne .ActiveGameId .GameId}}
+              <div class="alert alert-info">
+                The field is currently playing <b>{{.ActiveGameName | html}}</b>. The selected game takes over when
+                the arena is next in pre-match, provided it can be played on this field.
               </div>
-              <div class="row mb-3">
-                <label class="col-lg-6 control-label">Endgame Duration<br/>(seconds)</label>
-                <div class="col-lg-6">
-                  <input type="text" class="form-control" name="endgameDurationSec" value="{{.EndgameDurationSec}}">
-                </div>
+              {{else if .MatchInProgress}}
+              <div class="alert alert-info">
+                A match is in progress or its result has not been committed. A change made here now takes effect once
+                it is over.
               </div>
-              <div class="row mb-3">
-                <label class="col-lg-6 control-label">Energized Bonus RP Fuel Threshold</label>
-                <div class="col-lg-6">
-                  <input type="text" class="form-control" id="energizedBonusThreshold" name="energizedBonusThreshold"
-                    value="{{.EnergizedBonusThreshold}}">
-                </div>
-              </div>
-              <div class="row mb-3">
-                <label class="col-lg-6 control-label">Supercharged Bonus RP Fuel Threshold</label>
-                <div class="col-lg-6">
-                  <input type="text" class="form-control" id="superchargedBonusThreshold"
-                    name="superchargedBonusThreshold" value="{{.SuperchargedBonusThreshold}}">
-                </div>
-              </div>
-              <div class="row">
-                <label class="col-lg-6 control-label">
-                  Traversal Bonus RP Point Threshold<br>
-                  <small class="text-muted">Set to 0 to disable the bonus and award 2 RP instead of 3 for a win.</small>
-                </label>
-                <div class="col-lg-6">
-                  <input type="text" class="form-control" id="traversalBonusThreshold" name="traversalBonusThreshold"
-                    value="{{.TraversalBonusThreshold}}">
-                </div>
-              </div>
+              {{end}}
             </fieldset>
           </div>
           <div class="tab-pane" id="field" role="tabpanel">
@@ -433,25 +451,6 @@ UI for configuring event settings.
                 <div class="col-lg-6">
                   <input type="text" class="form-control" name="teamSignBlueTimerId"
                     value="{{if gt .TeamSignBlueTimerId 0}}{{.TeamSignBlueTimerId}}{{end}}" placeholder="54">
-                </div>
-              </div>
-            </fieldset>
-            <fieldset class="mb-4">
-              <legend>LED Lighting</legend>
-              <div class="row mb-3">
-                <label class="col-lg-6 control-label">LED Controller Address</label>
-                <div class="col-lg-6">
-                  <input type="text" class="form-control" name="ledControllerAddress"
-                    value="{{.LedControllerAddress}}" placeholder="10.0.100.60">
-                </div>
-              </div>
-              <div class="row mb-3">
-                <label class="col-lg-6 control-label">Universe Mode</label>
-                <div class="col-lg-6">
-                  <select class="form-select" name="ledUniverseMode">
-                    <option value="single" {{if ne .LedUniverseMode "two"}}selected{{end}}>Single Universe</option>
-                    <option value="two" {{if eq .LedUniverseMode "two"}}selected{{end}}>Two Universes</option>
-                  </select>
                 </div>
               </div>
             </fieldset>
@@ -828,6 +827,15 @@ UI for configuring event settings.
 {{end}}
 {{define "script"}}
 <script>
+  // Shows the description and the parameters of the game picked in the selector.
+  showGameParams = function () {
+    const gameId = $("#gameId").val();
+    $(".game-details").each(function () {
+      $(this).toggle($(this).attr("data-game") === gameId);
+    });
+  };
+  showGameParams();
+
   updateNumPlayoffAlliances = function (isDoubleElimination) {
     const numPlayoffAlliances = $("input[name=numPlayoffAlliances]");
     numPlayoffAlliances.prop("disabled", false);

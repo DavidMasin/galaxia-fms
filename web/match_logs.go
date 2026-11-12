@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 )
 
@@ -332,13 +331,13 @@ func (web *Web) buildMatchLogsList(matchType model.MatchType) ([]MatchLogsListIt
 			return []MatchLogsListItem{}, err
 		}
 		switch match.Status {
-		case game.RedWonMatch:
+		case model.RedWonMatch:
 			matchLogsList[i].ColorClass = "red"
 			matchLogsList[i].IsComplete = true
-		case game.BlueWonMatch:
+		case model.BlueWonMatch:
 			matchLogsList[i].ColorClass = "blue"
 			matchLogsList[i].IsComplete = true
-		case game.TieMatch:
+		case model.TieMatch:
 			matchLogsList[i].ColorClass = "yellow"
 			matchLogsList[i].IsComplete = true
 		default:

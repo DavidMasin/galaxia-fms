@@ -8,9 +8,12 @@ package web
 import (
 	"fmt"
 	"github.com/DavidMasin/galaxia-fms/field"
+	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"io"
 	"log"
+	"maps"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +21,30 @@ import (
 	"strings"
 	"time"
 )
+
+const settingsLockedMessage = "Settings cannot be changed while a match is in progress or is uncommitted."
+
+// settingsGame is one game definition as the settings page offers it for selection.
+type settingsGame struct {
+	Id          string
+	Name        string
+	Description string
+	Selected    bool
+	Selectable  bool
+	Problem     string // Why the game cannot be selected, if it cannot.
+	Params      []settingsGameParam
+}
+
+// settingsGameParam is one parameter of a game that the event can override.
+type settingsGameParam struct {
+	Id      string
+	Name    string
+	Type    string
+	Default string
+	Value   string // The event's override, or empty to use the default.
+	Min     string
+	Max     string
+}
 
 // Shows the event settings editing page.
 func (web *Web) settingsGetHandler(w http.ResponseWriter, r *http.Request) {
@@ -35,15 +62,35 @@ func (web *Web) settingsPostHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	activeSettingsTab := settingsTabFromRequest(r)
-	if !settingsSaveAllowed(web.arena.MatchState) {
-		web.renderSettingsWithStatus(
-			w, r, "Settings cannot be changed while a match is in progress or is uncommitted.", activeSettingsTab,
-			http.StatusOK,
-		)
+	eventSettings := web.arena.EventSettings
+
+	// Validate the game selection before anything is changed, so that a selection that cannot be played is refused
+	// as a whole.
+	gameId, gameParams, err := web.readGameSelection(r)
+	if err != nil {
+		web.renderSettingsWithStatus(w, r, err.Error(), activeSettingsTab, http.StatusOK)
 		return
 	}
+	gameSelectionChanged := gameId != eventSettings.GameId || !maps.Equal(gameParams, eventSettings.GameParams)
 
-	eventSettings := web.arena.EventSettings
+	if !settingsSaveAllowed(web.arena.MatchState) {
+		// The game selection is the one thing that can be saved with a match on the field, because the arena does
+		// not take it into use until that match is over. Everything else would reconfigure the field right now.
+		message := settingsLockedMessage
+		if gameSelectionChanged {
+			eventSettings.GameId, eventSettings.GameParams = gameId, gameParams
+			if err = web.arena.Database.UpdateEventSettings(eventSettings); err != nil {
+				handleWebErr(w, err)
+				return
+			}
+			web.gameChangePending.Store(true)
+			message = "The game selection was saved and will be used once the match on the field is over. No other " +
+				"setting was changed: " + strings.ToLower(settingsLockedMessage[:1]) + settingsLockedMessage[1:]
+		}
+		web.renderSettingsWithStatus(w, r, message, activeSettingsTab, http.StatusOK)
+		return
+	}
+	eventSettings.GameId, eventSettings.GameParams = gameId, gameParams
 
 	previousEventName := eventSettings.Name
 	eventSettings.Name = r.PostFormValue("name")
@@ -136,8 +183,6 @@ func (web *Web) settingsPostHandler(w http.ResponseWriter, r *http.Request) {
 	eventSettings.SCCUpCommands = r.PostFormValue("sccUpCommands")
 	eventSettings.SCCDownCommands = r.PostFormValue("sccDownCommands")
 	eventSettings.PlcAddress = r.PostFormValue("plcAddress")
-	eventSettings.LedControllerAddress = r.PostFormValue("ledControllerAddress")
-	eventSettings.LedUniverseMode = r.PostFormValue("ledUniverseMode")
 	eventSettings.AdminPassword = r.PostFormValue("adminPassword")
 	eventSettings.TeamSignRed1Id, _ = strconv.Atoi(r.PostFormValue("teamSignRed1Id"))
 	eventSettings.TeamSignRed2Id, _ = strconv.Atoi(r.PostFormValue("teamSignRed2Id"))
@@ -178,27 +223,17 @@ func (web *Web) settingsPostHandler(w http.ResponseWriter, r *http.Request) {
 	eventSettings.CompanionMatchAbortPage, _ = strconv.Atoi(r.PostFormValue("companionMatchAbortPage"))
 	eventSettings.CompanionMatchAbortRow, _ = strconv.Atoi(r.PostFormValue("companionMatchAbortRow"))
 	eventSettings.CompanionMatchAbortColumn, _ = strconv.Atoi(r.PostFormValue("companionMatchAbortColumn"))
-	eventSettings.AutoDurationSec, _ = strconv.Atoi(r.PostFormValue("autoDurationSec"))
-	eventSettings.PauseDurationSec, _ = strconv.Atoi(r.PostFormValue("pauseDurationSec"))
-	eventSettings.TransitionShiftDurationSec, _ = strconv.Atoi(r.PostFormValue("transitionShiftDurationSec"))
-	eventSettings.ShiftDurationSec, _ = strconv.Atoi(r.PostFormValue("shiftDurationSec"))
-	eventSettings.EndgameDurationSec, _ = strconv.Atoi(r.PostFormValue("endgameDurationSec"))
-	eventSettings.EnergizedBonusThreshold, _ = strconv.Atoi(r.PostFormValue("energizedBonusThreshold"))
-	eventSettings.SuperchargedBonusThreshold, _ = strconv.Atoi(r.PostFormValue("superchargedBonusThreshold"))
-	eventSettings.TraversalBonusThreshold, _ = strconv.Atoi(r.PostFormValue("traversalBonusThreshold"))
 
-	err := web.arena.Database.UpdateEventSettings(eventSettings)
+	err = web.arena.Database.UpdateEventSettings(eventSettings)
 	if err != nil {
 		handleWebErr(w, err)
 		return
 	}
 
-	// Refresh the arena in case any of the settings changed.
-	err = web.arena.LoadSettings()
-	if err != nil {
-		handleWebErr(w, err)
-		return
-	}
+	// Refresh the arena in case any of the settings changed. If the selected game turns out not to be usable, the
+	// arena has applied every other setting and kept the game it had; that is reported, not treated as a failure.
+	web.gameChangePending.Store(false)
+	loadErr := web.arena.LoadSettings()
 
 	if eventSettings.AdminPassword != previousAdminPassword {
 		// Delete any existing user sessions to force a logout.
@@ -208,7 +243,147 @@ func (web *Web) settingsPostHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if loadErr != nil {
+		web.renderSettingsWithStatus(w, r, "Settings saved, but: "+loadErr.Error(), activeSettingsTab, http.StatusOK)
+		return
+	}
 	http.Redirect(w, r, "/setup/settings#"+activeSettingsTab, 303)
+}
+
+// readGameSelection reads the game the settings form selects and the form's overrides of that game's parameters,
+// and checks that the game can be played on this field and that every override is a value its parameter accepts.
+// A form that does not carry a game selection leaves the event's selection as it is.
+func (web *Web) readGameSelection(r *http.Request) (string, map[string]float64, error) {
+	eventSettings := web.arena.EventSettings
+	gameId := r.PostFormValue("gameId")
+	if gameId == "" {
+		return eventSettings.GameId, eventSettings.GameParams, nil
+	}
+
+	g := web.arena.Games.Get(gameId)
+	if g == nil {
+		return "", nil, fmt.Errorf(
+			"Game %q is missing or has errors; it has to load without errors before it can be selected.", gameId,
+		)
+	}
+	if err := field.CheckGameSelectable(g); err != nil {
+		return "", nil, fmt.Errorf("Game %q cannot be selected: %s.", gameId, err.Error())
+	}
+
+	// An empty input means "use the game's default", which is stored as the absence of an override.
+	params := make(map[string]float64)
+	for _, param := range g.Params {
+		raw := strings.TrimSpace(r.PostFormValue(gameParamInputName(gameId, param.ID)))
+		if raw == "" {
+			continue
+		}
+		value, err := parseGameParam(param, raw)
+		if err != nil {
+			return "", nil, err
+		}
+		params[param.ID] = value
+	}
+	return gameId, params, nil
+}
+
+// gameParamInputName returns the name of the form input that holds the event's override of a game's parameter. The
+// page carries the inputs of every game, so that switching the selection shows the right ones without a round trip.
+func gameParamInputName(gameId, paramId string) string {
+	return "gameParam." + gameId + "." + paramId
+}
+
+// parseGameParam turns what was typed for a game parameter into its value. Parameter values are stored as numbers;
+// a boolean is 1 or 0.
+func parseGameParam(param *gamedef.Param, raw string) (float64, error) {
+	name := param.Name
+	if name == "" {
+		name = param.ID
+	}
+	if param.Type == "bool" {
+		switch strings.ToLower(raw) {
+		case "true", "1", "on", "yes":
+			return 1, nil
+		case "false", "0", "off", "no":
+			return 0, nil
+		}
+		return 0, fmt.Errorf("%s must be on or off.", name)
+	}
+
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, fmt.Errorf("%s must be a number; %q is not one.", name, raw)
+	}
+	if param.Type == "int" && value != math.Trunc(value) {
+		return 0, fmt.Errorf("%s must be a whole number.", name)
+	}
+	if param.Min != nil && value < *param.Min {
+		return 0, fmt.Errorf("%s cannot be less than %s.", name, formatNumber(*param.Min))
+	}
+	if param.Max != nil && value > *param.Max {
+		return 0, fmt.Errorf("%s cannot be more than %s.", name, formatNumber(*param.Max))
+	}
+	return value, nil
+}
+
+// buildSettingsGames lists every game definition for the settings page: which one is selected, which ones cannot be
+// and why, and each game's parameters with the event's overrides of the selected one.
+func (web *Web) buildSettingsGames() []settingsGame {
+	eventSettings := web.arena.EventSettings
+	var games []settingsGame
+	for _, summary := range web.arena.Games.List() {
+		listed := settingsGame{
+			Id: summary.ID, Name: summary.Name, Description: summary.Description,
+			Selected: summary.ID == eventSettings.GameId,
+		}
+		g := web.arena.Games.Get(summary.ID)
+		switch {
+		case g == nil:
+			listed.Problem = "it has errors"
+			for _, diagnostic := range summary.Diagnostics {
+				if diagnostic.Severity == "error" {
+					listed.Problem = "it has errors, the first being " + diagnostic.String()
+					break
+				}
+			}
+		case field.CheckGameSelectable(g) != nil:
+			listed.Problem = field.CheckGameSelectable(g).Error()
+		default:
+			listed.Selectable = true
+		}
+		if g != nil {
+			for _, param := range g.Params {
+				listedParam := settingsGameParam{Id: param.ID, Name: param.Name, Type: param.Type}
+				if listedParam.Name == "" {
+					listedParam.Name = param.ID
+				}
+				defaultValue := g.ParamDefaults()[param.ID]
+				listedParam.Default = formatGameParam(param, defaultValue)
+				if override, ok := eventSettings.GameParams[param.ID]; ok && listed.Selected {
+					listedParam.Value = formatGameParam(param, override)
+				}
+				if param.Min != nil {
+					listedParam.Min = formatNumber(*param.Min)
+				}
+				if param.Max != nil {
+					listedParam.Max = formatNumber(*param.Max)
+				}
+				listed.Params = append(listed.Params, listedParam)
+			}
+		}
+		games = append(games, listed)
+	}
+	return games
+}
+
+// formatGameParam formats the value of a game parameter the way its input on the settings page takes it.
+func formatGameParam(param *gamedef.Param, value float64) string {
+	if param.Type == "bool" {
+		if value != 0 {
+			return "true"
+		}
+		return "false"
+	}
+	return strconv.FormatFloat(value, 'f', -1, 64)
 }
 
 func settingsSaveAllowed(matchState field.MatchState) bool {
@@ -318,9 +493,12 @@ func (web *Web) restoreDbHandler(w http.ResponseWriter, r *http.Request) {
 		handleWebErr(w, err)
 		return
 	}
+	// A restored database may select a game that cannot be used here. The arena then keeps the game it has and has
+	// applied every other setting, so that is reported on the page rather than treated as a failed restore.
+	web.gameChangePending.Store(false)
 	err = web.arena.LoadSettings()
 	if err != nil {
-		handleWebErr(w, err)
+		web.renderSettings(w, r, "The database was restored, but: "+err.Error())
 		return
 	}
 
@@ -458,7 +636,7 @@ func (web *Web) settingsPublishRankingsHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	if web.arena.EventSettings.TbaPublishingEnabled {
-		err := web.arena.TbaClient.PublishRankings(web.arena.Database)
+		err := web.arena.TbaClient.PublishRankings(web.arena.Database, web.arena.Game)
 		if err != nil {
 			web.renderSettingsWithStatus(
 				w, r, "Failed to publish rankings: "+err.Error(), "publishing", http.StatusInternalServerError,
@@ -512,7 +690,14 @@ func (web *Web) renderSettingsWithStatus(
 		ErrorMessage      string
 		ActiveSettingsTab string
 		NexusBaseUrl      string
-	}{web.arena.EventSettings, errorMessage, activeSettingsTab, web.arena.NexusClient.BaseUrl}
+		Games             []settingsGame
+		ActiveGameId      string // The game the arena is playing, which lags the selection while a match is on.
+		ActiveGameName    string
+		MatchInProgress   bool
+	}{
+		web.arena.EventSettings, errorMessage, activeSettingsTab, web.arena.NexusClient.BaseUrl,
+		web.buildSettingsGames(), web.arena.Game.ID, web.arena.Game.Name, !settingsSaveAllowed(web.arena.MatchState),
+	}
 	if statusCode != http.StatusOK {
 		w.WriteHeader(statusCode)
 	}

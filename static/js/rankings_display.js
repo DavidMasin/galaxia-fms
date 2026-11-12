@@ -3,14 +3,18 @@
 // Author: pat@patfairbank.com (Patrick Fairbank)
 //
 // Client-side methods for the rankings display.
+//
+// The columns between the team's name and its ranking points are the keys the active game ranks teams by. The server
+// lists them with the rankings, and the table is built from that list; see display_shared.js, which must be loaded
+// first.
 
 var websocket;
 var initialDwellMs = 3000;  // How long the display waits upon initial load before scrolling.
 var scrollMsPerRow;  // How long in milliseconds it takes to scroll a height of one row.
 var staticUpdateIntervalMs = 10000;  // How long between updates if not scrolling.
-var standingsTemplate = Handlebars.compile($("#standingsTemplate").html());
 var rankingsData;
 var prevHighestPlayedMatch;
+var prevColumns;
 
 // Loads the JSON rankings data from the event server.
 var getRankingsData = function (callback) {
@@ -22,14 +26,24 @@ var getRankingsData = function (callback) {
   });
 };
 
+// Sets the headings of the table, and the width of its columns, for the given columns of the game's ranking order.
+var setColumns = function (columns) {
+  $("#header").html(DisplayShared.rankingsHeaderHtml(columns));
+  document.getElementById("standings").style.setProperty(
+    "--ranking-field-width", DisplayShared.rankingsFieldWidth(columns) + "%"
+  );
+};
+
 // Updates the rankings in place and initiates scrolling if they are long enough to require it.
 var updateStaticRankings = function () {
   getRankingsData(function () {
-    var rankingsHtml = standingsTemplate(rankingsData);
+    var rankingsHtml = DisplayShared.rankingsRowsHtml(rankingsData);
     $("#rankings2").html(rankingsHtml);
     $("#scroller").css("transform", "translate(0px, -2px);");
     prevHighestPlayedMatch = rankingsData.HighestPlayedMatch;
     setHighestPlayedMatch(rankingsData.HighestPlayedMatch);
+    prevColumns = rankingsData.Columns;
+    setColumns(rankingsData.Columns);
     if ($("#rankings2").height() > $("#container").height()) {
       // Initiate scrolling.
       setTimeout(cycleRankings, initialDwellMs);
@@ -47,13 +61,15 @@ var cycleRankings = function () {
   $("#scroller").css({transform: "translate(0px, -1px);"});
 
   // Load new data into the now out-of-sight bottom table.
-  var rankingsHtml = standingsTemplate(rankingsData);
+  var rankingsHtml = DisplayShared.rankingsRowsHtml(rankingsData);
   $("#rankings2").html(rankingsHtml);
 
-  // Delay updating the "Standings as of" message by one cycle because the tables are always one cycle behind
-  // the data loading.
+  // Delay updating the "Standings as of" message and the column headings by one cycle because the tables are always
+  // one cycle behind the data loading.
   setHighestPlayedMatch(prevHighestPlayedMatch);
   prevHighestPlayedMatch = rankingsData.HighestPlayedMatch;
+  setColumns(prevColumns);
+  prevColumns = rankingsData.Columns;
 
   if ($("#rankings1").height() > $("#container").height()) {
     // Kick off another scrolling animation.

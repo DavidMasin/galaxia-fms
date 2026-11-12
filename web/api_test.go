@@ -5,7 +5,6 @@ package web
 
 import (
 	"encoding/json"
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/tournament"
 	"github.com/DavidMasin/galaxia-fms/websocket"
@@ -60,7 +59,7 @@ func TestMatchesApi(t *testing.T) {
 	web.arena.Database.CreateMatch(&match1)
 	web.arena.Database.CreateMatch(&match2)
 	web.arena.Database.CreateMatch(&match3)
-	matchResult1 := model.BuildTestMatchResult(match1.Id, 1)
+	matchResult1 := model.BuildTestMatchResult(web.arena.Database, match1.Id, 1)
 	web.arena.Database.CreateMatchResult(matchResult1)
 
 	recorder := web.getHttpResponse("/api/matches/qualification")
@@ -71,10 +70,28 @@ func TestMatchesApi(t *testing.T) {
 	assert.Nil(t, err)
 	if assert.Equal(t, 2, len(matchesData)) {
 		assert.Equal(t, match1.Id, matchesData[0].Match.Id)
-		assert.Equal(t, *matchResult1, matchesData[0].Result.MatchResult)
+		// The stored result comes back whole: the game it was played with, its raw state and its audit log.
+		result := matchesData[0].Result
+		assert.Equal(t, matchResult1.Id, result.Id)
+		assert.Equal(t, "rebuilt-style", result.GameId)
+		assert.Equal(t, matchResult1.GameHash, result.GameHash)
+		assert.Equal(t, len(matchResult1.Changes), len(result.Changes))
+		assert.JSONEq(t, stateJson(t, matchResult1.State), stateJson(t, result.State))
+		// With it comes what the game makes of it, per alliance.
+		if assert.NotNil(t, result.Computed) {
+			assert.Equal(t, "blue", result.Computed.Winner)
+			assert.Equal(t, 133.0, result.Computed.Alliances["red"].Score)
+			assert.Equal(t, 289.0, result.Computed.Alliances["blue"].Score)
+			assert.Equal(t, 85.0, result.Computed.Alliances["blue"].FoulPoints)
+			assert.Equal(t, 1.0, result.Computed.Alliances["blue"].RP["energized"])
+		}
 		assert.Equal(t, match2.Id, matchesData[1].Match.Id)
 		assert.Nil(t, matchesData[1].Result)
 	}
+
+	// The JSON carries the computed result under the alliance ids of the game.
+	assert.Contains(t, recorder.Body.String(), `"Computed": {`)
+	assert.Contains(t, recorder.Body.String(), `"alliances": {`)
 }
 
 func TestRankingsApi(t *testing.T) {
@@ -85,20 +102,37 @@ func TestRankingsApi(t *testing.T) {
 	assert.Equal(t, 200, recorder.Code)
 	assert.Equal(t, "application/json", recorder.Header()["Content-Type"][0])
 	rankingsData := struct {
-		Rankings           []RankingWithNickname
-		TeamNicknames      map[string]string
+		Columns            []RankingsApiColumn
+		Rankings           []RankingsApiRanking
 		HighestPlayedMatch string
 	}{}
 	err := json.Unmarshal([]byte(recorder.Body.String()), &rankingsData)
 	assert.Nil(t, err)
 	assert.Equal(t, 0, len(rankingsData.Rankings))
+	assert.Contains(t, recorder.Body.String(), `"Rankings": []`)
 	assert.Equal(t, "", rankingsData.HighestPlayedMatch)
 
-	ranking1 := RankingWithNickname{*game.TestRanking2(), "Simbots"}
-	ranking2 := RankingWithNickname{*game.TestRanking1(), "ChezyPof"}
-	web.arena.Database.CreateRanking(&ranking1.Ranking)
-	web.arena.Database.CreateRanking(&ranking2.Ranking)
-	web.arena.Database.CreateMatch(&model.Match{Type: model.Qualification, ShortName: "Q29", Status: game.RedWonMatch})
+	// The columns are the ranking order of the active game, in order, whether or not there are rankings yet.
+	assert.Equal(
+		t,
+		[]RankingsApiColumn{
+			{Name: "Ranking score", Decimals: 2}, {Name: "Avg match", Decimals: 2}, {Name: "Avg auto fuel", Decimals: 2},
+			{Name: "Avg tower", Decimals: 2}, {Random: true},
+		},
+		rankingsData.Columns,
+	)
+
+	web.arena.Database.CreateRanking(testRanking2())
+	web.arena.Database.CreateRanking(testRanking1())
+	ranking1 := RankingsApiRanking{
+		TeamId: 1114, Nickname: "Simbots", Rank: 2, RP: 18, Played: 10, Wins: 1, Losses: 3, Ties: 2,
+		Sort: []float64{1.8, 70, 62.5, 9, 0.1114},
+	}
+	ranking2 := RankingsApiRanking{
+		TeamId: 254, Nickname: "ChezyPof", Rank: 1, RP: 20, Played: 10, Wins: 3, Losses: 2, Ties: 1,
+		Sort: []float64{2, 62.5, 9, 55.4, 0.254},
+	}
+	web.arena.Database.CreateMatch(&model.Match{Type: model.Qualification, ShortName: "Q29", Status: model.RedWonMatch})
 	web.arena.Database.CreateMatch(&model.Match{Type: model.Qualification, ShortName: "Q30"})
 	web.arena.Database.CreateTeam(&model.Team{Id: 254, Nickname: "ChezyPof"})
 	web.arena.Database.CreateTeam(&model.Team{Id: 1114, Nickname: "Simbots"})
@@ -113,6 +147,28 @@ func TestRankingsApi(t *testing.T) {
 		assert.Equal(t, ranking2, rankingsData.Rankings[0])
 	}
 	assert.Equal(t, "Q29", rankingsData.HighestPlayedMatch)
+
+	// The exact shape is what the rankings display reads.
+	for _, key := range []string{
+		`"TeamId": 254`, `"Nickname": "ChezyPof"`, `"Rank": 1`, `"PreviousRank": 0`, `"RP": 20`, `"Played": 10`,
+		`"Wins": 3`, `"Losses": 2`, `"Ties": 1`, `"Disqualifications": 0`, `"Sort": [`, `"Columns": [`,
+		`"Decimals": 2`, `"Random": false`,
+	} {
+		assert.Contains(t, recorder.Body.String(), key)
+	}
+
+	// Under a game with a different ranking order, every ranking still has exactly one sort value per column.
+	selectTestGame(t, web, "ball-count")
+	recorder = web.getHttpResponse("/api/rankings")
+	assert.Equal(t, 200, recorder.Code)
+	assert.Nil(t, json.Unmarshal([]byte(recorder.Body.String()), &rankingsData))
+	if assert.Equal(t, 3, len(rankingsData.Columns)) {
+		assert.Equal(t, "Avg match points", rankingsData.Columns[1].Name)
+		assert.Equal(t, 1, rankingsData.Columns[1].Decimals)
+	}
+	for _, ranking := range rankingsData.Rankings {
+		assert.Equal(t, 3, len(ranking.Sort))
+	}
 }
 
 func TestSponsorSlidesApi(t *testing.T) {
@@ -173,7 +229,7 @@ func TestArenaWebsocketApi(t *testing.T) {
 	ws := websocket.NewTestWebsocket(conn)
 
 	// Should get a few status updates right after connection.
-	readWebsocketType(t, ws, "matchTiming")
+	readWebsocketType(t, ws, "game")
 	readWebsocketType(t, ws, "matchLoad")
 	readWebsocketType(t, ws, "matchTime")
 }

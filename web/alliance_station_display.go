@@ -52,7 +52,7 @@ func (web *Web) allianceStationDisplayWebsocketHandler(w http.ResponseWriter, r 
 	// Subscribe the websocket to the notifiers whose messages will be passed on to the client.
 	ws.HandleNotifiers(
 		display.Notifier,
-		web.arena.MatchTimingNotifier,
+		web.arena.GameNotifier,
 		web.arena.AllianceStationDisplayModeNotifier,
 		web.arena.ArenaStatusNotifier,
 		web.arena.MatchLoadNotifier,

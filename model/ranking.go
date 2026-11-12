@@ -6,19 +6,31 @@
 package model
 
 import (
-	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/scoring"
 	"sort"
 )
 
-func (database *Database) CreateRanking(ranking *game.Ranking) error {
+// Ranking is one team's stored place in the qualification rankings. The record itself (ranking points, matches
+// played, the game's stats and sort values) is the engine's; this type only gives it a key in the datastore.
+type Ranking struct {
+	TeamId int `db:"id,manual"`
+	scoring.TeamRanking
+}
+
+// NewRanking wraps an engine ranking for storage.
+func NewRanking(teamRanking scoring.TeamRanking) Ranking {
+	return Ranking{TeamId: teamRanking.TeamID, TeamRanking: teamRanking}
+}
+
+func (database *Database) CreateRanking(ranking *Ranking) error {
 	return database.rankingTable.create(ranking)
 }
 
-func (database *Database) GetRankingForTeam(teamId int) (*game.Ranking, error) {
+func (database *Database) GetRankingForTeam(teamId int) (*Ranking, error) {
 	return database.rankingTable.getById(teamId)
 }
 
-func (database *Database) UpdateRanking(ranking *game.Ranking) error {
+func (database *Database) UpdateRanking(ranking *Ranking) error {
 	return database.rankingTable.update(ranking)
 }
 
@@ -30,7 +42,7 @@ func (database *Database) TruncateRankings() error {
 	return database.rankingTable.truncate()
 }
 
-func (database *Database) GetAllRankings() (game.Rankings, error) {
+func (database *Database) GetAllRankings() ([]Ranking, error) {
 	rankings, err := database.rankingTable.getAll()
 	if err != nil {
 		return nil, err
@@ -45,7 +57,7 @@ func (database *Database) GetAllRankings() (game.Rankings, error) {
 }
 
 // Deletes the existing rankings and inserts the given ones as a replacement.
-func (database *Database) ReplaceAllRankings(rankings game.Rankings) error {
+func (database *Database) ReplaceAllRankings(rankings []Ranking) error {
 	if err := database.rankingTable.truncate(); err != nil {
 		return err
 	}

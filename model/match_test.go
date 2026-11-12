@@ -4,7 +4,6 @@
 package model
 
 import (
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
@@ -47,7 +46,7 @@ func TestMatchCrud(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, match, *match3)
 
-	match.Status = game.RedWonMatch
+	match.Status = RedWonMatch
 	assert.Nil(t, db.UpdateMatch(&match))
 	match2, err = db.GetMatchById(1)
 	assert.Nil(t, err)
@@ -151,7 +150,7 @@ func TestGetMatchesByType(t *testing.T) {
 	}
 
 	// Test filtering of hidden matches.
-	match3.Status = game.MatchHidden
+	match3.Status = MatchHidden
 	assert.Nil(t, db.UpdateMatch(&match3))
 	matches, err = db.GetMatchesByType(Practice, false)
 	assert.Nil(t, err)

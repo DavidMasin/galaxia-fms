@@ -7,12 +7,13 @@ package model
 
 import (
 	"fmt"
-	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"go.etcd.io/bbolt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,21 +27,24 @@ type Database struct {
 	allianceTable       *table[Alliance]
 	awardTable          *table[Award]
 	eventSettingsTable  *table[EventSettings]
+	gameSnapshotTable   *table[GameSnapshot]
 	judgingSlotTable    *table[JudgingSlot]
 	lowerThirdTable     *table[LowerThird]
 	matchTable          *table[Match]
 	matchResultTable    *table[MatchResult]
-	rankingTable        *table[game.Ranking]
+	rankingTable        *table[Ranking]
 	scheduleBlockTable  *table[ScheduleBlock]
 	scheduledBreakTable *table[ScheduledBreak]
 	sponsorSlideTable   *table[SponsorSlide]
 	teamTable           *table[Team]
 	userSessionTable    *table[UserSession]
+	snapshotMutex       sync.Mutex
+	snapshotGames       map[string]*gamedef.Game // Parsed game snapshots by hash.
 }
 
 // Opens the Bolt database at the given path, creating it if it doesn't exist.
 func OpenDatabase(filename string) (*Database, error) {
-	database := Database{Path: filename}
+	database := Database{Path: filename, snapshotGames: make(map[string]*gamedef.Game)}
 	var err error
 	database.bolt, err = bbolt.Open(database.Path, 0644, &bbolt.Options{NoSync: true, Timeout: time.Second})
 	if err != nil {
@@ -57,6 +61,9 @@ func OpenDatabase(filename string) (*Database, error) {
 	if database.eventSettingsTable, err = newTable[EventSettings](&database); err != nil {
 		return nil, err
 	}
+	if database.gameSnapshotTable, err = newTable[GameSnapshot](&database); err != nil {
+		return nil, err
+	}
 	if database.judgingSlotTable, err = newTable[JudgingSlot](&database); err != nil {
 		return nil, err
 	}
@@ -69,7 +76,7 @@ func OpenDatabase(filename string) (*Database, error) {
 	if database.matchResultTable, err = newTable[MatchResult](&database); err != nil {
 		return nil, err
 	}
-	if database.rankingTable, err = newTable[game.Ranking](&database); err != nil {
+	if database.rankingTable, err = newTable[Ranking](&database); err != nil {
 		return nil, err
 	}
 	if database.scheduleBlockTable, err = newTable[ScheduleBlock](&database); err != nil {

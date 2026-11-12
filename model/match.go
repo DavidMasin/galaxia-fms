@@ -7,11 +7,11 @@ package model
 
 import (
 	"fmt"
+	"github.com/DavidMasin/galaxia-fms/gamedef"
+	"github.com/DavidMasin/galaxia-fms/scoring"
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/DavidMasin/galaxia-fms/game"
 )
 
 //go:generate go run golang.org/x/tools/cmd/stringer@v0.43.0 -type=MatchType
@@ -26,6 +26,38 @@ const (
 
 func (t MatchType) Get() MatchType {
 	return t
+}
+
+// MatchStatus is the stored outcome of a match. The bracket and the schedule only ever have two sides, so the
+// winner is recorded as "red" or "blue": the game's first and second alliance respectively.
+type MatchStatus int
+
+const (
+	MatchScheduled MatchStatus = iota
+	MatchHidden
+	RedWonMatch
+	BlueWonMatch
+	TieMatch
+)
+
+func (t MatchStatus) Get() MatchStatus {
+	return t
+}
+
+// MatchStatusFromResult maps a computed result onto the stored status of a played match: the game's first
+// alliance winning is RedWonMatch, its second BlueWonMatch, and anything else a tie.
+func MatchStatusFromResult(g *gamedef.Game, result *scoring.Result) MatchStatus {
+	for index, alliance := range g.Alliances.List {
+		if alliance.ID == result.Winner {
+			switch index {
+			case 0:
+				return RedWonMatch
+			case 1:
+				return BlueWonMatch
+			}
+		}
+	}
+	return TieMatch
 }
 
 type Match struct {
@@ -54,7 +86,7 @@ type Match struct {
 	StartedAt           time.Time
 	ScoreCommittedAt    time.Time
 	FieldReadyAt        time.Time
-	Status              game.MatchStatus
+	Status              MatchStatus
 	UseTiebreakCriteria bool
 	TbaMatchKey         TbaMatchKey
 }
@@ -107,7 +139,7 @@ func (database *Database) GetMatchesByType(matchType MatchType, includeHidden bo
 
 	var matchingMatches []Match
 	for _, match := range matches {
-		if match.Type == matchType && (includeHidden || match.Status != game.MatchHidden) {
+		if match.Type == matchType && (includeHidden || match.Status != MatchHidden) {
 			matchingMatches = append(matchingMatches, match)
 		}
 	}
@@ -122,7 +154,7 @@ func (database *Database) GetMatchesByType(matchType MatchType, includeHidden bo
 }
 
 func (match *Match) IsComplete() bool {
-	return match.Status == game.RedWonMatch || match.Status == game.BlueWonMatch || match.Status == game.TieMatch
+	return match.Status == RedWonMatch || match.Status == BlueWonMatch || match.Status == TieMatch
 }
 
 // Returns true if the match is of a type that allows substitution of teams.

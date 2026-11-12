@@ -5,11 +5,10 @@
 
 package model
 
-import (
-	"strings"
+import "strings"
 
-	"github.com/DavidMasin/galaxia-fms/game"
-)
+// DefaultGameId is the game a new event starts with.
+const DefaultGameId = "rebuilt-style"
 
 type PlayoffType int
 
@@ -70,8 +69,6 @@ type EventSettings struct {
 	SCCUpCommands                    string
 	SCCDownCommands                  string
 	PlcAddress                       string
-	LedControllerAddress             string
-	LedUniverseMode                  string
 	AdminPassword                    string
 	TeamSignRed1Id                   int
 	TeamSignRed2Id                   int
@@ -112,14 +109,8 @@ type EventSettings struct {
 	CompanionMatchAbortPage          int
 	CompanionMatchAbortRow           int
 	CompanionMatchAbortColumn        int
-	AutoDurationSec                  int
-	PauseDurationSec                 int
-	TransitionShiftDurationSec       int
-	ShiftDurationSec                 int
-	EndgameDurationSec               int
-	EnergizedBonusThreshold          int
-	SuperchargedBonusThreshold       int
-	TraversalBonusThreshold          int
+	GameId                           string             // The game definition the event is played with.
+	GameParams                       map[string]float64 // Overrides of that game's parameter defaults.
 }
 
 func (database *Database) GetEventSettings() (*EventSettings, error) {
@@ -129,6 +120,13 @@ func (database *Database) GetEventSettings() (*EventSettings, error) {
 	}
 	if len(allEventSettings) == 1 {
 		eventSettings := allEventSettings[0]
+		if eventSettings.GameId == "" {
+			// A record written before games were selectable.
+			eventSettings.GameId = DefaultGameId
+		}
+		if eventSettings.GameParams == nil {
+			eventSettings.GameParams = make(map[string]float64)
+		}
 		return &eventSettings, nil
 	}
 
@@ -144,16 +142,9 @@ func (database *Database) GetEventSettings() (*EventSettings, error) {
 		ApChannel:                  36,
 		SCCUpCommands:              strings.Join(sccDefaultUpCommands, "\n"),
 		SCCDownCommands:            strings.Join(sccDefaultDownCommands, "\n"),
-		LedUniverseMode:            "single",
 		CompanionAddress:           "",
-		AutoDurationSec:            game.MatchTiming.AutoDurationSec,
-		PauseDurationSec:           game.MatchTiming.PauseDurationSec,
-		TransitionShiftDurationSec: game.MatchTiming.TransitionShiftDurationSec,
-		ShiftDurationSec:           game.MatchTiming.ShiftDurationSec,
-		EndgameDurationSec:         game.MatchTiming.EndgameDurationSec,
-		EnergizedBonusThreshold:    game.EnergizedBonusThreshold,
-		SuperchargedBonusThreshold: game.SuperchargedBonusThreshold,
-		TraversalBonusThreshold:    game.TraversalBonusThreshold,
+		GameId:                     DefaultGameId,
+		GameParams:                 make(map[string]float64),
 	}
 
 	if err := database.eventSettingsTable.create(&eventSettings); err != nil {

@@ -4,7 +4,6 @@
 package field
 
 import (
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -98,7 +97,7 @@ func TestEarlyLateMessage(t *testing.T) {
 	assert.Equal(t, "Event is running 3 minutes late", arena.getEarlyLateMessage())
 
 	setMatch(arena.Database, &matches[0], time.Now().Add(181*time.Second), time.Now(), false)
-	arena.MatchState = AutoPeriod
+	arena.MatchState = InMatch
 	assert.Equal(t, "Event is running 3 minutes early", arena.getEarlyLateMessage())
 
 	setMatch(arena.Database, &matches[0], time.Now().Add(-300*time.Second), time.Now().Add(-601*time.Second), false)
@@ -136,7 +135,7 @@ func TestEarlyLateMessage(t *testing.T) {
 	assert.Equal(t, "Event is running 3 minutes late", arena.getEarlyLateMessage())
 
 	setMatch(arena.Database, &matches[1], time.Now().Add(-180*time.Second), time.Now().Add(-541*time.Second), false)
-	arena.MatchState = TeleopPeriod
+	arena.MatchState = InMatch
 	assert.Equal(t, "Event is running 6 minutes early", arena.getEarlyLateMessage())
 
 	setMatch(arena.Database, &matches[1], time.Now(), time.Now().Add(481*time.Second), false)
@@ -159,9 +158,9 @@ func setMatch(database *model.Database, match *model.Match, matchTime time.Time,
 	match.Time = matchTime
 	match.StartedAt = startedAt
 	if isComplete {
-		match.Status = game.TieMatch
+		match.Status = model.TieMatch
 	} else {
-		match.Status = game.MatchScheduled
+		match.Status = model.MatchScheduled
 	}
 	_ = database.UpdateMatch(match)
 }

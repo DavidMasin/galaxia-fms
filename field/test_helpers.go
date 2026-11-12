@@ -6,16 +6,15 @@
 package field
 
 import (
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/stretchr/testify/assert"
-	"math/rand"
 	"path/filepath"
 	"testing"
 )
 
+// SetupTestArena creates an arena on a scratch database. It plays the example games in the repository's games
+// directory, and starts with the default one selected.
 func SetupTestArena(t *testing.T) *Arena {
-	rand.Seed(0)
 	model.BaseDir = ".."
 	dbDir := t.TempDir()
 	dbPath := filepath.Join(dbDir, "test.db")
@@ -30,6 +29,5 @@ func SetupTestArena(t *testing.T) *Arena {
 }
 
 func setupTestArena(t *testing.T) *Arena {
-	game.MatchTiming.PauseDurationSec = 2
 	return SetupTestArena(t)
 }

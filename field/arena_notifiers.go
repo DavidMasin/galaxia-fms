@@ -6,11 +6,13 @@
 package field
 
 import (
-	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/playoff"
+	"github.com/DavidMasin/galaxia-fms/scoring"
 	"github.com/DavidMasin/galaxia-fms/websocket"
 	"log"
+	"math"
 	"strconv"
 )
 
@@ -21,27 +23,106 @@ type ArenaNotifiers struct {
 	AudienceDisplayModeNotifier        *websocket.Notifier
 	DisplayConfigurationNotifier       *websocket.Notifier
 	EventStatusNotifier                *websocket.Notifier
+	GameNotifier                       *websocket.Notifier
 	LowerThirdNotifier                 *websocket.Notifier
 	MatchLoadNotifier                  *websocket.Notifier
 	MatchTimeNotifier                  *websocket.Notifier
-	MatchTimingNotifier                *websocket.Notifier
 	PlaySoundNotifier                  *websocket.Notifier
 	RealtimeScoreNotifier              *websocket.Notifier
 	ReloadDisplaysNotifier             *websocket.Notifier
+	ScoreChangeNotifier                *websocket.Notifier
 	ScorePostedNotifier                *websocket.Notifier
 	ScoringStatusNotifier              *websocket.Notifier
 }
 
+// MatchTimeMessage is the clock as browsers receive it. PhaseIndex is -1 and PhaseId is empty outside InMatch.
+// TimeoutDurationSec is the length of the timeout or break that is counting down, or of the last one; during
+// TimeoutActive MatchTimeSec counts up towards it.
 type MatchTimeMessage struct {
 	MatchState
-	MatchTimeSec int
+	MatchTimeSec       int
+	PhaseIndex         int
+	PhaseId            string
+	PhaseTimeSec       int
+	PhaseRemainingSec  int
+	TimeoutDurationSec int
 }
 
-type audienceAllianceScoreFields struct {
-	Score              *game.Score
-	ScoreSummary       *game.ScoreSummary
-	ActiveRemainingSec int
-	ActiveDurationSec  int
+// RealtimeScoreMessage is the live score as browsers receive it. State is raw; everything else is computed.
+type RealtimeScoreMessage struct {
+	GameHash  string                            `json:"gameHash"`
+	Seq       int                               `json:"seq"` // Sequence number of the last change.
+	Winner    string                            `json:"winner"`
+	Tiebreak  string                            `json:"tiebreak"`
+	Field     RealtimeFieldScore                `json:"field"`
+	Alliances map[string]*RealtimeAllianceScore `json:"alliances"`
+}
+
+type RealtimeFieldScore struct {
+	State  map[string]*scoring.Value `json:"state"`
+	Values map[string]any            `json:"values"`
+	Live   map[string]any            `json:"live"`
+}
+
+type RealtimeAllianceScore struct {
+	Score       float64                       `json:"score"`
+	FoulPoints  float64                       `json:"foulPoints"`
+	Points      map[string]float64            `json:"points"`
+	PhasePoints map[string]map[string]float64 `json:"phasePoints"`
+	Values      map[string]any                `json:"values"`
+	Breakdown   []scoring.Row                 `json:"breakdown"`
+	Result      string                        `json:"result"`
+	RP          map[string]float64            `json:"rp"`
+	RPTotal     float64                       `json:"rpTotal"`
+	Live        map[string]any                `json:"live"`
+	State       *scoring.AllianceState        `json:"state"`
+}
+
+// ScorePostedMessage is the committed match as browsers receive it for the final score screen.
+type ScorePostedMessage struct {
+	Match     *model.Match                    `json:"match"`
+	GameId    string                          `json:"gameId"`
+	GameHash  string                          `json:"gameHash"`
+	Winner    string                          `json:"winner"`   // Alliance id, or empty for a tie.
+	Tiebreak  string                          `json:"tiebreak"` // Name of the playoff tiebreaker that decided it.
+	Alliances map[string]*ScorePostedAlliance `json:"alliances"`
+}
+
+type ScorePostedAlliance struct {
+	Teams         []int                       `json:"teams"`         // By robot position; zero where there is none.
+	OffFieldTeams []int                       `json:"offFieldTeams"` // Playoff alliance members not on the field.
+	Score         float64                     `json:"score"`
+	Breakdown     []scoring.Row               `json:"breakdown"`
+	RankingPoints []ScorePostedRankingPoint   `json:"rankingPoints"`
+	RPTotal       float64                     `json:"rpTotal"`
+	Cards         map[int]string              `json:"cards"` // Robot position -> card id.
+	Fouls         []ScorePostedFoul           `json:"fouls"`
+	Result        string                      `json:"result"`
+	Disqualified  bool                        `json:"disqualified"`
+	Rankings      map[int]*ScorePostedRanking `json:"rankings"`    // Team number -> rank; qualification only.
+	Wins          int                         `json:"wins"`        // Playoff series wins so far.
+	Destination   string                      `json:"destination"` // Where the playoff alliance goes next.
+}
+
+type ScorePostedRankingPoint struct {
+	Id    string  `json:"id"`
+	Name  string  `json:"name"`
+	Value float64 `json:"value"`
+}
+
+// ScorePostedFoul is a foul with the names a person needs to read it.
+type ScorePostedFoul struct {
+	scoring.Foul
+	TypeName string  `json:"typeName"`
+	Points   float64 `json:"points"`
+	Team     int     `json:"team"` // Team number of the offending robot, or zero if not attributed.
+	RuleName string  `json:"ruleName"`
+	RuleText string  `json:"ruleText"`
+}
+
+type ScorePostedRanking struct {
+	Rank         int `json:"rank"`
+	PreviousRank int `json:"previousRank"`
 }
 
 // Instantiates notifiers and configures their message producing methods.
@@ -58,13 +139,14 @@ func (arena *Arena) configureNotifiers() {
 		"displayConfiguration", arena.generateDisplayConfigurationMessage,
 	)
 	arena.EventStatusNotifier = websocket.NewNotifier("eventStatus", arena.generateEventStatusMessage)
+	arena.GameNotifier = websocket.NewNotifier("game", arena.generateGameMessage)
 	arena.LowerThirdNotifier = websocket.NewNotifier("lowerThird", arena.generateLowerThirdMessage)
 	arena.MatchLoadNotifier = websocket.NewNotifier("matchLoad", arena.GenerateMatchLoadMessage)
 	arena.MatchTimeNotifier = websocket.NewNotifier("matchTime", arena.generateMatchTimeMessage)
-	arena.MatchTimingNotifier = websocket.NewNotifier("matchTiming", arena.generateMatchTimingMessage)
 	arena.PlaySoundNotifier = websocket.NewNotifier("playSound", nil)
 	arena.RealtimeScoreNotifier = websocket.NewNotifier("realtimeScore", arena.generateRealtimeScoreMessage)
 	arena.ReloadDisplaysNotifier = websocket.NewNotifier("reload", nil)
+	arena.ScoreChangeNotifier = websocket.NewNotifier("scoreChange", nil)
 	arena.ScorePostedNotifier = websocket.NewNotifier("scorePosted", arena.GenerateScorePostedMessage)
 	arena.ScoringStatusNotifier = websocket.NewNotifier("scoringStatus", arena.generateScoringStatusMessage)
 }
@@ -137,6 +219,10 @@ func (arena *Arena) generateDisplayConfigurationMessage() any {
 
 func (arena *Arena) generateEventStatusMessage() any {
 	return arena.EventStatus
+}
+
+func (arena *Arena) generateGameMessage() any {
+	return arena.Game.View()
 }
 
 func (arena *Arena) generateLowerThirdMessage() any {
@@ -250,139 +336,208 @@ func (arena *Arena) getAllianceYellowCard(allianceId int) bool {
 }
 
 func (arena *Arena) generateMatchTimeMessage() any {
-	return MatchTimeMessage{arena.MatchState, int(arena.MatchTimeSec())}
-}
-
-func (arena *Arena) generateMatchTimingMessage() any {
-	return &game.MatchTiming
+	message := MatchTimeMessage{
+		MatchState: arena.MatchState, MatchTimeSec: int(arena.MatchTimeSec()), PhaseIndex: -1,
+		TimeoutDurationSec: arena.TimeoutDurationSec,
+	}
+	if phase := arena.CurrentPhase(); phase != nil {
+		phaseTimeSec := arena.PhaseTimeSec()
+		message.PhaseIndex = arena.PhaseIndex
+		message.PhaseId = phase.ID
+		message.PhaseTimeSec = int(phaseTimeSec)
+		message.PhaseRemainingSec = int(math.Ceil(math.Max(0, phase.Duration-phaseTimeSec)))
+	}
+	return message
 }
 
 func (arena *Arena) generateRealtimeScoreMessage() any {
-	fields := struct {
-		Red                     *audienceAllianceScoreFields
-		Blue                    *audienceAllianceScoreFields
-		RedCards                map[string]string
-		BlueCards               map[string]string
-		PlayoffRedAllianceCard  string
-		PlayoffBlueAllianceCard string
-		MatchState
-	}{
-		getAudienceAllianceScoreFields(arena.RedRealtimeScore, arena.RedScoreSummary()),
-		getAudienceAllianceScoreFields(arena.BlueRealtimeScore, arena.BlueScoreSummary()),
-		arena.RedRealtimeScore.Cards,
-		arena.BlueRealtimeScore.Cards,
-		arena.RedRealtimeScore.PlayoffAllianceCard,
-		arena.BlueRealtimeScore.PlayoffAllianceCard,
-		arena.MatchState,
+	arena.scoreMutex.Lock()
+	defer arena.scoreMutex.Unlock()
+
+	score := arena.Score
+	message := &RealtimeScoreMessage{
+		GameHash:  arena.Game.Hash,
+		Field:     RealtimeFieldScore{State: copyValues(score.State.Field), Values: map[string]any{}, Live: map[string]any{}},
+		Alliances: make(map[string]*RealtimeAllianceScore, len(arena.Game.Alliances.List)),
 	}
-	return &fields
+	if len(score.Changes) > 0 {
+		message.Seq = score.Changes[len(score.Changes)-1].Seq
+	}
+	if score.Result != nil {
+		message.Winner, message.Tiebreak = score.Result.Winner, score.Result.Tiebreak
+		message.Field.Values = score.Result.Field
+	}
+	if score.Live != nil {
+		message.Field.Live = score.Live.Field
+	}
+	for _, alliance := range arena.Game.Alliances.List {
+		// The raw state is copied because the message is turned into JSON later, on the goroutine of each browser
+		// connection, by which time the arena may be changing it again. Everything computed is replaced, never
+		// modified, so it can be shared.
+		allianceScore := &RealtimeAllianceScore{
+			Points: map[string]float64{}, PhasePoints: map[string]map[string]float64{}, Values: map[string]any{},
+			Breakdown: []scoring.Row{}, RP: map[string]float64{}, Live: map[string]any{},
+			State: copyAllianceState(score.State.Alliances[alliance.ID]),
+		}
+		if score.Result != nil {
+			result := score.Result.Alliances[alliance.ID]
+			allianceScore.Score, allianceScore.FoulPoints = result.Score, result.FoulPoints
+			allianceScore.Points, allianceScore.PhasePoints = result.Points, result.PhasePoints
+			allianceScore.Values = result.Values
+			allianceScore.Result, allianceScore.RP, allianceScore.RPTotal = result.Result, result.RP, result.RPTotal
+			if result.Breakdown != nil {
+				allianceScore.Breakdown = result.Breakdown
+			}
+		}
+		if score.Live != nil {
+			allianceScore.Live = score.Live.Alliances[alliance.ID]
+		}
+		message.Alliances[alliance.ID] = allianceScore
+	}
+	return message
 }
 
+func copyValues(values map[string]*scoring.Value) map[string]*scoring.Value {
+	copied := make(map[string]*scoring.Value, len(values))
+	for id, value := range values {
+		valueCopy := *value
+		if value.Counts != nil {
+			valueCopy.Counts = make(map[string]int, len(value.Counts))
+			for phase, count := range value.Counts {
+				valueCopy.Counts[phase] = count
+			}
+		}
+		copied[id] = &valueCopy
+	}
+	return copied
+}
+
+func copyAllianceState(state *scoring.AllianceState) *scoring.AllianceState {
+	copied := &scoring.AllianceState{
+		Elements: copyValues(state.Elements), Robots: make([]map[string]*scoring.Value, len(state.Robots)),
+		Fouls: append([]scoring.Foul{}, state.Fouls...), Cards: make(map[int]string, len(state.Cards)),
+		Disqualified: state.Disqualified,
+	}
+	for i, robot := range state.Robots {
+		copied.Robots[i] = copyValues(robot)
+	}
+	for position, card := range state.Cards {
+		copied.Cards[position] = card
+	}
+	return copied
+}
+
+// GenerateScorePostedMessage describes the last committed match for the final score screen. The result is
+// recomputed from what was stored, with the game it was played with.
 func (arena *Arena) GenerateScorePostedMessage() any {
-	redScoreSummary := arena.SavedMatchResult.RedScoreSummary()
-	blueScoreSummary := arena.SavedMatchResult.BlueScoreSummary()
-	_, tiebreakReason := game.DetermineMatchStatus(
-		redScoreSummary, blueScoreSummary, arena.SavedMatch.UseTiebreakCriteria,
-	)
-	redRankingPoints := redScoreSummary.BonusRankingPoints
-	blueRankingPoints := blueScoreSummary.BonusRankingPoints
-	switch arena.SavedMatch.Status {
-	case game.RedWonMatch:
-		redRankingPoints += game.GetWinRankingPoints()
-	case game.BlueWonMatch:
-		blueRankingPoints += game.GetWinRankingPoints()
-	case game.TieMatch:
-		redRankingPoints++
-		blueRankingPoints++
+	match, matchResult := arena.SavedMatch, arena.SavedMatchResult
+	message := &ScorePostedMessage{
+		Match: match, GameId: matchResult.GameId, GameHash: matchResult.GameHash,
+		Alliances: map[string]*ScorePostedAlliance{},
+	}
+	result, g, err := matchResult.Compute(arena.Database, match.UseTiebreakCriteria)
+	if err != nil {
+		log.Printf("Failed to compute the result of match %d for the score posted message: %v", match.Id, err)
+		return message
+	}
+	message.Winner, message.Tiebreak = result.Winner, result.Tiebreak
+	state := matchResult.State
+	if state == nil {
+		state, _ = scoring.Fold(g, matchResult.Changes)
 	}
 
-	// For playoff matches, summarize the state of the series.
-	var redWins, blueWins int
-	var redDestination, blueDestination string
-	redOffFieldTeamIds := []int{}
-	blueOffFieldTeamIds := []int{}
-	if arena.SavedMatch.Type == model.Playoff {
-		matchGroup := arena.PlayoffTournament.MatchGroups()[arena.SavedMatch.PlayoffMatchGroupId]
+	// The match record, the bracket and the off-field lists have a red and a blue side: the first and second
+	// alliance of the game.
+	sideTeams := [][]int{{match.Red1, match.Red2, match.Red3}, {match.Blue1, match.Blue2, match.Blue3}}
+	sideWins := []int{0, 0}
+	sideDestinations := []string{"", ""}
+	sideOffFieldTeams := [][]int{{}, {}}
+	if match.Type == model.Playoff {
+		matchGroup := arena.PlayoffTournament.MatchGroups()[match.PlayoffMatchGroupId]
 		if matchup, ok := matchGroup.(*playoff.Matchup); ok {
-			redWins = matchup.RedAllianceWins
-			blueWins = matchup.BlueAllianceWins
-			redDestination = matchup.RedAllianceDestination()
-			blueDestination = matchup.BlueAllianceDestination()
+			sideWins = []int{matchup.RedAllianceWins, matchup.BlueAllianceWins}
+			sideDestinations = []string{matchup.RedAllianceDestination(), matchup.BlueAllianceDestination()}
 		}
-		var err error
-		redOffFieldTeamIds, blueOffFieldTeamIds, err = arena.Database.GetOffFieldTeamIds(arena.SavedMatch)
+		redOffFieldTeamIds, blueOffFieldTeamIds, err := arena.Database.GetOffFieldTeamIds(match)
 		if err != nil {
 			log.Printf("Failed to get off-field teams for match %d while generating score posted message: %v",
-				arena.SavedMatch.Id, err)
+				match.Id, err)
+		} else {
+			sideOffFieldTeams = [][]int{redOffFieldTeamIds, blueOffFieldTeamIds}
+		}
+	}
+	rankings := make(map[int]*ScorePostedRanking, len(arena.SavedRankings))
+	if match.Type == model.Qualification {
+		for _, ranking := range arena.SavedRankings {
+			rankings[ranking.TeamId] = &ScorePostedRanking{Rank: ranking.Rank, PreviousRank: ranking.PreviousRank}
 		}
 	}
 
-	redRankings := map[int]*game.Ranking{
-		arena.SavedMatch.Red1: nil, arena.SavedMatch.Red2: nil, arena.SavedMatch.Red3: nil,
-	}
-	blueRankings := map[int]*game.Ranking{
-		arena.SavedMatch.Blue1: nil, arena.SavedMatch.Blue2: nil, arena.SavedMatch.Blue3: nil,
-	}
-	for index, ranking := range arena.SavedRankings {
-		if _, ok := redRankings[ranking.TeamId]; ok {
-			redRankings[ranking.TeamId] = &arena.SavedRankings[index]
+	for index, alliance := range g.Alliances.List {
+		allianceResult, allianceState := result.Alliances[alliance.ID], state.Alliances[alliance.ID]
+		posted := &ScorePostedAlliance{
+			Teams: make([]int, g.Alliances.Size), OffFieldTeams: []int{}, Score: allianceResult.Score,
+			Breakdown: allianceResult.Breakdown, RankingPoints: []ScorePostedRankingPoint{},
+			RPTotal: allianceResult.RPTotal, Cards: map[int]string{}, Fouls: []ScorePostedFoul{},
+			Result: allianceResult.Result, Disqualified: allianceResult.Disqualified,
+			Rankings: map[int]*ScorePostedRanking{},
 		}
-		if _, ok := blueRankings[ranking.TeamId]; ok {
-			blueRankings[ranking.TeamId] = &arena.SavedRankings[index]
+		if posted.Breakdown == nil {
+			posted.Breakdown = []scoring.Row{}
 		}
+		if index < len(sideTeams) {
+			copy(posted.Teams, sideTeams[index])
+			posted.Wins, posted.Destination = sideWins[index], sideDestinations[index]
+			if sideOffFieldTeams[index] != nil {
+				posted.OffFieldTeams = sideOffFieldTeams[index]
+			}
+		}
+		for _, teamId := range posted.Teams {
+			if ranking, ok := rankings[teamId]; ok {
+				posted.Rankings[teamId] = ranking
+			}
+		}
+		for _, rankingPoint := range g.Ranking.Points {
+			posted.RankingPoints = append(
+				posted.RankingPoints,
+				ScorePostedRankingPoint{
+					Id: rankingPoint.ID, Name: rankingPoint.Name, Value: allianceResult.RP[rankingPoint.ID],
+				},
+			)
+		}
+		for position, card := range allianceState.Cards {
+			posted.Cards[position] = card
+		}
+		for _, foul := range allianceState.Fouls {
+			posted.Fouls = append(posted.Fouls, describeFoul(g, foul, posted.Teams))
+		}
+		message.Alliances[alliance.ID] = posted
 	}
+	return message
+}
 
-	return &struct {
-		Match                   *model.Match
-		TraversalBonusEnabled   bool
-		RedScoreSummary         *game.ScoreSummary
-		BlueScoreSummary        *game.ScoreSummary
-		RedRankingPoints        int
-		BlueRankingPoints       int
-		RedFouls                []game.Foul
-		BlueFouls               []game.Foul
-		RulesViolated           map[int]*game.Rule
-		RedCards                map[string]string
-		BlueCards               map[string]string
-		PlayoffRedAllianceCard  string
-		PlayoffBlueAllianceCard string
-		RedRankings             map[int]*game.Ranking
-		BlueRankings            map[int]*game.Ranking
-		RedOffFieldTeamIds      []int
-		BlueOffFieldTeamIds     []int
-		RedWon                  bool
-		BlueWon                 bool
-		TiebreakReason          string
-		RedWins                 int
-		BlueWins                int
-		RedDestination          string
-		BlueDestination         string
-	}{
-		arena.SavedMatch,
-		arena.EventSettings.TraversalBonusThreshold != 0,
-		redScoreSummary,
-		blueScoreSummary,
-		redRankingPoints,
-		blueRankingPoints,
-		arena.SavedMatchResult.RedScore.Fouls,
-		arena.SavedMatchResult.BlueScore.Fouls,
-		getRulesViolated(arena.SavedMatchResult.RedScore.Fouls, arena.SavedMatchResult.BlueScore.Fouls),
-		arena.SavedMatchResult.RedCards,
-		arena.SavedMatchResult.BlueCards,
-		arena.SavedMatchResult.PlayoffRedAllianceCard,
-		arena.SavedMatchResult.PlayoffBlueAllianceCard,
-		redRankings,
-		blueRankings,
-		redOffFieldTeamIds,
-		blueOffFieldTeamIds,
-		arena.SavedMatch.Status == game.RedWonMatch,
-		arena.SavedMatch.Status == game.BlueWonMatch,
-		tiebreakReason,
-		redWins,
-		blueWins,
-		redDestination,
-		blueDestination,
+// describeFoul adds to a foul the names of its type and of the rule cited, and the team that committed it.
+func describeFoul(g *gamedef.Game, foul scoring.Foul, teams []int) ScorePostedFoul {
+	described := ScorePostedFoul{Foul: foul}
+	if foulType := g.FoulType(foul.Type); foulType != nil {
+		described.TypeName, described.Points = foulType.Name, foulType.Points
 	}
+	if foul.Robot >= 1 && foul.Robot <= len(teams) {
+		described.Team = teams[foul.Robot-1]
+	}
+	// The same rule id may be listed once per foul type, with a different description for each; the entry for this
+	// type of foul is the one that was cited.
+	found := false
+	for _, rule := range g.Fouls.Rules {
+		if rule.ID == foul.Rule && (rule.Foul == foul.Type || !found) {
+			described.RuleName, described.RuleText = rule.Name, rule.Text
+			found = true
+			if rule.Foul == foul.Type {
+				break
+			}
+		}
+	}
+	return described
 }
 
 func (arena *Arena) generateScoringStatusMessage() any {
@@ -391,11 +546,12 @@ func (arena *Arena) generateScoringStatusMessage() any {
 		NumPanels      int
 		NumPanelsReady int
 	}
-	getStatusForPosition := func(position string) positionStatus {
-		return positionStatus{
-			Ready:          arena.positionPostMatchScoreReady(position),
-			NumPanels:      arena.ScoringPanelRegistry.GetNumPanels(position),
-			NumPanelsReady: arena.GetNumScoreCommitted(position),
+	positionStatuses := make(map[string]positionStatus)
+	for _, panel := range arena.ScoringPanels() {
+		positionStatuses[panel.ID] = positionStatus{
+			Ready:          arena.positionPostMatchScoreReady(panel.ID),
+			NumPanels:      arena.ScoringPanelRegistry.GetNumPanels(panel.ID),
+			NumPanelsReady: arena.GetNumScoreCommitted(panel.ID),
 		}
 	}
 
@@ -403,35 +559,7 @@ func (arena *Arena) generateScoringStatusMessage() any {
 		RefereeScoreReady bool
 		PositionStatuses  map[string]positionStatus
 	}{
-		arena.RedRealtimeScore.FoulsCommitted && arena.BlueRealtimeScore.FoulsCommitted,
-		map[string]positionStatus{
-			"red":  getStatusForPosition("red"),
-			"blue": getStatusForPosition("blue"),
-		},
+		arena.RefereeScoreReady(),
+		positionStatuses,
 	}
-}
-
-// Constructs the data object for one alliance sent to the audience display for the realtime scoring overlay.
-func getAudienceAllianceScoreFields(
-	allianceScore *RealtimeScore,
-	allianceScoreSummary *game.ScoreSummary,
-) *audienceAllianceScoreFields {
-	fields := new(audienceAllianceScoreFields)
-	fields.Score = &allianceScore.CurrentScore
-	fields.ScoreSummary = allianceScoreSummary
-	fields.ActiveRemainingSec = allianceScore.ActiveRemainingSec
-	fields.ActiveDurationSec = allianceScore.ActiveDurationSec
-	return fields
-}
-
-// Produce a map of rules that were violated by either alliance so that they are available to the announcer.
-func getRulesViolated(redFouls, blueFouls []game.Foul) map[int]*game.Rule {
-	rules := make(map[int]*game.Rule)
-	for _, foul := range redFouls {
-		rules[foul.RuleId] = game.GetRuleById(foul.RuleId)
-	}
-	for _, foul := range blueFouls {
-		rules[foul.RuleId] = game.GetRuleById(foul.RuleId)
-	}
-	return rules
 }

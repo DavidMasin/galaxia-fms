@@ -4,35 +4,30 @@
 package field
 
 import (
+	"fmt"
+	"github.com/DavidMasin/galaxia-fms/model"
+	"github.com/DavidMasin/galaxia-fms/scoring"
+	"github.com/stretchr/testify/assert"
 	"image/color"
 	"testing"
 	"time"
-
-	"github.com/DavidMasin/galaxia-fms/game"
-	"github.com/DavidMasin/galaxia-fms/model"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestTeamSign_GenerateInMatchRearText(t *testing.T) {
-	arena := setupTestArena(t)
-	currentTimeAt := func(matchTimeSec int) time.Time {
-		return arena.MatchStartTime.Add(time.Duration(matchTimeSec) * time.Second)
-	}
-	score := func(
-		wonAuto bool, shiftCounts [game.ShiftCount]int, autoTowerStatuses [3]game.TowerStatus,
-	) game.Score {
-		return game.Score{
-			AutoTowerStatuses: autoTowerStatuses, Hub: game.Hub{WonAuto: wonAuto, ShiftCounts: shiftCounts},
+	// set is an administrator's correction, which may place a value in any phase whatever the clock says.
+	set := func(alliance string, robot int, element string, value any, bucket string) scoring.Change {
+		return scoring.Change{
+			Alliance: alliance, Robot: robot, Element: element, Op: scoring.OpSet, Value: value, Bucket: bucket,
+			Source: testAdmin,
 		}
 	}
 
 	testCases := []struct {
 		name             string
 		matchType        model.MatchType
-		matchTimeSec     int
+		matchTimeSec     float64
 		countdown        string
-		redScore         game.Score
-		blueScore        game.Score
+		changes          []scoring.Change
 		expectedRearText [4]string
 	}{
 		{
@@ -40,12 +35,10 @@ func TestTeamSign_GenerateInMatchRearText(t *testing.T) {
 			matchType:    model.Qualification,
 			matchTimeSec: 5,
 			countdown:    "2:37",
-			redScore:     score(false, [game.ShiftCount]int{}, [3]game.TowerStatus{}),
-			blueScore:    score(true, [game.ShiftCount]int{}, [3]game.TowerStatus{}),
 			expectedRearText: [4]string{
-				" A15   0/100  0 2:37",
+				"          A15 0 2:37",
 				"2:37       R000-B000",
-				" A15   0/100  0 2:37",
+				"          A15 0 2:37",
 				"2:37       B000-R000",
 			},
 		},
@@ -54,126 +47,45 @@ func TestTeamSign_GenerateInMatchRearText(t *testing.T) {
 			matchType:    model.Playoff,
 			matchTimeSec: 25,
 			countdown:    "2:02",
-			redScore: score(
-				false,
-				[game.ShiftCount]int{8, 4},
-				[3]game.TowerStatus{game.TowerLevel1},
-			),
-			blueScore: score(
-				true,
-				[game.ShiftCount]int{5},
-				[3]game.TowerStatus{game.TowerLevel2, game.TowerLevel3},
-			),
+			changes: []scoring.Change{
+				set("red", 0, "fuel", 8, "auto"), set("red", 0, "fuel", 4, "transition"),
+				set("red", 1, "auto_tower", "level1", "auto"), set("blue", 0, "fuel", 5, "auto"),
+				set("blue", 1, "auto_tower", "level2", "auto"), set("blue", 2, "auto_tower", "level3", "auto"),
+			},
 			expectedRearText: [4]string{
-				"  T07 R027-B035 2:02",
+				"  T08 R027-B035 2:02",
 				"2:02       R027-B035",
-				"  T07 B035-R027 2:02",
+				"  T08 B035-R027 2:02",
 				"2:02       B035-R027",
 			},
 		},
 		{
-			name:         "qualification shift 1 red active",
+			// Blue won auto, so in shift 1 it is red whose fuel counts. The game shows each alliance its fuel points.
+			name:         "qualification shift 1",
 			matchType:    model.Qualification,
 			matchTimeSec: 45,
 			countdown:    "1:57",
-			redScore: score(
-				false,
-				[game.ShiftCount]int{10, 7, 13},
-				[3]game.TowerStatus{game.TowerLevel2, game.TowerLevel3},
-			),
-			blueScore: score(
-				true,
-				[game.ShiftCount]int{11, 6, 0, 8},
-				[3]game.TowerStatus{game.TowerLevel1},
-			),
-			expectedRearText: [4]string{
-				" R12  30/100 30 1:57",
-				"1:57       R060-B040",
-				" R12  25/100 15 1:57",
-				"1:57       B040-R060",
+			changes: []scoring.Change{
+				set("", 0, "auto_winner", "blue", ""), set("red", 0, "fuel", 10, "auto"),
+				set("red", 0, "fuel", 7, "transition"), set("red", 0, "fuel", 13, "shift1"),
+				set("blue", 0, "fuel", 11, "auto"), set("blue", 0, "fuel", 6, "transition"),
+				set("blue", 0, "fuel", 8, "shift1"), set("blue", 1, "auto_tower", "level1", "auto"),
 			},
-		},
-		{
-			name:         "playoff shift 2 blue active",
-			matchType:    model.Playoff,
-			matchTimeSec: 73,
-			countdown:    "1:32",
-			redScore: score(
-				false,
-				[game.ShiftCount]int{20, 10, 5, 40, 0, 0, 0, 3},
-				[3]game.TowerStatus{},
-			),
-			blueScore: score(
-				true,
-				[game.ShiftCount]int{22, 11, 99, 7, 0, 0, 0, 4},
-				[3]game.TowerStatus{game.TowerLevel1},
-			),
 			expectedRearText: [4]string{
-				"  B09 R035-B055 1:32",
-				"1:32       R035-B055",
-				"  B09 B055-R035 1:32",
-				"1:32       B055-R035",
-			},
-		},
-		{
-			name:         "qualification shift 3 blue active after red won auto",
-			matchType:    model.Qualification,
-			matchTimeSec: 101,
-			countdown:    "1:01",
-			redScore: score(
-				true,
-				[game.ShiftCount]int{40, 15, 0, 20, 99},
-				[3]game.TowerStatus{game.TowerLevel2},
-			),
-			blueScore: score(
-				false,
-				[game.ShiftCount]int{35, 5, 12, 0, 22},
-				[3]game.TowerStatus{},
-			),
-			expectedRearText: [4]string{
-				" B06  75/100 15 1:01",
-				"1:01       R090-B074",
-				" B06  74/100  0 1:01",
-				"1:01       B074-R090",
-			},
-		},
-		{
-			name:         "qualification shift 4 red active after red won auto",
-			matchType:    model.Qualification,
-			matchTimeSec: 128,
-			countdown:    "0:29",
-			redScore: score(
-				true,
-				[game.ShiftCount]int{80, 20, 0, 40, 0, 230, 5, 10},
-				[3]game.TowerStatus{game.TowerLevel2, game.TowerLevel3},
-			),
-			blueScore: score(
-				false,
-				[game.ShiftCount]int{45, 10, 30, 0, 30, 0, 5, 5},
-				[3]game.TowerStatus{},
-			),
-			expectedRearText: [4]string{
-				" R04 375/360 30 0:29",
-				"0:29       R405-B120",
-				" R04 120/360  0 0:29",
-				"0:29       B120-R405",
+				"         S13 30 1:57",
+				"1:57       R030-B032",
+				"         S13 17 1:57",
+				"1:57       B032-R030",
 			},
 		},
 		{
 			name:         "playoff endgame",
 			matchType:    model.Playoff,
-			matchTimeSec: 151,
+			matchTimeSec: 152,
 			countdown:    "0:11",
-			redScore: score(
-				false,
-				[game.ShiftCount]int{7, 3, 2, 0, 4, 0, 6, 1},
-				[3]game.TowerStatus{game.TowerLevel1},
-			),
-			blueScore: score(
-				true,
-				[game.ShiftCount]int{9, 5, 0, 4, 0, 7, 8, 2},
-				[3]game.TowerStatus{game.TowerLevel2, game.TowerLevel3},
-			),
+			changes: []scoring.Change{
+				set("red", 0, "fuel", 37, "auto"), set("blue", 0, "fuel", 63, "endgame"),
+			},
 			expectedRearText: [4]string{
 				"  E11 R037-B063 0:11",
 				"0:11       R037-B063",
@@ -186,12 +98,10 @@ func TestTeamSign_GenerateInMatchRearText(t *testing.T) {
 			matchType:    model.Qualification,
 			matchTimeSec: 165,
 			countdown:    "0:00",
-			redScore:     score(false, [game.ShiftCount]int{}, [3]game.TowerStatus{}),
-			blueScore:    score(true, [game.ShiftCount]int{}, [3]game.TowerStatus{}),
 			expectedRearText: [4]string{
-				" E00   0/100  0 0:00",
+				"              0 0:00",
 				"0:00       R000-B000",
-				" E00   0/100  0 0:00",
+				"              0 0:00",
 				"0:00       B000-R000",
 			},
 		},
@@ -200,21 +110,92 @@ func TestTeamSign_GenerateInMatchRearText(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(
 			testCase.name, func(t *testing.T) {
+				arena := setupTestArena(t)
 				arena.CurrentMatch.Type = testCase.matchType
-				arena.RedRealtimeScore.CurrentScore = testCase.redScore
-				arena.BlueRealtimeScore.CurrentScore = testCase.blueScore
-				currentTime := currentTimeAt(testCase.matchTimeSec)
+				startTestMatch(t, arena)
+				for _, change := range testCase.changes {
+					apply(t, arena, change)
+				}
+				runMatchTo(arena, testCase.matchTimeSec)
 
 				actualRearText := [4]string{
-					generateInMatchTeamRearText(arena, true, testCase.countdown, currentTime),
-					generateInMatchTimerRearText(arena, true, testCase.countdown),
-					generateInMatchTeamRearText(arena, false, testCase.countdown, currentTime),
-					generateInMatchTimerRearText(arena, false, testCase.countdown),
+					generateInMatchTeamRearText(arena, 0, testCase.countdown),
+					generateInMatchTimerRearText(arena, 0, testCase.countdown),
+					generateInMatchTeamRearText(arena, 1, testCase.countdown),
+					generateInMatchTimerRearText(arena, 1, testCase.countdown),
 				}
 				assert.Equal(t, testCase.expectedRearText, actualRearText)
 			},
 		)
 	}
+}
+
+func TestTeamSign_GameTextFallsBackToScore(t *testing.T) {
+	arena := setupTestArena(t)
+
+	// A game that does not say what to put on the signs gets the score of the alliance there.
+	selectGame(t, arena, "ball-count", nil)
+	startTestMatch(t, arena)
+	for i := 0; i < 4; i++ {
+		apply(t, arena, count("blue", "balls", testDevice))
+	}
+	runMatchTo(arena, 20)
+	assert.Equal(t, "0", generateTeamSignGameText(arena, 0))
+	assert.Equal(t, "8", generateTeamSignGameText(arena, 1))
+	// The time left in the phase has two digits on the sign, so a long phase shows 99 until it gets there.
+	assert.Equal(t, "          T99 0 1:57", generateInMatchTeamRearText(arena, 0, "1:57"))
+	assert.Equal(t, "          T99 8 1:57", generateInMatchTeamRearText(arena, 1, "1:57"))
+	assert.Equal(t, "B008-R000", generateTeamSignAllianceScores(arena, 1))
+}
+
+func TestTeamSign_GameTextGivesWayOnANarrowDisplay(t *testing.T) {
+	arena := setupTestArena(t)
+	dir := useScratchGames(t, arena)
+	source := string(model.TestGame("ball-count").Source) +
+		"\nlayout:\n  team_sign: \"'Balls scored so far: ' + string(own.balls.total)\"\n"
+	writeGame(t, arena, dir, "ball-count", source)
+	selectGame(t, arena, "ball-count", nil)
+	startTestMatch(t, arena)
+	runMatchTo(arena, 5)
+
+	// The phase and the countdown are kept whole; the text of the game is cut to what is left of twenty characters.
+	assert.Equal(t, "Balls scored so far: 0", generateTeamSignGameText(arena, 0))
+	rearText := generateInMatchTeamRearText(arena, 0, "2:12")
+	assert.Equal(t, "A10 Balls score 2:12", rearText)
+	assert.Equal(t, teamSignRearTextLength, len(rearText))
+}
+
+func TestTeamSign_Countdown(t *testing.T) {
+	arena := setupTestArena(t)
+	signs := NewTeamSigns()
+	signs.RedTimer.SetId(57)
+	frontText := func() string {
+		signs.Update(arena)
+		return signs.RedTimer.frontText
+	}
+
+	// Before the match the timer shows the length of what is about to start.
+	assert.Equal(t, "00:20", frontText())
+	startTestMatch(t, arena)
+	runMatchTo(arena, 5)
+	assert.Equal(t, "00:15", frontText())
+
+	// It shows zero through the pause, and then counts down the whole of teleop across its phases.
+	runMatchTo(arena, 21)
+	assert.Equal(t, "00:00", frontText())
+	runMatchTo(arena, 63)
+	assert.Equal(t, "01:40", frontText())
+	assert.Equal(t, "1:40       R000-B000", signs.RedTimer.rearText)
+	runMatchTo(arena, 163.05)
+	assert.Equal(t, "00:00", frontText())
+
+	// A timeout counts down its own length.
+	assert.Nil(t, arena.ResetMatch())
+	assert.Nil(t, arena.StartTimeout("Break", 300))
+	arena.SetAllianceStationDisplayMode("timeout")
+	setMatchTime(arena, 60)
+	assert.Equal(t, "04:00", frontText())
+	assert.Equal(t, "Field Break: 04:00", signs.RedTimer.rearText)
 }
 
 func TestTeamSign_Timer(t *testing.T) {
@@ -342,18 +323,20 @@ func TestTeamSign_TeamNumber(t *testing.T) {
 	arena.FieldReset = false
 
 	// Check E-stop and A-stop.
-	arena.MatchState = AutoPeriod
+	arena.MatchState = InMatch
+	arena.PhaseIndex = 0
 	assertSign(true, "  254", redColor, "Rear Text")
 	allianceStation.AStop = true
 	assertSign(true, "  254", orangeColor, "254           A-STOP")
 	allianceStation.EStop = true
 	assertSign(false, "  254", orangeColor, "254           E-STOP")
 	allianceStation.EStop = false
-	arena.MatchState = TeleopPeriod
+	arena.PhaseIndex = 2
 	assertSign(false, "  254", blueColor, "Rear Text")
 	allianceStation.EStop = true
 	assertSign(false, "  254", orangeColor, "254           E-STOP")
 	arena.MatchState = PostMatch
+	arena.PhaseIndex = -1
 	assertSign(false, "  254", orangeColor, "254           E-STOP")
 	allianceStation.EStop = false
 	arena.FieldReset = true
@@ -377,10 +360,11 @@ func TestTeamSign_TeamNumber(t *testing.T) {
 	// Check alliance selection.
 	arena.AllianceStationDisplayMode = "logo"
 	arena.AudienceDisplayMode = "allianceSelection"
+	year := fmt.Sprintf("%5d", time.Now().Year())
 	arena.AllianceSelectionShowTimer = false
-	assertSign(true, " 2026", redColor, "1503      Connect PC")
+	assertSign(true, year, redColor, "1503      Connect PC")
 	arena.AllianceSelectionShowTimer = true
-	assertSign(false, " 2026", blueColor, "1503      Connect PC")
+	assertSign(false, year, blueColor, "1503      Connect PC")
 	arena.AllianceStationDisplayMode = "blank"
 	assertSign(false, "     ", whiteColor, "")
 }

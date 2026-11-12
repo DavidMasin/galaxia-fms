@@ -7,7 +7,6 @@ package field
 
 import (
 	"fmt"
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"image/color"
 	"log"
@@ -16,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Represents a collection of team number and timer signs.
@@ -49,7 +49,6 @@ type TeamSign struct {
 
 const (
 	teamSignAddressPrefix            = "10.0.100."
-	teamSignYear                     = 2026
 	teamSignPort                     = 10011
 	teamSignPacketMagicString        = "CYPRX"
 	teamSignPacketHeaderLength       = 7
@@ -83,36 +82,30 @@ func NewTeamSigns() *TeamSigns {
 // Updates the state of all signs with the latest data and sends packets to the signs if anything has changed.
 func (signs *TeamSigns) Update(arena *Arena) {
 	// Generate the countdown string which is used in multiple places.
-	matchTimeSec := int(arena.MatchTimeSec())
-	currentTime := time.Now()
 	var countdownSec int
 	switch arena.MatchState {
 	case PreMatch:
 		if arena.AudienceDisplayMode == "allianceSelection" {
 			countdownSec = arena.AllianceSelectionTimeRemainingSec
 		} else {
-			countdownSec = game.MatchTiming.AutoDurationSec
+			countdownSec = int(math.Ceil(arena.modeRemainingSec()))
 		}
-	case StartMatch:
-		countdownSec = game.MatchTiming.AutoDurationSec
-	case AutoPeriod:
-		countdownSec = game.MatchTiming.AutoDurationSec - matchTimeSec
-	case TeleopPeriod:
-		countdownSec = game.MatchTiming.AutoDurationSec + game.GetTeleopDurationSec() +
-			game.MatchTiming.PauseDurationSec - matchTimeSec
+	case StartMatch, InMatch:
+		countdownSec = int(math.Ceil(arena.modeRemainingSec()))
 	case TimeoutActive:
-		countdownSec = game.MatchTiming.TimeoutDurationSec - matchTimeSec
+		countdownSec = arena.TimeoutDurationSec - int(arena.MatchTimeSec())
 	default:
 		countdownSec = 0
 	}
 	countdown := fmt.Sprintf("%02d:%02d", countdownSec/60, countdownSec%60)
 	rearCountdown := fmt.Sprintf("%d:%02d", countdownSec/60, countdownSec%60)
 
-	// Generate the in-match rear text which is common to a whole alliance.
-	redInMatchTeamRearText := generateInMatchTeamRearText(arena, true, rearCountdown, currentTime)
-	redInMatchTimerRearText := generateInMatchTimerRearText(arena, true, rearCountdown)
-	blueInMatchTeamRearText := generateInMatchTeamRearText(arena, false, rearCountdown, currentTime)
-	blueInMatchTimerRearText := generateInMatchTimerRearText(arena, false, rearCountdown)
+	// Generate the in-match rear text which is common to a whole alliance. The red signs belong to the first
+	// alliance of the game and the blue signs to the second.
+	redInMatchTeamRearText := generateInMatchTeamRearText(arena, 0, rearCountdown)
+	redInMatchTimerRearText := generateInMatchTimerRearText(arena, 0, rearCountdown)
+	blueInMatchTeamRearText := generateInMatchTeamRearText(arena, 1, rearCountdown)
+	blueInMatchTimerRearText := generateInMatchTimerRearText(arena, 1, rearCountdown)
 
 	signs.Red1.update(arena, "R1", true, countdown, redInMatchTeamRearText)
 	signs.Red2.update(arena, "R2", true, countdown, redInMatchTeamRearText)
@@ -191,57 +184,85 @@ func (sign *TeamSign) update(arena *Arena, station string, isRed bool, countdown
 	}
 }
 
-// Returns the in-match rear text for the team number display that is common to the whole given alliance.
-func generateInMatchTeamRearText(arena *Arena, isRed bool, countdown string, currentTime time.Time) string {
-	allianceScores := generateTeamSignAllianceScores(arena, isRed)
-	periodText := generateTeamSignPeriodText(arena, currentTime)
+// Returns the in-match rear text for the team number display that is common to the whole given alliance: the
+// phase and the time left in it, then what the game wants its drive teams to see, then the countdown. In the
+// playoffs the middle part is the two scores instead, because by then only winning matters.
+func generateInMatchTeamRearText(arena *Arena, allianceIndex int, countdown string) string {
+	periodText := generateTeamSignPeriodText(arena)
+	var gameText string
 	if arena.CurrentMatch.Type == model.Playoff {
-		return formatTeamSignRearText(fmt.Sprintf("%s %s %s", periodText, allianceScores, countdown))
+		gameText = generateTeamSignAllianceScores(arena, allianceIndex)
+	} else {
+		gameText = generateTeamSignGameText(arena, allianceIndex)
 	}
 
-	var realtimeScore, opponentRealtimeScore *RealtimeScore
-	if isRed {
-		realtimeScore = arena.RedRealtimeScore
-		opponentRealtimeScore = arena.BlueRealtimeScore
-	} else {
-		realtimeScore = arena.BlueRealtimeScore
-		opponentRealtimeScore = arena.RedRealtimeScore
+	// The display is only so wide. The phase and the countdown matter most, so the game's text gives way.
+	fixedLength := len(countdown)
+	if periodText != "" {
+		fixedLength += len(periodText) + 1
 	}
-	scoreSummary := realtimeScore.CurrentScore.Summarize(&opponentRealtimeScore.CurrentScore)
-	numFuel := scoreSummary.NumFuel - scoreSummary.NumFuelPostMatch
-	numFuelGoal := game.EnergizedBonusThreshold
-	if numFuel >= game.EnergizedBonusThreshold {
-		numFuelGoal = game.SuperchargedBonusThreshold
+	if maxLength := teamSignRearTextLength - fixedLength - 1; len(gameText) > maxLength {
+		gameText = gameText[:max(maxLength, 0)]
 	}
-	return formatTeamSignRearText(
-		fmt.Sprintf("%s %3d/%d %2d %s", periodText, numFuel, numFuelGoal, scoreSummary.AutoTowerPoints, countdown),
-	)
+	var parts []string
+	for _, part := range []string{periodText, gameText, countdown} {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return formatTeamSignRearText(strings.Join(parts, " "))
 }
 
 // Returns the in-match rear text for the timer display for the given alliance.
-func generateInMatchTimerRearText(arena *Arena, isRed bool, countdown string) string {
-	allianceScores := generateTeamSignAllianceScores(arena, isRed)
+func generateInMatchTimerRearText(arena *Arena, allianceIndex int, countdown string) string {
+	allianceScores := generateTeamSignAllianceScores(arena, allianceIndex)
 	return fmt.Sprintf("%s%*s", countdown, teamSignRearTextLength-len(countdown), allianceScores)
 }
 
-// Returns the live score string for the given alliance, excluding post-match points.
-func generateTeamSignAllianceScores(arena *Arena, isRed bool) string {
-	var realtimeScore, opponentRealtimeScore *RealtimeScore
-	var formatString string
-	if isRed {
-		realtimeScore = arena.RedRealtimeScore
-		opponentRealtimeScore = arena.BlueRealtimeScore
-		formatString = "R%03d-B%03d"
-	} else {
-		realtimeScore = arena.BlueRealtimeScore
-		opponentRealtimeScore = arena.RedRealtimeScore
-		formatString = "B%03d-R%03d"
+// Returns what the game puts on the signs of the given alliance: the text of its layout.team_sign expression, or
+// the score of the alliance if the game has none or it fails.
+func generateTeamSignGameText(arena *Arena, allianceIndex int) string {
+	allianceId := arena.AllianceId(allianceIndex)
+	if expression := arena.Game.Layout.TeamSign; expression != nil && allianceId != "" {
+		value, err := arena.evalLive(expression, allianceId, nil)
+		if err == nil && value != nil {
+			if text, ok := value.(string); ok {
+				return text
+			}
+			return fmt.Sprint(value)
+		}
+		if err != nil {
+			arena.logExpressionError(expression, "team sign text", err)
+		}
 	}
-	scoreSummary := realtimeScore.CurrentScore.Summarize(&opponentRealtimeScore.CurrentScore)
-	scoreTotal := scoreSummary.Score - scoreSummary.PostMatchPoints
-	opponentScoreSummary := opponentRealtimeScore.CurrentScore.Summarize(&realtimeScore.CurrentScore)
-	opponentScoreTotal := opponentScoreSummary.Score - opponentScoreSummary.PostMatchPoints
-	return fmt.Sprintf(formatString, scoreTotal, opponentScoreTotal)
+	return strconv.Itoa(teamSignAllianceScore(arena, allianceIndex))
+}
+
+// Returns the live score string for the given alliance: its own score first, then the other side.
+func generateTeamSignAllianceScores(arena *Arena, allianceIndex int) string {
+	opponentIndex := 1 - allianceIndex
+	return fmt.Sprintf(
+		"%s%03d-%s%03d",
+		teamSignAllianceLetter(arena, allianceIndex), teamSignAllianceScore(arena, allianceIndex),
+		teamSignAllianceLetter(arena, opponentIndex), teamSignAllianceScore(arena, opponentIndex),
+	)
+}
+
+// Returns the current score of the alliance at the given index, in whole points.
+func teamSignAllianceScore(arena *Arena, allianceIndex int) int {
+	result, _, _ := arena.ScoreSnapshot()
+	if result == nil || result.Alliances[arena.AllianceId(allianceIndex)] == nil {
+		return 0
+	}
+	return int(math.Round(result.Alliances[arena.AllianceId(allianceIndex)].Score))
+}
+
+// Returns the one-letter code the game gives the alliance at the given index.
+func teamSignAllianceLetter(arena *Arena, allianceIndex int) string {
+	if arena.AllianceId(allianceIndex) == "" {
+		return "?"
+	}
+	return arena.Game.Alliances.List[allianceIndex].Short
 }
 
 // Returns the rear text right-justified to fill the physical display width.
@@ -249,40 +270,21 @@ func formatTeamSignRearText(text string) string {
 	return fmt.Sprintf("%*s", teamSignRearTextLength, text)
 }
 
-// Returns the match period indicator and remaining time shown at the start of the team sign rear text.
-func generateTeamSignPeriodText(arena *Arena, currentTime time.Time) string {
-	shift, remaining, _, ok := arena.RedRealtimeScore.CurrentScore.Hub.GetCurrentShiftTiming(
-		arena.MatchStartTime, currentTime,
-	)
-	periodPrefix := generateTeamSignPeriodPrefix(arena, shift)
-	if !ok {
-		return periodPrefix + "00"
+// Returns the match period indicator shown at the start of the team sign rear text: the first letter of the name
+// of the phase that is running and the seconds left in it. It is empty when no phase is running.
+func generateTeamSignPeriodText(arena *Arena) string {
+	phase := arena.CurrentPhase()
+	if phase == nil {
+		return ""
 	}
-	return fmt.Sprintf("%s%02d", periodPrefix, int(math.Ceil(remaining.Seconds())))
-}
-
-// Returns the sign character corresponding to the given Hub shift.
-func generateTeamSignPeriodPrefix(arena *Arena, shift game.Shift) string {
-	switch shift {
-	case game.ShiftAuto:
-		return "A"
-	case game.ShiftTransition:
-		return "T"
-	case game.Shift1, game.Shift3:
-		if arena.RedRealtimeScore.CurrentScore.Hub.WonAuto {
-			return "B"
+	prefix := "-"
+	for _, letter := range phase.Name {
+		if unicode.IsLetter(letter) && letter < unicode.MaxASCII {
+			prefix = string(unicode.ToUpper(letter))
+			break
 		}
-		return "R"
-	case game.Shift2, game.Shift4:
-		if arena.RedRealtimeScore.CurrentScore.Hub.WonAuto {
-			return "R"
-		}
-		return "B"
-	case game.ShiftEndgame:
-		return "E"
-	default:
-		return "E"
 	}
+	return fmt.Sprintf("%s%02d", prefix, min(int(math.Ceil(arena.phaseRemainingSec())), 99))
 }
 
 // Returns the front text, front color, and rear text to display on the timer display.
@@ -302,7 +304,7 @@ func generateTimerTexts(arena *Arena, countdown, inMatchRearText string) (string
 	var frontColor color.RGBA
 	rearText := inMatchRearText
 	if arena.AllianceStationDisplayMode == "logo" {
-		frontText = fmt.Sprintf("%5d", teamSignYear)
+		frontText = fmt.Sprintf("%5d", time.Now().Year())
 		frontColor = whiteColor
 	} else if arena.AllianceStationDisplayMode == "timeout" {
 		frontText = countdown
@@ -340,7 +342,7 @@ func (sign *TeamSign) generateTeamNumberTexts(
 	var frontText string
 	var frontColor color.RGBA
 	if arena.AllianceStationDisplayMode == "logo" {
-		frontText = fmt.Sprintf("%5d", teamSignYear)
+		frontText = fmt.Sprintf("%5d", time.Now().Year())
 		frontColor = allianceColor
 	} else {
 		if allianceStation.Team == nil {
@@ -351,7 +353,7 @@ func (sign *TeamSign) generateTeamNumberTexts(
 
 		if allianceStation.EStop {
 			frontColor = orangeColor
-		} else if allianceStation.AStop && arena.MatchState == AutoPeriod {
+		} else if allianceStation.AStop && arena.inAutoPhase() {
 			frontColor = blinkColor(orangeColor)
 		} else if arena.MatchState == PreMatch && station != "" && arena.checkAllianceStationsReady(station) == nil {
 			frontColor = allianceColor
@@ -359,8 +361,7 @@ func (sign *TeamSign) generateTeamNumberTexts(
 			frontColor = greenColor
 		} else if arena.FieldVolunteers {
 			frontColor = purpleColor
-		} else if allianceStation.DsConn != nil && !allianceStation.DsConn.RobotLinked &&
-			(arena.MatchState == AutoPeriod || arena.MatchState == PausePeriod || arena.MatchState == TeleopPeriod) {
+		} else if allianceStation.DsConn != nil && !allianceStation.DsConn.RobotLinked && arena.MatchState == InMatch {
 			// Blink the display to indicate that the robot is not linked while the match is in progress.
 			frontColor = blinkColor(allianceColor)
 		} else {
@@ -371,7 +372,7 @@ func (sign *TeamSign) generateTeamNumberTexts(
 	var message string
 	if allianceStation.EStop {
 		message = "E-STOP"
-	} else if allianceStation.AStop && arena.MatchState == AutoPeriod {
+	} else if allianceStation.AStop && arena.inAutoPhase() {
 		message = "A-STOP"
 	} else if arena.MatchState == PreMatch || arena.MatchState == TimeoutActive {
 		if allianceStation.Bypass {

@@ -128,23 +128,26 @@ func TestEncodeControlPacket(t *testing.T) {
 	assert.Equal(t, byte(0), data[7])
 	assert.Equal(t, byte(13), data[8])
 
-	// Check the countdown at different points during the match.
-	arena.MatchState = AutoPeriod
+	// Check the countdown at different points during the match: it is the time left in the current phase.
+	arena.MatchState = InMatch
+	arena.PhaseIndex = 0
 	arena.MatchStartTime = time.Now().Add(-9 * time.Second)
 	data = dsConn.encodeControlPacket(arena, "")
 	assert.Equal(t, byte(11), data[21])
-	arena.MatchState = PausePeriod
+	arena.PhaseIndex = 1
 	arena.MatchStartTime = time.Now().Add(-21 * time.Second)
 	data = dsConn.encodeControlPacket(arena, "")
-	assert.Equal(t, byte(140), data[21])
-	arena.MatchState = TeleopPeriod
-	arena.MatchStartTime = time.Now().Add(-33 * time.Second)
+	assert.Equal(t, byte(2), data[21])
+	arena.PhaseIndex = 3
+	arena.MatchStartTime = time.Now().Add(-40500 * time.Millisecond)
 	data = dsConn.encodeControlPacket(arena, "")
-	assert.Equal(t, byte(129), data[21])
+	assert.Equal(t, byte(18), data[21])
+	arena.PhaseIndex = 7
 	arena.MatchStartTime = time.Now().Add(-160 * time.Second)
 	data = dsConn.encodeControlPacket(arena, "")
-	assert.Equal(t, byte(2), data[21])
+	assert.Equal(t, byte(3), data[21])
 	arena.MatchState = PostMatch
+	arena.PhaseIndex = -1
 	arena.MatchStartTime = time.Now().Add(-180 * time.Second)
 	data = dsConn.encodeControlPacket(arena, "")
 	assert.Equal(t, byte(0), data[21])

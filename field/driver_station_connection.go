@@ -8,7 +8,6 @@ package field
 import (
 	"errors"
 	"fmt"
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/network"
 	"io"
@@ -297,21 +296,8 @@ func (dsConn *DriverStationConnection) encodeControlPacket(arena *Arena, gameDat
 	packet[18] = byte(currentTime.Month())
 	packet[19] = byte(currentTime.Year() - 1900)
 
-	// Remaining number of seconds in match.
-	var matchSecondsRemaining int
-	switch arena.MatchState {
-	case PreMatch, TimeoutActive, PostTimeout:
-		matchSecondsRemaining = game.MatchTiming.AutoDurationSec
-	case StartMatch, AutoPeriod:
-		matchSecondsRemaining = game.MatchTiming.AutoDurationSec - int(arena.MatchTimeSec())
-	case PausePeriod:
-		matchSecondsRemaining = game.GetTeleopDurationSec()
-	case TeleopPeriod:
-		matchSecondsRemaining = game.MatchTiming.AutoDurationSec + game.GetTeleopDurationSec() +
-			game.MatchTiming.PauseDurationSec - int(arena.MatchTimeSec())
-	default:
-		matchSecondsRemaining = 0
-	}
+	// Remaining number of seconds in the current phase of the match.
+	matchSecondsRemaining := arena.dsSecondsRemaining()
 	packet[20] = byte(matchSecondsRemaining >> 8 & 0xff)
 	packet[21] = byte(matchSecondsRemaining & 0xff)
 

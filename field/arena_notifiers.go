@@ -86,9 +86,15 @@ type ScorePostedMessage struct {
 	Winner    string                          `json:"winner"`   // Alliance id, or empty for a tie.
 	Tiebreak  string                          `json:"tiebreak"` // Name of the playoff tiebreaker that decided it.
 	Alliances map[string]*ScorePostedAlliance `json:"alliances"`
+	// AllianceOrder and Cards describe the game the match was played with, which may no longer be the active one,
+	// so that a display can lay the result out and colour its cards without the game view.
+	AllianceOrder []string        `json:"allianceOrder"`
+	Cards         []*gamedef.Card `json:"cards"`
 }
 
 type ScorePostedAlliance struct {
+	Name          string                      `json:"name"`
+	Color         string                      `json:"color"`
 	Teams         []int                       `json:"teams"`         // By robot position; zero where there is none.
 	OffFieldTeams []int                       `json:"offFieldTeams"` // Playoff alliance members not on the field.
 	Score         float64                     `json:"score"`
@@ -435,7 +441,7 @@ func (arena *Arena) GenerateScorePostedMessage() any {
 	match, matchResult := arena.SavedMatch, arena.SavedMatchResult
 	message := &ScorePostedMessage{
 		Match: match, GameId: matchResult.GameId, GameHash: matchResult.GameHash,
-		Alliances: map[string]*ScorePostedAlliance{},
+		Alliances: map[string]*ScorePostedAlliance{}, AllianceOrder: []string{}, Cards: []*gamedef.Card{},
 	}
 	result, g, err := matchResult.Compute(arena.Database, match.UseTiebreakCriteria)
 	if err != nil {
@@ -443,6 +449,8 @@ func (arena *Arena) GenerateScorePostedMessage() any {
 		return message
 	}
 	message.Winner, message.Tiebreak = result.Winner, result.Tiebreak
+	message.AllianceOrder = g.AllianceIDs()
+	message.Cards = append(message.Cards, g.Cards...)
 	state := matchResult.State
 	if state == nil {
 		state, _ = scoring.Fold(g, matchResult.Changes)
@@ -478,6 +486,7 @@ func (arena *Arena) GenerateScorePostedMessage() any {
 	for index, alliance := range g.Alliances.List {
 		allianceResult, allianceState := result.Alliances[alliance.ID], state.Alliances[alliance.ID]
 		posted := &ScorePostedAlliance{
+			Name: alliance.Name, Color: alliance.Color,
 			Teams: make([]int, g.Alliances.Size), OffFieldTeams: []int{}, Score: allianceResult.Score,
 			Breakdown: allianceResult.Breakdown, RankingPoints: []ScorePostedRankingPoint{},
 			RPTotal: allianceResult.RPTotal, Cards: map[int]string{}, Fouls: []ScorePostedFoul{},

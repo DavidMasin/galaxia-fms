@@ -466,4 +466,19 @@ func TestScorePostedMessagePlayoff(t *testing.T) {
 	assert.True(t, message.Alliances["red"].Disqualified)
 	assert.Equal(t, 0.0, message.Alliances["red"].Score)
 	assert.Equal(t, map[int]string{2: "red"}, message.Alliances["red"].Cards)
+
+	// The message describes the alliances and cards of the game the match was played with, so a display can lay
+	// the result out and colour its cards even after a different game has been selected.
+	assert.Equal(t, []string{"red", "blue"}, message.AllianceOrder)
+	assert.Equal(t, "Blue", message.Alliances["blue"].Name)
+	assert.Equal(t, "#1565c0", message.Alliances["blue"].Color)
+	if assert.Len(t, message.Cards, 2) {
+		assert.Equal(t, "red", message.Cards[1].ID)
+		assert.Equal(t, "#d32f2f", message.Cards[1].Color)
+		assert.True(t, message.Cards[1].Disqualifies)
+	}
+	encoded, err := json.Marshal(message)
+	assert.Nil(t, err)
+	assert.Contains(t, string(encoded), `"allianceOrder":["red","blue"]`)
+	assert.Contains(t, string(encoded), `"secondBecomes":"red"`)
 }

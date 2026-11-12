@@ -17,7 +17,7 @@ func TestTwitchDisplay(t *testing.T) {
 		t.Run(captions, func(t *testing.T) {
 			recorder := web.getHttpResponse("/displays/twitch?displayId=1&channel=team254&captions=" + captions)
 			assert.Equal(t, 200, recorder.Code)
-			assert.Contains(t, recorder.Body.String(), "Twitch Stream Display - Untitled Event - Cheesy Arena")
+			assert.Contains(t, recorder.Body.String(), "Twitch Stream Display - Untitled Event - Galaxia FMS")
 		})
 	}
 }

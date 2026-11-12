@@ -67,11 +67,11 @@ type Alliances struct {
 }
 
 type Alliance struct {
-	ID    string `yaml:"id"`
-	Name  string `yaml:"name"`
-	Short string `yaml:"short"`
-	Color string `yaml:"color"`
-	DS    string `yaml:"ds"`
+	ID    string `yaml:"id" json:"id"`
+	Name  string `yaml:"name" json:"name"`
+	Short string `yaml:"short" json:"short"`
+	Color string `yaml:"color" json:"color"`
+	DS    string `yaml:"ds" json:"ds"`
 }
 
 // Param is a constant that an event can tune from the settings page without editing the game file.
@@ -109,10 +109,10 @@ type Match struct {
 }
 
 type Countdown struct {
-	Enabled    bool   `yaml:"enabled"`
-	Voice      string `yaml:"voice"`
-	Beats      int    `yaml:"beats"`
-	QuickBeats int    `yaml:"quick_beats"`
+	Enabled    bool   `yaml:"enabled" json:"enabled"`
+	Voice      string `yaml:"voice" json:"voice"`
+	Beats      int    `yaml:"beats" json:"beats"`
+	QuickBeats int    `yaml:"quick_beats" json:"quickBeats"`
 }
 
 type Phase struct {
@@ -252,25 +252,25 @@ type Fouls struct {
 }
 
 type FoulType struct {
-	ID     string  `yaml:"id"`
-	Name   string  `yaml:"name"`
-	Points float64 `yaml:"points"`
-	To     string  `yaml:"to"`
+	ID     string  `yaml:"id" json:"id"`
+	Name   string  `yaml:"name" json:"name"`
+	Points float64 `yaml:"points" json:"points"`
+	To     string  `yaml:"to" json:"to"`
 }
 
 type Rule struct {
-	ID   string `yaml:"id"`
-	Name string `yaml:"name"`
-	Text string `yaml:"text"`
-	Foul string `yaml:"foul"`
+	ID   string `yaml:"id" json:"id"`
+	Name string `yaml:"name" json:"name"`
+	Text string `yaml:"text" json:"text"`
+	Foul string `yaml:"foul" json:"foul"`
 }
 
 type Card struct {
-	ID            string `yaml:"id"`
-	Name          string `yaml:"name"`
-	Color         string `yaml:"color"`
-	SecondBecomes string `yaml:"second_becomes"`
-	Disqualifies  bool   `yaml:"disqualifies"`
+	ID            string `yaml:"id" json:"id"`
+	Name          string `yaml:"name" json:"name"`
+	Color         string `yaml:"color" json:"color"`
+	SecondBecomes string `yaml:"second_becomes" json:"secondBecomes"`
+	Disqualifies  bool   `yaml:"disqualifies" json:"disqualifies"`
 }
 
 // Derived is a value computed from raw state. With Points set it contributes to the alliance score.
@@ -337,10 +337,10 @@ type Layout struct {
 }
 
 type Panel struct {
-	ID        string   `yaml:"id"`
-	Name      string   `yaml:"name"`
-	Alliances []string `yaml:"alliances"`
-	Groups    []string `yaml:"groups"`
+	ID        string   `yaml:"id" json:"id"`
+	Name      string   `yaml:"name" json:"name"`
+	Alliances []string `yaml:"alliances" json:"alliances"`
+	Groups    []string `yaml:"groups" json:"groups"`
 }
 
 type TBA struct {

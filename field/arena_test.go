@@ -5,6 +5,7 @@ package field
 
 import (
 	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/led"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/partner"
@@ -14,6 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1328,4 +1331,32 @@ func TestSwitchConfigEnabled(t *testing.T) {
 	assert.True(t, arena.switchConfigEnabled())
 	arena.EventSettings.RadioOnlyNetwork = true
 	assert.False(t, arena.switchConfigEnabled())
+}
+
+func TestReloadGamesAnnouncesChanges(t *testing.T) {
+	arena := setupTestArena(t)
+
+	// The example games are loaded at startup.
+	assert.NotNil(t, arena.Games.Get("ball-count"))
+	assert.NotNil(t, arena.Games.Get("orbital-rush"))
+	assert.NotNil(t, arena.Games.Get("rebuilt-style"))
+	assert.Empty(t, arena.ReloadGames())
+
+	// Point the registry at a scratch directory and drop a game into it.
+	dir := t.TempDir()
+	arena.Games = gamedef.NewRegistry(dir)
+	assert.NoError(t, arena.Games.Load())
+	events := arena.Bus.Subscribe([]string{"system"}, 5)
+	defer events.Close()
+	source, err := os.ReadFile(filepath.Join("..", "games", "ball-count", gamedef.GameFile))
+	assert.NoError(t, err)
+	assert.NoError(t, os.MkdirAll(filepath.Join(dir, "ball-count"), 0755))
+	assert.NoError(t, os.WriteFile(filepath.Join(dir, "ball-count", gamedef.GameFile), source, 0644))
+
+	assert.Equal(t, []string{"ball-count"}, arena.ReloadGames())
+	event := <-events.C
+	assert.Equal(t, "system.game_reloaded", event.Type)
+	assert.Equal(t, map[string]any{"id": "ball-count", "valid": true}, event.Data)
+	assert.Equal(t, "", event.Match, "no match is in progress")
+	assert.NotNil(t, arena.Games.Get("ball-count"))
 }

@@ -13,12 +13,13 @@ Base template used by most pages to include common resources and optionally rend
   <body>
     <nav class="navbar navbar-expand-lg bg-body-tertiary">
       <div class="container">
-        <a class="navbar-brand" href="/">Cheesy Arena</a>
+        <a class="navbar-brand" href="/">Galaxia FMS</a>
         <ul class="navbar-nav me-auto">
           <li class="nav-item dropdown">
             <a href="#" class="nav-link" data-bs-toggle="dropdown" role="button">Setup</a>
             <div class="dropdown-menu">
               <a class="dropdown-item" href="/setup/settings">Settings</a>
+              <a class="dropdown-item" href="/setup/games">Games</a>
               <a class="dropdown-item" href="/setup/teams">Team List</a>
               <a class="dropdown-item" href="/setup/schedule">Match Scheduling</a>
               <a class="dropdown-item" href="/setup/judging">Judge Scheduling</a>
@@ -135,13 +136,15 @@ Base template used by most pages to include common resources and optionally rend
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h4 class="modal-title">About Cheesy Arena</h4>
+            <h4 class="modal-title">About Galaxia FMS</h4>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
-            <p>A field management system that just works.</p>
-            <p>Copyright &copy; 2014-2026 Team 254. All Rights Reserved.</p>
-            <p><a href="https://github.com/Team254/cheesy-arena">https://github.com/Team254/cheesy-arena</a></p>
+            <p>A field management system that runs any game from a definition file.</p>
+            <p><a href="https://github.com/DavidMasin/galaxia-fms">https://github.com/DavidMasin/galaxia-fms</a></p>
+            <p>Built on Cheesy Arena, a field management system that just works.<br>
+              Copyright &copy; 2014-2026 Team 254. All Rights Reserved.<br>
+              <a href="https://github.com/Team254/cheesy-arena">https://github.com/Team254/cheesy-arena</a></p>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -173,7 +176,7 @@ Base template used by most pages to include common resources and optionally rend
 {{end}}
 
 {{define "head_common"}}
-<title>{{template "title" .}} - {{.EventSettings.Name}} - Cheesy Arena</title>
+<title>{{template "title" .}} - {{.EventSettings.Name}} - Galaxia FMS</title>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="shortcut icon" href="/static/img/favicon.ico">

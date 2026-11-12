@@ -23,7 +23,7 @@ func TestScoringPanel(t *testing.T) {
 	assert.Equal(t, 200, recorder.Code)
 	recorder = web.getHttpResponse("/panels/scoring/blue")
 	assert.Equal(t, 200, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "Scoring Panel - Untitled Event - Cheesy Arena")
+	assert.Contains(t, recorder.Body.String(), "Scoring Panel - Untitled Event - Galaxia FMS")
 }
 
 func TestScoringPanelWebsocket(t *testing.T) {

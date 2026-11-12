@@ -18,7 +18,7 @@ func TestAnnouncerDisplay(t *testing.T) {
 
 	recorder := web.getHttpResponse("/displays/announcer?displayId=1")
 	assert.Equal(t, 200, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "Announcer Display - Untitled Event - Cheesy Arena")
+	assert.Contains(t, recorder.Body.String(), "Announcer Display - Untitled Event - Galaxia FMS")
 }
 
 func TestAnnouncerDisplayMatchLoad(t *testing.T) {

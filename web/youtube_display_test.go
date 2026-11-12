@@ -19,7 +19,7 @@ func TestYouTubeDisplay(t *testing.T) {
 		t.Run(captions, func(t *testing.T) {
 			recorder := web.getHttpResponse("/displays/youtube?displayId=1&videoId=liveVideoId&captions=" + captions)
 			assert.Equal(t, 200, recorder.Code)
-			assert.Contains(t, recorder.Body.String(), "YouTube Stream Display - Untitled Event - Cheesy Arena")
+			assert.Contains(t, recorder.Body.String(), "YouTube Stream Display - Untitled Event - Galaxia FMS")
 			assert.Contains(t, recorder.Body.String(), "/static/js/youtube_display.js")
 		})
 	}

@@ -20,7 +20,7 @@ func TestPlaceholderDisplay(t *testing.T) {
 
 	recorder = web.getHttpResponse("/display?displayId=1")
 	assert.Equal(t, 200, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "Placeholder Display - Untitled Event - Cheesy Arena")
+	assert.Contains(t, recorder.Body.String(), "Placeholder Display - Untitled Event - Galaxia FMS")
 }
 
 func TestPlaceholderDisplayWebsocket(t *testing.T) {

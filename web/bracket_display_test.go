@@ -15,7 +15,7 @@ func TestBracketDisplay(t *testing.T) {
 
 	recorder := web.getHttpResponse("/displays/bracket?displayId=1")
 	assert.Equal(t, 200, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "Bracket Display - Untitled Event - Cheesy Arena")
+	assert.Contains(t, recorder.Body.String(), "Bracket Display - Untitled Event - Galaxia FMS")
 }
 
 func TestBracketDisplayWebsocket(t *testing.T) {

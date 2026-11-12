@@ -548,6 +548,23 @@ type Clock struct {
 	MatchRemaining float64
 }
 
+// ClockAt builds the clock for a moment elapsed seconds into the given phase of a running match. An unknown or
+// empty phase gives an idle clock.
+func ClockAt(g *gamedef.Game, phaseID string, elapsed float64) Clock {
+	start := 0.0
+	for _, phase := range g.Match.Phases {
+		if phase.ID == phaseID {
+			elapsed = math.Max(0, math.Min(elapsed, phase.Duration))
+			return Clock{
+				State: "running", Phase: phase.ID, PhaseElapsed: elapsed, PhaseDuration: phase.Duration,
+				MatchTime: start + elapsed, MatchRemaining: g.Duration() - start - elapsed,
+			}
+		}
+		start += phase.Duration
+	}
+	return Clock{State: "idle"}
+}
+
 func (c Clock) roots() map[string]any {
 	return map[string]any{
 		"match_state": c.State, "phase": c.Phase, "phase_elapsed": c.PhaseElapsed,

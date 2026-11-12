@@ -34,7 +34,7 @@ func TestAudienceDisplay(t *testing.T) {
 		"/displays/audience?displayId=1&background=%23000&reversed=false&overlayLocation=top&zoomFactor=1.5",
 	)
 	assert.Equal(t, 200, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "Audience Display - Untitled Event - Cheesy Arena")
+	assert.Contains(t, recorder.Body.String(), "Audience Display - Untitled Event - Galaxia FMS")
 	assert.Contains(t, recorder.Body.String(), "finalTiebreakReason")
 }
 

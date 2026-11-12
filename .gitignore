@@ -33,3 +33,4 @@ static/img/avatars
 # Galaxia FMS
 galaxia-fms
 /data/
+.claude/

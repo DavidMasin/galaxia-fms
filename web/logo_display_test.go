@@ -15,7 +15,7 @@ func TestLogoDisplay(t *testing.T) {
 
 	recorder := web.getHttpResponse("/displays/logo?displayId=1&message=")
 	assert.Equal(t, 200, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "Logo Display - Untitled Event - Cheesy Arena")
+	assert.Contains(t, recorder.Body.String(), "Logo Display - Untitled Event - Galaxia FMS")
 }
 
 func TestLogoDisplayWebsocket(t *testing.T) {

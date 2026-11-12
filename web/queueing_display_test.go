@@ -15,7 +15,7 @@ func TestQueueingDisplay(t *testing.T) {
 
 	recorder := web.getHttpResponse("/displays/queueing?displayId=1")
 	assert.Equal(t, 200, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "Queueing Display - Untitled Event - Cheesy Arena")
+	assert.Contains(t, recorder.Body.String(), "Queueing Display - Untitled Event - Galaxia FMS")
 }
 
 func TestQueueingDisplayWebsocket(t *testing.T) {

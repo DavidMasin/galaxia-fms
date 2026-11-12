@@ -26,7 +26,7 @@ func TestWallDisplay(t *testing.T) {
 		"/displays/wall?displayId=1&background=%23fff&message=hello+there&reversed=true&topSpacingPx=10&zoomFactor=2",
 	)
 	assert.Equal(t, 200, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "Wall Display - Untitled Event - Cheesy Arena")
+	assert.Contains(t, recorder.Body.String(), "Wall Display - Untitled Event - Galaxia FMS")
 }
 
 func TestWallDisplayWebsocket(t *testing.T) {

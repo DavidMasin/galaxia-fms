@@ -22,7 +22,7 @@ func TestAllianceStationDisplay(t *testing.T) {
 
 	recorder = web.getHttpResponse("/displays/alliance_station?displayId=1&station=B1")
 	assert.Equal(t, 200, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "Alliance Station Display - Untitled Event - Cheesy Arena")
+	assert.Contains(t, recorder.Body.String(), "Alliance Station Display - Untitled Event - Galaxia FMS")
 }
 
 func TestAllianceStationDisplayWebsocket(t *testing.T) {

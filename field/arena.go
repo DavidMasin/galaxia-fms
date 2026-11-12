@@ -7,7 +7,10 @@ package field
 
 import (
 	"fmt"
+	"github.com/DavidMasin/galaxia-fms/bus"
 	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/gamedef"
+	"github.com/DavidMasin/galaxia-fms/games"
 	"github.com/DavidMasin/galaxia-fms/led"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/network"
@@ -18,6 +21,7 @@ import (
 	"math"
 	"math/rand"
 	"net"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -27,6 +31,9 @@ import (
 
 const (
 	arenaLoopPeriodMs        = 10
+	busRingSize              = 5000
+	gamesDir                 = "games"
+	gamesPollPeriodSec       = 2
 	arenaLoopWarningMs       = 5
 	dsPacketPeriodMs         = 500
 	dsPacketWarningMs        = 550
@@ -55,6 +62,8 @@ const (
 )
 
 type Arena struct {
+	Bus              *bus.Bus
+	Games            *gamedef.Registry
 	Database         *model.Database
 	EventSettings    *model.EventSettings
 	accessPoint      network.AccessPoint
@@ -126,7 +135,18 @@ type AllianceStation struct {
 // Creates the arena and sets it to its initial state.
 func NewArena(dbPath string) (*Arena, error) {
 	arena := new(Arena)
+	arena.Bus = bus.New(busRingSize)
+	arena.Bus.SetContext(arena.busContext)
 	arena.configureNotifiers()
+
+	// Load the game definitions, first copying the built-in examples into place if there are none yet.
+	arena.Games = gamedef.NewRegistry(filepath.Join(model.BaseDir, gamesDir))
+	if err := arena.Games.Seed(games.FS); err != nil {
+		return nil, fmt.Errorf("failed to create the games directory: %w", err)
+	}
+	if err := arena.Games.Load(); err != nil {
+		return nil, fmt.Errorf("failed to load games: %w", err)
+	}
 	arena.Plc = new(plc.ModbusPlc)
 
 	arena.AllianceStations = make(map[string]*AllianceStation)
@@ -873,6 +893,38 @@ func (arena *Arena) logTeamSnapshots() {
 	arena.lastTeamLogTime = time.Now()
 }
 
+// busContext supplies the match that events published on the bus belong to.
+func (arena *Arena) busContext() (match, run string) {
+	if arena.CurrentMatch != nil && arena.MatchState != PreMatch {
+		return arena.CurrentMatch.ShortName, ""
+	}
+	return "", ""
+}
+
+// watchGames notices game definition files that change on disk and reloads them, so a game can be edited while
+// the system runs. It loops forever.
+func (arena *Arena) watchGames() {
+	for {
+		time.Sleep(gamesPollPeriodSec * time.Second)
+		arena.ReloadGames()
+	}
+}
+
+// ReloadGames re-reads any game definition that has changed on disk and announces each one on the event bus.
+func (arena *Arena) ReloadGames() []string {
+	changed, err := arena.Games.Poll()
+	if err != nil {
+		log.Printf("Failed to check the games directory: %v", err)
+		return nil
+	}
+	for _, id := range changed {
+		valid := arena.Games.Get(id) != nil
+		log.Printf("Game definition %q changed on disk (valid: %t).", id, valid)
+		arena.Bus.Publish("system.game_reloaded", map[string]any{"id": id, "valid": valid})
+	}
+	return changed
+}
+
 // Loops indefinitely to track and update the arena components.
 func (arena *Arena) Run() {
 	// Bind the shared driver station UDP socket before any loop sends control packets from it.
@@ -883,6 +935,7 @@ func (arena *Arena) Run() {
 	go arena.listenForDsUdpPackets()
 	go arena.accessPoint.Run()
 	go arena.Plc.Run()
+	go arena.watchGames()
 
 	for {
 		loopStartTime := time.Now()

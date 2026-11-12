@@ -15,7 +15,7 @@ func TestWebpageDisplay(t *testing.T) {
 
 	recorder := web.getHttpResponse("/displays/webpage?displayId=1&url=https://www.team254.com")
 	assert.Equal(t, 200, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "Web Page Display - Untitled Event - Cheesy Arena")
+	assert.Contains(t, recorder.Body.String(), "Web Page Display - Untitled Event - Galaxia FMS")
 }
 
 func TestWebpageDisplayWebsocket(t *testing.T) {

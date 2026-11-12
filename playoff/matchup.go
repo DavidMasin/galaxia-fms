@@ -8,7 +8,7 @@ package playoff
 
 import (
 	"fmt"
-	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/model"
 	"math"
 )
 
@@ -56,13 +56,13 @@ func (matchup *Matchup) update(playoffMatchResults map[int]playoffMatchResult) {
 	for _, match := range matchup.matchSpecs {
 		if matchResult, ok := playoffMatchResults[match.order]; ok {
 			switch matchResult.status {
-			case game.RedWonMatch:
+			case model.RedWonMatch:
 				matchup.RedAllianceWins++
 				matchup.NumMatchesPlayed++
-			case game.BlueWonMatch:
+			case model.BlueWonMatch:
 				matchup.BlueAllianceWins++
 				matchup.NumMatchesPlayed++
-			case game.TieMatch:
+			case model.TieMatch:
 				matchup.NumMatchesPlayed++
 			}
 		} else {

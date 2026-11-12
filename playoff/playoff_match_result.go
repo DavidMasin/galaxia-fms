@@ -5,8 +5,8 @@
 
 package playoff
 
-import "github.com/DavidMasin/galaxia-fms/game"
+import "github.com/DavidMasin/galaxia-fms/model"
 
 type playoffMatchResult struct {
-	status game.MatchStatus
+	status model.MatchStatus
 }

@@ -7,7 +7,8 @@ import (
 	"github.com/DavidMasin/galaxia-fms/model"
 )
 
-// Rebuilds carried alliance yellow cards from the latest results of completed playoff matches.
+// Rebuilds carried alliance cards from the latest results of completed playoff matches. A playoff alliance wins
+// or loses as one, so a card given to any of its robots is carried by the whole alliance.
 func CalculateAllianceCards(database *model.Database) error {
 	alliances, err := database.GetAllAlliances()
 	if err != nil {
@@ -22,18 +23,22 @@ func CalculateAllianceCards(database *model.Database) error {
 		if !match.IsComplete() {
 			continue
 		}
-		result, err := database.GetMatchResultForMatch(match.Id)
+		result, err := latestMatchResult(database, match.Id)
 		if err != nil {
 			return err
 		}
-		if result == nil {
-			return fmt.Errorf("found no match result for match %d", match.Id)
+		resultGame, err := database.GetSnapshotGame(result.GameHash)
+		if err != nil {
+			return fmt.Errorf("match %d: %w", match.Id, err)
 		}
-		if result.PlayoffRedAllianceCard == "yellow" || result.PlayoffRedAllianceCard == "red" {
-			yellowCards[match.PlayoffRedAlliance] = true
+		sides, err := resultSides(&match, result, resultGame)
+		if err != nil {
+			return err
 		}
-		if result.PlayoffBlueAllianceCard == "yellow" || result.PlayoffBlueAllianceCard == "red" {
-			yellowCards[match.PlayoffBlueAlliance] = true
+		for _, side := range sides {
+			if len(side.cardedPositions(resultGame)) > 0 {
+				yellowCards[side.playoffAlliance] = true
+			}
 		}
 	}
 	for _, alliance := range alliances {

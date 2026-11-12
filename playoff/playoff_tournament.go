@@ -7,7 +7,6 @@ package playoff
 
 import (
 	"fmt"
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"time"
 )
@@ -165,9 +164,9 @@ func (tournament *PlayoffTournament) CreateMatchesAndBreaks(database *model.Data
 			positionBlueTeams(&match, &alliances[match.PlayoffBlueAlliance-1])
 		}
 		if matchSpec.isHidden {
-			match.Status = game.MatchHidden
+			match.Status = model.MatchHidden
 		} else {
-			match.Status = game.MatchScheduled
+			match.Status = model.MatchScheduled
 		}
 
 		if err := database.CreateMatch(&match); err != nil {
@@ -195,7 +194,7 @@ func (tournament *PlayoffTournament) UpdateMatches(database *model.Database) err
 	playoffMatchResults := make(map[int]playoffMatchResult)
 	for _, match := range matches {
 		switch match.Status {
-		case game.RedWonMatch, game.BlueWonMatch, game.TieMatch:
+		case model.RedWonMatch, model.BlueWonMatch, model.TieMatch:
 			playoffMatchResults[match.TypeOrder] = playoffMatchResult{status: match.Status}
 		}
 	}
@@ -222,20 +221,20 @@ func (tournament *PlayoffTournament) UpdateMatches(database *model.Database) err
 		}
 
 		if spec.isHidden {
-			match.Status = game.MatchHidden
+			match.Status = model.MatchHidden
 		} else {
-			match.Status = game.MatchScheduled
+			match.Status = model.MatchScheduled
 		}
 		match.PlayoffRedAlliance = spec.redAllianceId
 		match.PlayoffBlueAlliance = spec.blueAllianceId
-		if match.Status == game.MatchScheduled && match.PlayoffRedAlliance > 0 &&
+		if match.Status == model.MatchScheduled && match.PlayoffRedAlliance > 0 &&
 			len(alliances) >= match.PlayoffRedAlliance {
 			positionRedTeams(match, &alliances[match.PlayoffRedAlliance-1])
 		} else {
 			// Zero out the teams.
 			positionRedTeams(match, &model.Alliance{})
 		}
-		if match.Status == game.MatchScheduled && match.PlayoffBlueAlliance > 0 &&
+		if match.Status == model.MatchScheduled && match.PlayoffBlueAlliance > 0 &&
 			len(alliances) >= match.PlayoffBlueAlliance {
 			positionBlueTeams(match, &alliances[match.PlayoffBlueAlliance-1])
 		} else {

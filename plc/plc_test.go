@@ -83,35 +83,11 @@ func TestPlcGetNames(t *testing.T) {
 			"blueConnected2",
 			"blueConnected3",
 			"ftaReady",
-			"redHubSensor1",
-			"redHubSensor2",
-			"redHubSensor3",
-			"redHubSensor4",
-			"blueHubSensor1",
-			"blueHubSensor2",
-			"blueHubSensor3",
-			"blueHubSensor4",
 		},
 		plc.GetInputNames(),
 	)
 
-	assert.Equal(
-		t,
-		[]string{
-			"fieldIoConnection",
-			"redHubTotal",
-			"blueHubTotal",
-			"redHubCount1",
-			"redHubCount2",
-			"redHubCount3",
-			"redHubCount4",
-			"blueHubCount1",
-			"blueHubCount2",
-			"blueHubCount3",
-			"blueHubCount4",
-		},
-		plc.GetRegisterNames(),
-	)
+	assert.Equal(t, []string{"fieldIoConnection"}, plc.GetRegisterNames())
 
 	assert.Equal(
 		t,
@@ -125,10 +101,6 @@ func TestPlcGetNames(t *testing.T) {
 			"stackLightBuzzer",
 			"fieldResetLight",
 			"awardsModeLight",
-			"redHubMotor",
-			"blueHubMotor",
-			"redHubLight",
-			"blueHubLight",
 		},
 		plc.GetCoilNames(),
 	)
@@ -313,16 +285,6 @@ func TestPlcInputs(t *testing.T) {
 	assert.True(t, plc.IsFtaReady())
 }
 
-func TestPlcInputsGameSpecific(t *testing.T) {
-	var client FakeModbusClient
-	var plc ModbusPlc
-	plc.client = &client
-	plc.handler = modbus.NewTCPClientHandler("dummy")
-	plc.ioChangeNotifier = &websocket.Notifier{}
-
-	// None exposed in 2026.
-}
-
 func TestPlcRegisters(t *testing.T) {
 	var client FakeModbusClient
 	var plc ModbusPlc
@@ -360,31 +322,6 @@ func TestPlcRegisters(t *testing.T) {
 	}
 }
 
-func TestPlcRegistersGameSpecific(t *testing.T) {
-	var client FakeModbusClient
-	var plc ModbusPlc
-	plc.client = &client
-	plc.handler = modbus.NewTCPClientHandler("dummy")
-	plc.ioChangeNotifier = &websocket.Notifier{}
-
-	client.registers[redHubTotal] = 0
-	client.registers[blueHubTotal] = 0
-	plc.update()
-	redHubCount, blueHubCount := plc.GetHubCounts()
-	assert.Equal(t, 0, redHubCount)
-	assert.Equal(t, 0, blueHubCount)
-	client.registers[redHubTotal] = 12
-	plc.update()
-	redHubCount, blueHubCount = plc.GetHubCounts()
-	assert.Equal(t, 12, redHubCount)
-	assert.Equal(t, 0, blueHubCount)
-	client.registers[blueHubTotal] = 34
-	plc.update()
-	redHubCount, blueHubCount = plc.GetHubCounts()
-	assert.Equal(t, 12, redHubCount)
-	assert.Equal(t, 34, blueHubCount)
-}
-
 func TestPlcCoils(t *testing.T) {
 	var client FakeModbusClient
 	var plc ModbusPlc
@@ -399,14 +336,10 @@ func TestPlcCoils(t *testing.T) {
 	assert.Equal(t, false, client.coils[1])
 	client.registers[fieldIoConnection] = 31
 	plc.registers[fieldIoConnection] = 31
-	plc.registers[redHubTotal] = 1
-	plc.registers[blueHubTotal] = 2
 	plc.ResetMatch()
 	plc.update()
 	assert.Equal(t, true, client.coils[1])
 	assert.Equal(t, 31, int(plc.registers[fieldIoConnection]))
-	assert.Equal(t, 0, int(plc.registers[redHubTotal]))
-	assert.Equal(t, 0, int(plc.registers[blueHubTotal]))
 
 	plc.SetStackLights(false, false, false, false)
 	plc.update()
@@ -459,50 +392,6 @@ func TestPlcCoils(t *testing.T) {
 	plc.SetAwardsModeLight(true)
 	plc.update()
 	assert.Equal(t, true, client.coils[8])
-}
-
-func TestPlcCoilsGameSpecific(t *testing.T) {
-	var client FakeModbusClient
-	var plc ModbusPlc
-	plc.client = &client
-	plc.handler = modbus.NewTCPClientHandler("dummy")
-	plc.ioChangeNotifier = &websocket.Notifier{}
-
-	plc.SetHubMotors(false, false)
-	plc.SetHubLights(false, false)
-	plc.update()
-	assert.Equal(t, false, client.coils[9])
-	assert.Equal(t, false, client.coils[10])
-	assert.Equal(t, false, client.coils[11])
-	assert.Equal(t, false, client.coils[12])
-
-	plc.SetHubMotors(true, false)
-	plc.update()
-	assert.Equal(t, true, client.coils[9])
-	assert.Equal(t, false, client.coils[10])
-
-	plc.SetHubMotors(true, true)
-	plc.update()
-	assert.Equal(t, true, client.coils[9])
-	assert.Equal(t, true, client.coils[10])
-
-	plc.SetHubLights(true, false)
-	plc.update()
-	assert.Equal(t, true, client.coils[11])
-	assert.Equal(t, false, client.coils[12])
-
-	plc.SetHubLights(true, true)
-	plc.update()
-	assert.Equal(t, true, client.coils[11])
-	assert.Equal(t, true, client.coils[12])
-
-	plc.SetHubMotors(false, false)
-	plc.SetHubLights(false, false)
-	plc.update()
-	assert.Equal(t, false, client.coils[9])
-	assert.Equal(t, false, client.coils[10])
-	assert.Equal(t, false, client.coils[11])
-	assert.Equal(t, false, client.coils[12])
 }
 
 func TestPlcCoilOverrides(t *testing.T) {

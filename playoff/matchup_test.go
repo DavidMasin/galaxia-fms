@@ -4,7 +4,7 @@
 package playoff
 
 import (
-	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
@@ -110,21 +110,21 @@ func TestMatchupHideUnnecessaryMatches(t *testing.T) {
 		assert.False(t, matchSpec.isHidden)
 	}
 
-	playoffMatchResults := map[int]playoffMatchResult{1: {game.BlueWonMatch}}
+	playoffMatchResults := map[int]playoffMatchResult{1: {model.BlueWonMatch}}
 	qf1.update(playoffMatchResults)
 	for _, matchSpec := range matchSpecs {
 		assert.False(t, matchSpec.isHidden)
 	}
 
 	// Check that the third match is hidden if the first two are won by the same alliance.
-	playoffMatchResults[5] = playoffMatchResult{game.BlueWonMatch}
+	playoffMatchResults[5] = playoffMatchResult{model.BlueWonMatch}
 	qf1.update(playoffMatchResults)
 	assert.False(t, matchSpecs[0].isHidden)
 	assert.False(t, matchSpecs[1].isHidden)
 	assert.True(t, matchSpecs[2].isHidden)
 
 	// Check that the third match is unhidden if the prior outcome is reversed.
-	playoffMatchResults[5] = playoffMatchResult{game.RedWonMatch}
+	playoffMatchResults[5] = playoffMatchResult{model.RedWonMatch}
 	qf1.update(playoffMatchResults)
 	for _, matchSpec := range matchSpecs {
 		assert.False(t, matchSpec.isHidden)
@@ -149,7 +149,7 @@ func TestMatchupOvertime(t *testing.T) {
 		assert.True(t, matchSpecs[i].isHidden)
 	}
 
-	playoffMatchResults := map[int]playoffMatchResult{1: {game.RedWonMatch}, 2: {game.TieMatch}}
+	playoffMatchResults := map[int]playoffMatchResult{1: {model.RedWonMatch}, 2: {model.TieMatch}}
 	final.update(playoffMatchResults)
 	for i := 0; i < 3; i++ {
 		assert.False(t, matchSpecs[i].isHidden)
@@ -158,7 +158,7 @@ func TestMatchupOvertime(t *testing.T) {
 		assert.True(t, matchSpecs[i].isHidden)
 	}
 
-	playoffMatchResults[3] = playoffMatchResult{game.BlueWonMatch}
+	playoffMatchResults[3] = playoffMatchResult{model.BlueWonMatch}
 	final.update(playoffMatchResults)
 	for i := 0; i < 4; i++ {
 		assert.False(t, matchSpecs[i].isHidden)
@@ -167,7 +167,7 @@ func TestMatchupOvertime(t *testing.T) {
 		assert.True(t, matchSpecs[i].isHidden)
 	}
 
-	playoffMatchResults[4] = playoffMatchResult{game.TieMatch}
+	playoffMatchResults[4] = playoffMatchResult{model.TieMatch}
 	final.update(playoffMatchResults)
 	for i := 0; i < 5; i++ {
 		assert.False(t, matchSpecs[i].isHidden)
@@ -176,7 +176,7 @@ func TestMatchupOvertime(t *testing.T) {
 		assert.True(t, matchSpecs[i].isHidden)
 	}
 
-	playoffMatchResults[5] = playoffMatchResult{game.BlueWonMatch}
+	playoffMatchResults[5] = playoffMatchResult{model.BlueWonMatch}
 	final.update(playoffMatchResults)
 	for i := 0; i < 5; i++ {
 		assert.False(t, matchSpecs[i].isHidden)

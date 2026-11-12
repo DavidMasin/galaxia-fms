@@ -11,14 +11,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/DavidMasin/galaxia-fms/game"
+	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/model"
-	"github.com/mitchellh/mapstructure"
+	"github.com/DavidMasin/galaxia-fms/rules"
+	"github.com/DavidMasin/galaxia-fms/scoring"
 	"io"
 	"log"
+	"maps"
+	"math"
 	"net/http"
 	"os"
-	"strconv"
+	"slices"
 	"strings"
 )
 
@@ -56,64 +59,10 @@ type TbaAlliance struct {
 	Score      *int     `json:"score"`
 }
 
-type TbaScoreBreakdown struct {
-	AutoTowerRobot1      string `mapstructure:"autoTowerRobot1"`
-	AutoTowerRobot2      string `mapstructure:"autoTowerRobot2"`
-	AutoTowerRobot3      string `mapstructure:"autoTowerRobot3"`
-	AutoTowerPoints      int    `mapstructure:"autoTowerPoints"`
-	HubScore             tbaHub `mapstructure:"hubScore"`
-	EndGameTowerRobot1   string `mapstructure:"endGameTowerRobot1"`
-	EndGameTowerRobot2   string `mapstructure:"endGameTowerRobot2"`
-	EndGameTowerRobot3   string `mapstructure:"endGameTowerRobot3"`
-	EndGameTowerPoints   int    `mapstructure:"endGameTowerPoints"`
-	MinorFoulCount       int    `mapstructure:"minorFoulCount"`
-	MajorFoulCount       int    `mapstructure:"majorFoulCount"`
-	FoulPoints           int    `mapstructure:"foulPoints"`
-	TotalTowerPoints     int    `mapstructure:"totalTowerPoints"`
-	TotalAutoPoints      int    `mapstructure:"totalAutoPoints"`
-	TotalTeleopPoints    int    `mapstructure:"totalTeleopPoints"`
-	TotalPoints          int    `mapstructure:"totalPoints"`
-	EnergizedAchieved    bool   `mapstructure:"energizedAchieved"`
-	SuperchargedAchieved bool   `mapstructure:"superchargedAchieved"`
-	TraversalAchieved    bool   `mapstructure:"traversalAchieved"`
-	G206Penalty          bool   `mapstructure:"g206Penalty"`
-	RP                   int    `mapstructure:"rp"`
-}
-
-type tbaHub struct {
-	AutoCount        int `mapstructure:"autoCount"`
-	AutoPoints       int `mapstructure:"autoPoints"`
-	TransitionCount  int `mapstructure:"transitionCount"`
-	TransitionPoints int `mapstructure:"transitionPoints"`
-	Shift1Count      int `mapstructure:"shift1Count"`
-	Shift1Points     int `mapstructure:"shift1Points"`
-	Shift2Count      int `mapstructure:"shift2Count"`
-	Shift2Points     int `mapstructure:"shift2Points"`
-	Shift3Count      int `mapstructure:"shift3Count"`
-	Shift3Points     int `mapstructure:"shift3Points"`
-	Shift4Count      int `mapstructure:"shift4Count"`
-	Shift4Points     int `mapstructure:"shift4Points"`
-	EndgameCount     int `mapstructure:"endgameCount"`
-	EndgamePoints    int `mapstructure:"endgamePoints"`
-	TeleopCount      int `mapstructure:"teleopCount"`
-	TeleopPoints     int `mapstructure:"teleopPoints"`
-	TotalCount       int `mapstructure:"totalCount"`
-	TotalPoints      int `mapstructure:"totalPoints"`
-}
-
-type TbaRanking struct {
-	TeamKey  string  `json:"team_key"`
-	Rank     int     `json:"rank"`
-	RP       float32 `json:"RP"`
-	Match    float32 `json:"Match"`
-	AutoFuel float32 `json:"Auto Fuel"`
-	Tower    float32 `json:"Tower"`
-	Wins     int     `json:"wins"`
-	Losses   int     `json:"losses"`
-	Ties     int     `json:"ties"`
-	Dqs      int     `json:"dqs"`
-	Played   int     `json:"played"`
-}
+// TbaRanking is one team's row in the published standings: team_key, rank, wins, losses, ties, dqs and played, plus
+// one property per column listed in TbaRankings.Breakdowns. The columns are the ranking order of the game being
+// played, so the row cannot be a struct with fixed fields.
+type TbaRanking map[string]any
 
 type TbaRankings struct {
 	Breakdowns []string     `json:"breakdowns"`
@@ -161,14 +110,6 @@ type TbaPublishedAward struct {
 // Helper to get a pointer to a string.
 func stringPtr(s string) *string {
 	return &s
-}
-
-var leaveMapping = map[bool]string{false: "No", true: "Yes"}
-var towerStatusMapping = map[game.TowerStatus]string{
-	game.TowerNone:   "None",
-	game.TowerLevel1: "Level1",
-	game.TowerLevel2: "Level2",
-	game.TowerLevel3: "Level3",
 }
 
 func NewTbaClient(eventCode, secretId, secret string) *TbaClient {
@@ -339,10 +280,6 @@ func (client *TbaClient) PublishMatches(database *model.Database) error {
 	if err != nil {
 		return err
 	}
-	eventSettings, err := database.GetEventSettings()
-	if err != nil {
-		return err
-	}
 	matches := append(practiceMatches, qualMatches...)
 	matches = append(matches, playoffMatches...)
 	tbaMatches := make([]TbaMatch, len(matches))
@@ -352,33 +289,47 @@ func (client *TbaClient) PublishMatches(database *model.Database) error {
 		// Fill in scores if the match has been played (excluding practice matches, which only publish timing and lineups).
 		var scoreBreakdown map[string]map[string]any
 		var redScore, blueScore *int
-		var redCards, blueCards map[string]string
-		var playoffRedAllianceCard, playoffBlueAllianceCard string
+		var redDisqualified, blueDisqualified [3]bool
 		if match.IsComplete() && match.Type != model.Practice {
 			matchResult, err := database.GetMatchResultForMatch(match.Id)
 			if err != nil {
 				return err
 			}
 			if matchResult != nil {
-				scoreBreakdown = make(map[string]map[string]any)
-				scoreBreakdown["red"], err = createTbaScoringBreakdown(eventSettings, &match, matchResult, "red")
+				result, g, err := matchResult.Compute(database, match.UseTiebreakCriteria)
 				if err != nil {
 					return err
 				}
-				scoreBreakdown["blue"], err = createTbaScoringBreakdown(eventSettings, &match, matchResult, "blue")
+
+				// The Blue Alliance only knows a red and a blue side. They are the first and second alliance of the
+				// game the match was played with, whatever that game calls them.
+				redId, blueId, err := matchResult.AllianceIds(database)
 				if err != nil {
 					return err
 				}
-				redScoreValue := scoreBreakdown["red"]["totalPoints"].(int)
-				blueScoreValue := scoreBreakdown["blue"]["totalPoints"].(int)
-				redScore = &redScoreValue
-				blueScore = &blueScoreValue
-				if match.Type == model.Playoff {
-					playoffRedAllianceCard = matchResult.PlayoffRedAllianceCard
-					playoffBlueAllianceCard = matchResult.PlayoffBlueAllianceCard
-				} else {
-					redCards = matchResult.RedCards
-					blueCards = matchResult.BlueCards
+				redScore = tbaScore(result.Alliances[redId])
+				blueScore = tbaScore(result.Alliances[blueId])
+
+				// The raw state is only a cache of the change list, so a result may come without it.
+				state := matchResult.State
+				if state == nil {
+					state, _ = scoring.Fold(g, matchResult.Changes)
+				}
+				redDisqualified = tbaDisqualifications(g, &match, result.Alliances[redId], state.Alliances[redId])
+				blueDisqualified = tbaDisqualifications(g, &match, result.Alliances[blueId], state.Alliances[blueId])
+
+				// The Blue Alliance rejects breakdown keys it does not know for the event's year, so a game that
+				// does not map itself onto them is published with its scores only.
+				if len(g.TBA.Breakdown) > 0 {
+					scoreBreakdown = make(map[string]map[string]any)
+					scoreBreakdown["red"], err = createTbaScoringBreakdown(g, result, redId)
+					if err != nil {
+						return err
+					}
+					scoreBreakdown["blue"], err = createTbaScoringBreakdown(g, result, blueId)
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -387,21 +338,14 @@ func (client *TbaClient) PublishMatches(database *model.Database) error {
 			[3]int{match.Red1, match.Red2, match.Red3},
 			[3]bool{match.Red1IsSurrogate, match.Red2IsSurrogate, match.Red3IsSurrogate},
 			redScore,
-			redCards,
+			redDisqualified,
 		)
 		alliances["blue"] = createTbaAlliance(
 			[3]int{match.Blue1, match.Blue2, match.Blue3},
 			[3]bool{match.Blue1IsSurrogate, match.Blue2IsSurrogate, match.Blue3IsSurrogate},
 			blueScore,
-			blueCards,
+			blueDisqualified,
 		)
-
-		if playoffRedAllianceCard == "red" {
-			alliances["red"].Dqs = append(alliances["red"].Dqs, alliances["red"].Teams...)
-		}
-		if playoffBlueAllianceCard == "red" {
-			alliances["blue"].Dqs = append(alliances["blue"].Dqs, alliances["blue"].Teams...)
-		}
 
 		var actualStartTimeUtc string
 		if !match.StartedAt.IsZero() {
@@ -441,29 +385,54 @@ func (client *TbaClient) PublishMatches(database *model.Database) error {
 	return checkTbaPostResponse(resp)
 }
 
-// Uploads the team standings to The Blue Alliance.
-func (client *TbaClient) PublishRankings(database *model.Database) error {
+// Uploads the team standings to The Blue Alliance. The columns are the ranking order of the given game, which must be
+// the event's active game: the one the stored rankings were sorted by.
+func (client *TbaClient) PublishRankings(database *model.Database, g *gamedef.Game) error {
 	rankings, err := database.GetAllRankings()
 	if err != nil {
 		return err
 	}
 
+	// Every key of the game's ranking order is a column, except the coin flip that settles what is left tied. A
+	// column is published as a property of each team's row, next to the fixed ones, so its name has to be its own.
+	breakdowns := []string{}
+	var sortIndices []int
+	taken := map[string]bool{
+		"team_key": true, "rank": true, "wins": true, "losses": true, "ties": true, "dqs": true, "played": true,
+	}
+	for i, key := range g.Ranking.Order {
+		if key.Random {
+			continue
+		}
+		if taken[key.Name] {
+			return fmt.Errorf(
+				"ranking column %q cannot be published to The Blue Alliance: the name is already in use", key.Name,
+			)
+		}
+		taken[key.Name] = true
+		breakdowns = append(breakdowns, key.Name)
+		sortIndices = append(sortIndices, i)
+	}
+
 	// Build a JSON object of TBA-format rankings.
-	breakdowns := []string{"RP", "Match", "Auto Fuel", "Tower"}
 	tbaRankings := make([]TbaRanking, len(rankings))
 	for i, ranking := range rankings {
 		tbaRankings[i] = TbaRanking{
-			TeamKey:  getTbaTeam(ranking.TeamId),
-			Rank:     ranking.Rank,
-			RP:       float32(ranking.RankingPoints) / float32(ranking.Played),
-			Match:    float32(ranking.MatchPoints) / float32(ranking.Played),
-			AutoFuel: float32(ranking.AutoFuelPoints) / float32(ranking.Played),
-			Tower:    float32(ranking.TowerPoints) / float32(ranking.Played),
-			Wins:     ranking.Wins,
-			Losses:   ranking.Losses,
-			Ties:     ranking.Ties,
-			Dqs:      ranking.Disqualifications,
-			Played:   ranking.Played,
+			"team_key": getTbaTeam(ranking.TeamId),
+			"rank":     ranking.Rank,
+			"wins":     ranking.Wins,
+			"losses":   ranking.Losses,
+			"ties":     ranking.Ties,
+			"dqs":      ranking.Disqualifications,
+			"played":   ranking.Played,
+		}
+		for j, sortIndex := range sortIndices {
+			// Rankings stored before the game's ranking order grew have no value for the newer columns.
+			value := 0.0
+			if sortIndex < len(ranking.Sort) {
+				value = ranking.Sort[sortIndex]
+			}
+			tbaRankings[i][breakdowns[j]] = value
 		}
 	}
 	jsonBody, err := json.Marshal(TbaRankings{breakdowns, tbaRankings})
@@ -654,7 +623,7 @@ func (client *TbaClient) postRequest(resource string, action string, body []byte
 	return response, err
 }
 
-func createTbaAlliance(teamIds [3]int, surrogates [3]bool, score *int, cards map[string]string) *TbaAlliance {
+func createTbaAlliance(teamIds [3]int, surrogates [3]bool, score *int, disqualified [3]bool) *TbaAlliance {
 	alliance := TbaAlliance{Teams: []string{}, Surrogates: []string{}, Dqs: []string{}, Score: score}
 	for i, teamId := range teamIds {
 		if teamId == 0 {
@@ -665,101 +634,116 @@ func createTbaAlliance(teamIds [3]int, surrogates [3]bool, score *int, cards map
 		if surrogates[i] {
 			alliance.Surrogates = append(alliance.Surrogates, teamKey)
 		}
-		if cards != nil {
-			if card, ok := cards[strconv.Itoa(teamId)]; ok && card == "red" {
-				alliance.Dqs = append(alliance.Dqs, teamKey)
-			}
+		if disqualified[i] {
+			alliance.Dqs = append(alliance.Dqs, teamKey)
 		}
 	}
 
 	return &alliance
 }
 
-func createTbaScoringBreakdown(
-	_ *model.EventSettings,
-	match *model.Match,
-	matchResult *model.MatchResult,
-	alliance string,
-) (map[string]any, error) {
-	var breakdown TbaScoreBreakdown
-	var score *game.Score
-	var scoreSummary, opponentScoreSummary *game.ScoreSummary
-	if alliance == "red" {
-		score = matchResult.RedScore
-		scoreSummary = matchResult.RedScoreSummary()
-		opponentScoreSummary = matchResult.BlueScoreSummary()
-	} else {
-		score = matchResult.BlueScore
-		scoreSummary = matchResult.BlueScoreSummary()
-		opponentScoreSummary = matchResult.RedScoreSummary()
+// Returns the score to publish for an alliance. The Blue Alliance only takes whole points, while a game may award
+// fractions of them.
+func tbaScore(allianceResult *scoring.AllianceResult) *int {
+	score := int(math.Round(allianceResult.Score))
+	return &score
+}
+
+// Returns which of an alliance's three stations in the match record hold a team that is disqualified from the match.
+// A disqualified alliance takes all of its teams with it, which is also what a disqualifying card comes to in a
+// playoff match: there the result already holds it against the whole alliance. In any other match such a card only
+// takes out the team it was given to.
+func tbaDisqualifications(
+	g *gamedef.Game, match *model.Match, allianceResult *scoring.AllianceResult, allianceState *scoring.AllianceState,
+) [3]bool {
+	if allianceResult.Disqualified {
+		return [3]bool{true, true, true}
 	}
-
-	breakdown.AutoTowerRobot1 = towerStatusMapping[score.AutoTowerStatuses[0]]
-	breakdown.AutoTowerRobot2 = towerStatusMapping[score.AutoTowerStatuses[1]]
-	breakdown.AutoTowerRobot3 = towerStatusMapping[score.AutoTowerStatuses[2]]
-	breakdown.AutoTowerPoints = scoreSummary.AutoTowerPoints
-	breakdown.HubScore.AutoCount = score.Hub.GetShiftCount(game.ShiftAuto, true)
-	breakdown.HubScore.AutoPoints = score.Hub.GetShiftCount(game.ShiftAuto, true)
-	breakdown.HubScore.TransitionCount = score.Hub.GetShiftCount(game.ShiftTransition, true)
-	breakdown.HubScore.TransitionPoints = score.Hub.GetShiftCount(game.ShiftTransition, true)
-	breakdown.HubScore.Shift1Count = score.Hub.GetShiftCount(game.Shift1, true)
-	breakdown.HubScore.Shift1Points = score.Hub.GetShiftCount(game.Shift1, true)
-	breakdown.HubScore.Shift2Count = score.Hub.GetShiftCount(game.Shift2, true)
-	breakdown.HubScore.Shift2Points = score.Hub.GetShiftCount(game.Shift2, true)
-	breakdown.HubScore.Shift3Count = score.Hub.GetShiftCount(game.Shift3, true)
-	breakdown.HubScore.Shift3Points = score.Hub.GetShiftCount(game.Shift3, true)
-	breakdown.HubScore.Shift4Count = score.Hub.GetShiftCount(game.Shift4, true)
-	breakdown.HubScore.Shift4Points = score.Hub.GetShiftCount(game.Shift4, true)
-	breakdown.HubScore.EndgameCount = score.Hub.GetShiftCount(game.ShiftEndgame, true) +
-		score.Hub.GetShiftCount(game.ShiftPostMatch, true)
-	breakdown.HubScore.EndgamePoints = score.Hub.GetShiftCount(game.ShiftEndgame, true) +
-		score.Hub.GetShiftCount(game.ShiftPostMatch, true)
-	breakdown.HubScore.TeleopCount = breakdown.HubScore.TransitionCount + breakdown.HubScore.Shift1Count +
-		breakdown.HubScore.Shift2Count + breakdown.HubScore.Shift3Count + breakdown.HubScore.Shift4Count +
-		breakdown.HubScore.EndgameCount
-	breakdown.HubScore.TeleopPoints = score.Hub.GetTeleopActiveFuelCount()
-	breakdown.HubScore.TotalCount = breakdown.HubScore.AutoCount + breakdown.HubScore.TeleopCount
-	breakdown.HubScore.TotalPoints = breakdown.HubScore.AutoPoints + breakdown.HubScore.TeleopPoints
-	breakdown.EndGameTowerRobot1 = towerStatusMapping[score.EndgameTowerStatuses[0]]
-	breakdown.EndGameTowerRobot2 = towerStatusMapping[score.EndgameTowerStatuses[1]]
-	breakdown.EndGameTowerRobot3 = towerStatusMapping[score.EndgameTowerStatuses[2]]
-	breakdown.EndGameTowerPoints = scoreSummary.TeleopTowerPoints
-	breakdown.TotalTowerPoints = scoreSummary.AutoTowerPoints + scoreSummary.TeleopTowerPoints
-	breakdown.TotalAutoPoints = scoreSummary.AutoFuelPoints + scoreSummary.AutoTowerPoints
-	breakdown.TotalTeleopPoints = scoreSummary.TeleopFuelPoints + scoreSummary.TeleopTowerPoints
-	breakdown.EnergizedAchieved = scoreSummary.EnergizedBonusRankingPoint
-	breakdown.SuperchargedAchieved = scoreSummary.SuperchargedBonusRankingPoint
-	breakdown.TraversalAchieved = scoreSummary.TraversalBonusRankingPoint
-
-	for _, foul := range score.Fouls {
-		if foul.IsMajor {
-			breakdown.MajorFoulCount++
-		} else if foul.PointValue() > 0 {
-			breakdown.MinorFoulCount++
-		}
-		if foul.Rule() != nil && foul.Rule().IsRankingPoint {
-			switch foul.Rule().RuleNumber {
-			case "G206":
-				breakdown.G206Penalty = true
+	var disqualified [3]bool
+	if match.Type != model.Playoff {
+		for _, position := range model.DisqualifiedPositions(g, allianceState) {
+			// A game may field more robots per alliance than a match record has stations.
+			if position <= len(disqualified) {
+				disqualified[position-1] = true
 			}
 		}
 	}
-	breakdown.FoulPoints = scoreSummary.FoulPoints
-	breakdown.TotalPoints = scoreSummary.Score
+	return disqualified
+}
 
-	if match.ShouldUpdateRankings() {
-		// Calculate and set the ranking points for the match.
-		var ranking game.Ranking
-		ranking.AddScoreSummary(scoreSummary, opponentScoreSummary, false)
-		breakdown.RP = ranking.RankingPoints
+// Builds the score breakdown published for one alliance by evaluating every expression of the game's mapping onto
+// The Blue Alliance's breakdown keys against the computed result.
+func createTbaScoringBreakdown(g *gamedef.Game, result *scoring.Result, allianceId string) (map[string]any, error) {
+	values := make(map[string]any, len(g.TBA.Breakdown))
+	extra := map[string]any{"result": result.Alliances[allianceId].Result}
+
+	// Keys are visited in order so that a mistake in a game definition is reported the same way every time.
+	for _, key := range slices.Sorted(maps.Keys(g.TBA.Breakdown)) {
+		expression := g.TBA.Breakdown[key]
+		value, err := result.Eval(expression.Prog, allianceId, scoring.Clock{}, extra)
+		if err == nil {
+			values[key], err = tbaBreakdownValue(value)
+		}
+		if err != nil {
+			return nil, fmt.Errorf(
+				"tba breakdown key %q (line %d of the game definition): %w", key, expression.Line, err,
+			)
+		}
 	}
+	return nestTbaBreakdown(values)
+}
 
-	// Turn the breakdown struct into a map in order to be able to remove any fields that are disabled based on the
-	// event settings (none in 2026).
-	breakdownMap := make(map[string]any)
-	if err := mapstructure.Decode(breakdown, &breakdownMap); err != nil {
-		return nil, err
+// Converts the result of a breakdown expression into the value published for it. The game engine computes with
+// floating point numbers, but The Blue Alliance expects counts and points as integers, so whole numbers are published
+// as integers.
+func tbaBreakdownValue(value any) (any, error) {
+	switch value.(type) {
+	case bool, string:
+		return value, nil
+	case nil:
+		return nil, fmt.Errorf("the expression gave no value")
 	}
+	number, ok := rules.ToNumber(value)
+	if !ok {
+		return nil, fmt.Errorf(
+			"the expression gave %v (%T); only numbers, booleans and text can be published", value, value,
+		)
+	}
+	if math.IsNaN(number) || math.IsInf(number, 0) {
+		return nil, fmt.Errorf("the expression gave %v, which is not a finite number", number)
+	}
+	// Beyond 2^53 a float no longer identifies one integer, so such a number is left as it is.
+	if number == math.Trunc(number) && math.Abs(number) < 1<<53 {
+		return int(number), nil
+	}
+	return number, nil
+}
 
-	return breakdownMap, nil
+// Turns breakdown keys containing dots into nested objects, which is how The Blue Alliance groups related values:
+// "a.b" and "a.c" are published as {"a": {"b": ..., "c": ...}}.
+func nestTbaBreakdown(values map[string]any) (map[string]any, error) {
+	breakdown := make(map[string]any, len(values))
+	for _, key := range slices.Sorted(maps.Keys(values)) {
+		names := strings.Split(key, ".")
+		if slices.Contains(names, "") {
+			return nil, fmt.Errorf("tba breakdown key %q has an empty name before or after a dot", key)
+		}
+		object := breakdown
+		for i, name := range names[:len(names)-1] {
+			// A key cannot hold a value of its own and also be the object that holds other keys. Publishing either
+			// would silently drop the other, so the game definition has to say which one is meant.
+			parent := strings.Join(names[:i+1], ".")
+			if _, isValue := values[parent]; isValue {
+				return nil, fmt.Errorf("tba breakdown key %q is both a value and the parent of %q", parent, key)
+			}
+			child, ok := object[name].(map[string]any)
+			if !ok {
+				child = make(map[string]any)
+				object[name] = child
+			}
+			object = child
+		}
+		object[names[len(names)-1]] = values[key]
+	}
+	return breakdown, nil
 }

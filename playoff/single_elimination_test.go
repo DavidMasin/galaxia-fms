@@ -4,7 +4,6 @@
 package playoff
 
 import (
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -891,14 +890,14 @@ func TestSingleEliminationProgression(t *testing.T) {
 
 	assertMatchupOutcome(t, matchGroups["SF2"], "", "")
 
-	playoffMatchResults[38] = playoffMatchResult{game.RedWonMatch}
+	playoffMatchResults[38] = playoffMatchResult{model.RedWonMatch}
 	finalMatchup.update(playoffMatchResults)
 	for i := 3; i < 9; i++ {
 		assertMatchSpecAlliances(t, matchSpecs[i:i+1], []expectedAlliances{{1, 0}})
 	}
 	assertMatchupOutcome(t, matchGroups["SF2"], "", "")
 
-	playoffMatchResults[40] = playoffMatchResult{game.RedWonMatch}
+	playoffMatchResults[40] = playoffMatchResult{model.RedWonMatch}
 	finalMatchup.update(playoffMatchResults)
 	for i := 3; i < 9; i++ {
 		assertMatchSpecAlliances(t, matchSpecs[i:i+1], []expectedAlliances{{1, 2}})
@@ -906,35 +905,35 @@ func TestSingleEliminationProgression(t *testing.T) {
 	assertMatchupOutcome(t, matchGroups["SF2"], "Advances to Final 1", "Eliminated")
 
 	// Reverse a previous outcome.
-	playoffMatchResults[40] = playoffMatchResult{game.BlueWonMatch}
+	playoffMatchResults[40] = playoffMatchResult{model.BlueWonMatch}
 	finalMatchup.update(playoffMatchResults)
 	for i := 3; i < 9; i++ {
 		assertMatchSpecAlliances(t, matchSpecs[i:i+1], []expectedAlliances{{1, 0}})
 	}
 	assertMatchupOutcome(t, matchGroups["SF2"], "", "")
 
-	playoffMatchResults[42] = playoffMatchResult{game.BlueWonMatch}
+	playoffMatchResults[42] = playoffMatchResult{model.BlueWonMatch}
 	finalMatchup.update(playoffMatchResults)
 	for i := 3; i < 9; i++ {
 		assertMatchSpecAlliances(t, matchSpecs[i:i+1], []expectedAlliances{{1, 3}})
 	}
 	assertMatchupOutcome(t, matchGroups["SF2"], "Eliminated", "Advances to Final 1")
 
-	playoffMatchResults[43] = playoffMatchResult{game.TieMatch}
+	playoffMatchResults[43] = playoffMatchResult{model.TieMatch}
 	finalMatchup.update(playoffMatchResults)
 	assert.False(t, finalMatchup.IsComplete())
 	assert.Equal(t, 0, finalMatchup.WinningAllianceId())
 	assert.Equal(t, 0, finalMatchup.LosingAllianceId())
 	assertMatchupOutcome(t, matchGroups["F"], "", "")
 
-	playoffMatchResults[44] = playoffMatchResult{game.RedWonMatch}
+	playoffMatchResults[44] = playoffMatchResult{model.RedWonMatch}
 	finalMatchup.update(playoffMatchResults)
 	assert.False(t, finalMatchup.IsComplete())
 	assert.Equal(t, 0, finalMatchup.WinningAllianceId())
 	assert.Equal(t, 0, finalMatchup.LosingAllianceId())
 	assertMatchupOutcome(t, matchGroups["F"], "", "")
 
-	playoffMatchResults[45] = playoffMatchResult{game.RedWonMatch}
+	playoffMatchResults[45] = playoffMatchResult{model.RedWonMatch}
 	finalMatchup.update(playoffMatchResults)
 	assert.True(t, finalMatchup.IsComplete())
 	assert.Equal(t, 1, finalMatchup.WinningAllianceId())
@@ -949,14 +948,14 @@ func TestSingleEliminationProgression(t *testing.T) {
 	assert.Equal(t, 0, finalMatchup.LosingAllianceId())
 	assertMatchupOutcome(t, matchGroups["F"], "", "")
 
-	playoffMatchResults[45] = playoffMatchResult{game.BlueWonMatch}
+	playoffMatchResults[45] = playoffMatchResult{model.BlueWonMatch}
 	finalMatchup.update(playoffMatchResults)
 	assert.False(t, finalMatchup.IsComplete())
 	assert.Equal(t, 0, finalMatchup.WinningAllianceId())
 	assert.Equal(t, 0, finalMatchup.LosingAllianceId())
 	assertMatchupOutcome(t, matchGroups["F"], "", "")
 
-	playoffMatchResults[46] = playoffMatchResult{game.BlueWonMatch}
+	playoffMatchResults[46] = playoffMatchResult{model.BlueWonMatch}
 	finalMatchup.update(playoffMatchResults)
 	assert.True(t, finalMatchup.IsComplete())
 	assert.Equal(t, 3, finalMatchup.WinningAllianceId())

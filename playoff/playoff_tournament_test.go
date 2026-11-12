@@ -4,7 +4,6 @@
 package playoff
 
 import (
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/tournament"
 	"github.com/stretchr/testify/assert"
@@ -30,7 +29,7 @@ func TestPlayoffTournamentGetters(t *testing.T) {
 	assert.Equal(t, 0, playoffTournament.FinalistAllianceId())
 
 	playoffTournament.FinalMatchup().update(
-		map[int]playoffMatchResult{43: {game.BlueWonMatch}, 44: {game.BlueWonMatch}},
+		map[int]playoffMatchResult{43: {model.BlueWonMatch}, 44: {model.BlueWonMatch}},
 	)
 	assert.True(t, playoffTournament.IsComplete())
 	assert.Equal(t, 2, playoffTournament.WinningAllianceId())
@@ -76,10 +75,10 @@ func TestPlayoffTournamentCreateMatchesAndBreaks(t *testing.T) {
 		assertMatch(t, matches[18], 19, 17660, "Overtime 3", "O3", "", "F", 0, 0, true, "f", 1, 6)
 	}
 	for i := 0; i < 16; i++ {
-		assert.Equal(t, game.MatchScheduled, matches[i].Status)
+		assert.Equal(t, model.MatchScheduled, matches[i].Status)
 	}
 	for i := 17; i < 19; i++ {
-		assert.Equal(t, game.MatchHidden, matches[i].Status)
+		assert.Equal(t, model.MatchHidden, matches[i].Status)
 	}
 	scheduledBreaks, err := database.GetScheduledBreaksByMatchType(model.Playoff)
 	assert.Nil(t, err)
@@ -117,10 +116,10 @@ func TestPlayoffTournamentCreateMatchesAndBreaks(t *testing.T) {
 		assertMatch(t, matches[10], 11, 29060, "Overtime 3", "O3", "", "F", 0, 0, true, "f", 1, 6)
 	}
 	for i := 0; i < 8; i++ {
-		assert.Equal(t, game.MatchScheduled, matches[i].Status)
+		assert.Equal(t, model.MatchScheduled, matches[i].Status)
 	}
 	for i := 8; i < 11; i++ {
-		assert.Equal(t, game.MatchHidden, matches[i].Status)
+		assert.Equal(t, model.MatchHidden, matches[i].Status)
 	}
 	scheduledBreaks, err = database.GetScheduledBreaksByMatchType(model.Playoff)
 	assert.Nil(t, err)
@@ -155,10 +154,10 @@ func TestPlayoffTournamentCreateMatchesAndBreaks(t *testing.T) {
 		assertMatch(t, matches[8], 48, 6340, "Overtime 3", "O3", "", "F", 1, 0, true, "f", 1, 6)
 	}
 	for i := 0; i < 6; i++ {
-		assert.Equal(t, game.MatchScheduled, matches[i].Status)
+		assert.Equal(t, model.MatchScheduled, matches[i].Status)
 	}
 	for i := 6; i < 9; i++ {
-		assert.Equal(t, game.MatchHidden, matches[i].Status)
+		assert.Equal(t, model.MatchHidden, matches[i].Status)
 	}
 	scheduledBreaks, err = database.GetScheduledBreaksByMatchType(model.Playoff)
 	assert.Nil(t, err)
@@ -192,7 +191,7 @@ func TestPlayoffTournamentUpdateMatches(t *testing.T) {
 	assert.Equal(t, 401, matches[0].Blue2)
 	assert.Equal(t, 403, matches[0].Blue3)
 
-	matches[0].Status = game.BlueWonMatch
+	matches[0].Status = model.BlueWonMatch
 	err = database.UpdateMatch(&matches[0])
 	assert.Nil(t, err)
 	err = database.UpdateAllianceFromMatch(1, [3]int{103, 102, 101})
@@ -210,14 +209,14 @@ func TestPlayoffTournamentUpdateMatches(t *testing.T) {
 	assert.Equal(t, 402, matches[0].Blue1)
 	assert.Equal(t, 401, matches[0].Blue2)
 	assert.Equal(t, 403, matches[0].Blue3)
-	assert.Equal(t, game.MatchScheduled, matches[2].Status)
+	assert.Equal(t, model.MatchScheduled, matches[2].Status)
 	assert.Equal(t, 103, matches[2].Red1)
 	assert.Equal(t, 102, matches[2].Red2)
 	assert.Equal(t, 101, matches[2].Red3)
 	assert.Equal(t, 404, matches[2].Blue1)
 	assert.Equal(t, 405, matches[2].Blue2)
 	assert.Equal(t, 406, matches[2].Blue3)
-	assert.Equal(t, game.MatchScheduled, matches[4].Status)
+	assert.Equal(t, model.MatchScheduled, matches[4].Status)
 	assert.Equal(t, 103, matches[4].Red1)
 	assert.Equal(t, 102, matches[4].Red2)
 	assert.Equal(t, 101, matches[4].Red3)
@@ -225,13 +224,13 @@ func TestPlayoffTournamentUpdateMatches(t *testing.T) {
 	assert.Equal(t, 405, matches[4].Blue2)
 	assert.Equal(t, 406, matches[4].Blue3)
 
-	matches[1].Status = game.BlueWonMatch
+	matches[1].Status = model.BlueWonMatch
 	err = database.UpdateMatch(&matches[1])
 	assert.Nil(t, err)
-	matches[2].Status = game.BlueWonMatch
+	matches[2].Status = model.BlueWonMatch
 	err = database.UpdateMatch(&matches[2])
 	assert.Nil(t, err)
-	matches[3].Status = game.BlueWonMatch
+	matches[3].Status = model.BlueWonMatch
 	err = database.UpdateMatch(&matches[3])
 	assert.Nil(t, err)
 	err = database.UpdateAllianceFromMatch(4, [3]int{403, 402, 406})
@@ -247,8 +246,8 @@ func TestPlayoffTournamentUpdateMatches(t *testing.T) {
 	assert.Equal(t, 404, matches[2].Blue1)
 	assert.Equal(t, 405, matches[2].Blue2)
 	assert.Equal(t, 406, matches[2].Blue3)
-	assert.Equal(t, game.MatchHidden, matches[4].Status)
-	assert.Equal(t, game.MatchHidden, matches[5].Status)
+	assert.Equal(t, model.MatchHidden, matches[4].Status)
+	assert.Equal(t, model.MatchHidden, matches[5].Status)
 	assert.Equal(t, 4, matches[6].PlayoffRedAlliance)
 	assert.Equal(t, 3, matches[6].PlayoffBlueAlliance)
 	assert.Equal(t, 403, matches[6].Red1)
@@ -259,10 +258,10 @@ func TestPlayoffTournamentUpdateMatches(t *testing.T) {
 	assert.Equal(t, 303, matches[6].Blue3)
 
 	// Change the outcome of some matches and verify that the teams in the finals are wiped out.
-	matches[1].Status = game.RedWonMatch
+	matches[1].Status = model.RedWonMatch
 	err = database.UpdateMatch(&matches[1])
 	assert.Nil(t, err)
-	matches[2].Status = game.RedWonMatch
+	matches[2].Status = model.RedWonMatch
 	err = database.UpdateMatch(&matches[2])
 	assert.Nil(t, err)
 
@@ -270,8 +269,8 @@ func TestPlayoffTournamentUpdateMatches(t *testing.T) {
 	assert.Nil(t, err)
 
 	matches, _ = database.GetMatchesByType(model.Playoff, true)
-	assert.Equal(t, game.MatchScheduled, matches[4].Status)
-	assert.Equal(t, game.MatchScheduled, matches[5].Status)
+	assert.Equal(t, model.MatchScheduled, matches[4].Status)
+	assert.Equal(t, model.MatchScheduled, matches[5].Status)
 	assert.Equal(t, 0, matches[6].PlayoffRedAlliance)
 	assert.Equal(t, 0, matches[6].PlayoffBlueAlliance)
 	assert.Equal(t, 0, matches[6].Red1)

@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/DavidMasin/galaxia-fms/game"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"io"
 	"log"
@@ -118,14 +117,14 @@ func (client *NexusClient) GetLineup(tbaMatchKey model.TbaMatchKey) (*[6]int, er
 }
 
 // Notifies Nexus that this match has been completed and updates the queuing status.
-func (client *NexusClient) AutoQueue(matchName string, typeOrder int, matchStatus game.MatchStatus) error {
+func (client *NexusClient) AutoQueue(matchName string, typeOrder int, matchStatus model.MatchStatus) error {
 	var winner matchWinner
 	switch matchStatus {
-	case game.RedWonMatch:
+	case model.RedWonMatch:
 		winner = Red
-	case game.BlueWonMatch:
+	case model.BlueWonMatch:
 		winner = Blue
-	case game.TieMatch:
+	case model.TieMatch:
 		winner = Tie
 	}
 

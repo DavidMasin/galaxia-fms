@@ -24,12 +24,6 @@ type FakePlc struct {
 	fieldResetLight       bool
 	awardsModeLight       bool
 	cycleState            bool
-	redHubCount           int
-	blueHubCount          int
-	redHubMotor           bool
-	blueHubMotor          bool
-	redHubLight           bool
-	blueHubLight          bool
 }
 
 func (plc *FakePlc) SetAddress(address string) {
@@ -94,20 +88,6 @@ func (plc *FakePlc) SetFieldResetLight(state bool) {
 
 func (plc *FakePlc) SetAwardsModeLight(state bool) {
 	plc.awardsModeLight = state
-}
-
-func (plc *FakePlc) GetHubCounts() (int, int) {
-	return plc.redHubCount, plc.blueHubCount
-}
-
-func (plc *FakePlc) SetHubMotors(red, blue bool) {
-	plc.redHubMotor = red
-	plc.blueHubMotor = blue
-}
-
-func (plc *FakePlc) SetHubLights(red, blue bool) {
-	plc.redHubLight = red
-	plc.blueHubLight = blue
 }
 
 func (plc *FakePlc) GetCycleState(max, index, duration int) bool {

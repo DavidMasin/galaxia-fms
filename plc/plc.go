@@ -31,9 +31,6 @@ type Plc interface {
 	SetStackBuzzer(state bool)
 	SetFieldResetLight(state bool)
 	SetAwardsModeLight(state bool)
-	GetHubCounts() (int, int)
-	SetHubMotors(red, blue bool)
-	SetHubLights(red, blue bool)
 	GetCycleState(max, index, duration int) bool
 	GetInputNames() []string
 	GetRegisterNames() []string
@@ -93,14 +90,6 @@ const (
 	blueConnected2
 	blueConnected3
 	ftaReady
-	redHubSensor1
-	redHubSensor2
-	redHubSensor3
-	redHubSensor4
-	blueHubSensor1
-	blueHubSensor2
-	blueHubSensor3
-	blueHubSensor4
 	inputCount
 )
 
@@ -111,16 +100,6 @@ type register int
 
 const (
 	fieldIoConnection register = iota
-	redHubTotal
-	blueHubTotal
-	redHubCount1
-	redHubCount2
-	redHubCount3
-	redHubCount4
-	blueHubCount1
-	blueHubCount2
-	blueHubCount3
-	blueHubCount4
 	registerCount
 )
 
@@ -139,10 +118,6 @@ const (
 	stackLightBuzzer
 	fieldResetLight
 	awardsModeLight
-	redHubMotor
-	blueHubMotor
-	redHubLight
-	blueHubLight
 	coilCount
 )
 
@@ -265,17 +240,13 @@ func (plc *ModbusPlc) IsFtaReady() bool {
 	return plc.inputs[ftaReady]
 }
 
-// Resets the internal state of the PLC to start a new match.
+// Resets the internal state of the PLC to start a new match: pulses the match reset coil so that the PLC program clears
+// whatever it latched during the previous match, and drops any coil overrides left over from pre-match field testing.
+// The only register is fieldIoConnection, which reports live hardware status and so must survive the reset.
 func (plc *ModbusPlc) ResetMatch() {
 	plc.coils[matchReset] = true
 	plc.matchResetCycles = 0
 	plc.coilOverrides = nil
-
-	// Clear register variables (other than fieldIoConnection) so that any values from pre-match testing don't carry
-	// over.
-	for i := 1; i < int(registerCount); i++ {
-		plc.registers[i] = 0
-	}
 }
 
 // Sets the on/off state of the stack lights on the scoring table.
@@ -299,23 +270,6 @@ func (plc *ModbusPlc) SetFieldResetLight(state bool) {
 // Sets the on/off state of the awards mode lighting.
 func (plc *ModbusPlc) SetAwardsModeLight(state bool) {
 	plc.coils[awardsModeLight] = state
-}
-
-// Returns the red and blue Hub counts, respectively.
-func (plc *ModbusPlc) GetHubCounts() (int, int) {
-	return int(plc.registers[redHubTotal]), int(plc.registers[blueHubTotal])
-}
-
-// Sets the on/off state of the red and blue Hub motors.
-func (plc *ModbusPlc) SetHubMotors(red, blue bool) {
-	plc.coils[redHubMotor] = red
-	plc.coils[blueHubMotor] = blue
-}
-
-// Sets the on/off state of the red and blue Hub lights.
-func (plc *ModbusPlc) SetHubLights(red, blue bool) {
-	plc.coils[redHubLight] = red
-	plc.coils[blueHubLight] = blue
 }
 
 func (plc *ModbusPlc) GetCycleState(max, index, duration int) bool {

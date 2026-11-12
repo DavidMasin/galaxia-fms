@@ -1,18 +1,63 @@
-on: [ push, pull_request ]
-name: Build/Test
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
 jobs:
   test:
+    name: Build and test
     runs-on: ubuntu-latest
     steps:
-      - name: Install Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: 1.26.x
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
+      - name: Install Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: Vet
+        # Three analyzers are off because unmodified upstream code trips them (unkeyed struct literals in
+        # tests, IPv4-only host:port formatting, and a deliberately malformed struct tag in a test). They are
+        # re-enabled as that code is reworked.
+        run: go vet -composites=false -hostport=false -structtag=false ./...
       - name: Build
-        run: go build
+        run: go build ./...
       - name: Test
         run: go test ./...
-      - name: Check formatting
-        run: test -z "$(go fmt ./...)"
+
+  cross-compile:
+    name: Cross-compile ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+      - name: Install Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build ./...

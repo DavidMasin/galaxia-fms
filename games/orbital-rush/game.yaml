@@ -1,0 +1,374 @@
+# Orbital Rush: an invented game that uses every feature of the game definition schema.
+#
+# Three alliances of two robots launch cargo into orbit, dock with a station and survive a storm. It is not meant to
+# be balanced or even sensible; it is a reference for what you can write, and a test that the engine handles all of
+# it. Each section says which features it is showing.
+
+schema: 1
+id: orbital-rush
+name: Orbital Rush
+version: "1.0"
+description: >
+  Three alliances compete at once. Robots launch cargo, dock, and hold the station. A storm chosen at random after
+  the launch phase changes what scores, and everyone earns a bonus if all three alliances cooperate.
+
+# Three alliances of two. Driver stations can only report red or blue, so each alliance says which it uses.
+alliances:
+  size: 2
+  list:
+    - { id: red, name: Red, short: R, color: "#d32f2f", ds: red }
+    - { id: blue, name: Blue, short: B, color: "#1565c0", ds: blue }
+    - { id: green, name: Green, short: G, color: "#2e7d32", ds: red }
+
+# Parameters of each type. An event can change these on the settings page.
+params:
+  cargo_threshold: { name: Cargo ranking point threshold, type: int, default: 12, min: 0, max: 99 }
+  coop_threshold: { name: Cargo each alliance needs for co-op, type: int, default: 6, min: 0 }
+  storm_multiplier: { name: Dock multiplier in a solar storm, type: number, default: 1.5, min: 1, max: 3 }
+  overdrive_enabled: { name: Overdrive bonus enabled, type: bool, default: true }
+
+# Five phases, including two pauses, with every kind of cue.
+match:
+  countdown: { enabled: true, voice: drivers_behind_lines, beats: 3, quick_beats: 1 }
+  phases:
+    - id: launch
+      name: Launch
+      duration: 15
+      robots: auto
+      cues:
+        - { at: start, sound: match_start }
+        - { at: end, sound: phase_end }
+    - { id: drift, name: Drift, duration: 3, robots: disabled }
+    - id: orbit
+      name: Orbit
+      duration: 75
+      robots: teleop
+      cues:
+        - { at: start, sound: resume }
+        - { elapsed: 30, sound: shift_change, id: storm_warning }
+    - { id: blackout, name: Blackout, duration: 2, robots: disabled }
+    - id: reentry
+      name: Re-entry
+      duration: 30
+      robots: teleop
+      cues:
+        - { at: start, sound: warning, id: reentry_start }
+        - { remaining: 10, sound: warning, id: final_ten }
+        - { at: end, sound: match_end }
+  score_grace: 2
+  # Tells each robot whether the gate is open and where it stands, for example "G2".
+  ds_game_data: "field.gate_open ? 'G' + string(station.position) : ''"
+
+# Every element type (counter, boolean, enum, timer, number) at every scope (alliance, robot, field).
+elements:
+  # Alliance scope.
+  - id: cargo
+    name: Cargo
+    type: counter
+    scope: alliance
+    min: 0
+    max: 99
+    points: { launch: 3, orbit: 1, reentry: 2 }
+    edit: [device, scorer]
+    phases: [launch, orbit, reentry]
+    cycle: true
+    ui: { group: Cargo, widget: stepper, order: 1 }
+
+  - id: beacon
+    name: Beacon lit
+    type: boolean
+    scope: alliance
+    points: 5
+    phases: [launch]
+    edit: [device, scorer]
+    ui: { group: Cargo, widget: toggle, order: 2 }
+
+  - id: shield
+    name: Shield
+    type: enum
+    scope: alliance
+    edit: [scorer, referee]
+    options:
+      - { id: down, name: Down, points: 0 }
+      - { id: partial, name: Partial, points: 4 }
+      - { id: full, name: Full, points: { orbit: 9, reentry: 6 } }
+    ui: { group: Station, widget: buttons, order: 3 }
+
+  - id: station_hold
+    name: Station hold
+    type: timer
+    scope: alliance
+    max: 105
+    points: { expr: "floor(value.seconds / 5)" }
+    edit: [device, scorer]
+    ui: { group: Station, widget: timer, order: 4 }
+
+  - id: payload_mass
+    name: Payload mass
+    type: number
+    scope: alliance
+    unit: kg
+    min: 0
+    max: 40
+    step: 0.5
+    points: { expr: "value >= 25 ? 8 : value >= 10 ? 3 : 0" }
+    edit: [device, scorer]
+    ui: { group: Station, widget: slider, order: 5 }
+
+  - id: momentum
+    name: Momentum
+    type: boolean
+    scope: alliance
+    edit: [scorer]
+    ui: { group: Station, widget: toggle, order: 6, hidden: true }
+
+  # Robot scope.
+  - id: launched
+    name: Left the pad
+    type: boolean
+    scope: robot
+    points: { launch: 4 }
+    phases: [launch]
+    edit: [scorer]
+    ui: { group: Robots, widget: toggle, order: 10 }
+
+  - id: dock
+    name: Dock
+    type: enum
+    scope: robot
+    initial: none
+    edit: [scorer, referee]
+    phases: [reentry]
+    options:
+      - { id: none, name: None, points: 0 }
+      - { id: low, name: Low bay, points: 4 }
+      - { id: high, name: High bay, points: 10 }
+    ui: { group: Robots, widget: select, order: 11 }
+
+  - id: relays
+    name: Relay passes
+    type: counter
+    scope: robot
+    max: 20
+    points: 1
+    edit: [scorer]
+    ui: { group: Robots, widget: stepper, order: 12 }
+
+  - id: spin_time
+    name: Spin time
+    type: timer
+    scope: robot
+    points: 0.2
+    edit: [device, scorer]
+    ui: { group: Robots, widget: timer, order: 13 }
+
+  - id: fuel_left
+    name: Fuel left
+    type: number
+    scope: robot
+    unit: "%"
+    min: 0
+    max: 100
+    initial: 100
+    # The robot in position 1 is the flagship and earns double.
+    points: { expr: "value >= 50 ? (robot.position == 1 ? 4 : 2) : 0" }
+    edit: [scorer]
+    ui: { group: Robots, widget: input, order: 14 }
+
+  # Field scope. Field elements earn no points themselves; rules read them.
+  - id: comets
+    name: Comets cleared
+    type: counter
+    scope: field
+    edit: [device, scorer]
+    ui: { group: Field, widget: stepper, order: 20 }
+
+  - id: gate_open
+    name: Gate open
+    type: boolean
+    scope: field
+    initial: false
+    edit: [scorer]
+    ui: { group: Field, widget: toggle, order: 21 }
+
+  - id: storm
+    name: Storm
+    type: enum
+    scope: field
+    edit: [scorer]
+    options:
+      - { id: calm, name: Calm }
+      - { id: solar, name: Solar storm }
+      - { id: meteor, name: Meteor shower }
+    ui: { group: Field, widget: buttons, order: 22 }
+
+  - id: eclipse
+    name: Eclipse
+    type: timer
+    scope: field
+    edit: [device, scorer]
+    ui: { group: Field, widget: timer, order: 23 }
+
+  - id: gravity
+    name: Gravity
+    type: number
+    scope: field
+    min: 0.5
+    max: 2
+    step: 0.1
+    initial: 1
+    edit: [scorer]
+    ui: { group: Field, widget: slider, order: 24 }
+
+# Foul types that credit opponents, and one that carries no points but that rules can read.
+fouls:
+  types:
+    - { id: minor, name: Foul, points: 2, to: opponents }
+    - { id: major, name: Major foul, points: 6, to: opponents }
+    - { id: warning, name: Warning, points: 0, to: none }
+  rules:
+    - { id: O1, name: Blocking the gate, foul: minor, text: A robot may not stop in the gate for more than three seconds. }
+    - { id: O2, name: Ramming a docked robot, foul: major, text: A robot may not hit an opponent that is docked. }
+    - { id: O3, name: Unsporting play, foul: warning, text: Two warnings in one match cost the alliance its co-op ranking point. }
+
+cards:
+  - { id: yellow, name: Yellow card, color: "#fdd835", second_becomes: red }
+  - { id: red, name: Red card, color: "#d32f2f", disqualifies: true }
+
+derived:
+  # A plain count over robots.
+  - id: high_docks
+    name: Robots in the high bay
+    scope: alliance
+    expr: "count(own.robots, #.dock == 'high')"
+
+  # A threshold bonus.
+  - id: double_dock
+    name: Both robots high
+    scope: alliance
+    points: "own.high_docks >= 2 ? 10 : 0"
+
+  # A multiplier: in a solar storm, dock points are worth more. The extra is added as its own line.
+  - id: storm_dock_bonus
+    name: Solar storm dock bonus
+    scope: alliance
+    points: "field.storm == 'solar' ? own.points.dock * (params.storm_multiplier - 1) : 0"
+
+  # A multiplier driven by a field number.
+  - id: gravity_bonus
+    name: Gravity bonus
+    scope: alliance
+    points: "floor(own.points.cargo * (field.gravity - 1))"
+
+  # A value that looks at the other alliances.
+  - id: orbit_lead
+    name: Orbit cargo lead
+    scope: alliance
+    expr: "own.cargo.orbit - max(map(opponents, #.cargo.orbit))"
+
+  # A parameter of type bool switching a rule on and off.
+  - id: overdrive
+    name: Overdrive
+    scope: alliance
+    points: "params.overdrive_enabled and own.momentum and own.cargo.reentry >= 5 ? 7 : 0"
+
+  # Field-scope values, including a cooperative condition across all alliances.
+  - id: cargo_total
+    name: Cargo scored by everyone
+    scope: field
+    expr: "sum(alliances, #.cargo.total)"
+
+  - id: coop
+    name: Co-op achieved
+    scope: field
+    expr: "all(alliances, #.cargo.total >= params.coop_threshold) and field.comets.total >= 3"
+
+  - id: coop_bonus
+    name: Co-op bonus
+    scope: alliance
+    points: "field.coop ? 6 : 0"
+
+# Values written into raw state at a moment in the match, by each kind of event.
+triggers:
+  # A coin flip, which can never be recomputed, so it is stored.
+  - on: { phase_end: launch }
+    set: { element: storm, value: "pick('calm', 'solar', 'meteor')" }
+
+  # A field boolean decided from what every alliance did.
+  - on: { phase_start: orbit }
+    set: { element: gate_open, value: "any(alliances, #.beacon)" }
+
+  # An alliance element, evaluated once per alliance, fired by a cue.
+  - on: { cue: reentry_start }
+    set: { element: momentum, value: "own.orbit_lead > 0" }
+
+# Clock-dependent values for displays and device outputs. They can never affect the score.
+live:
+  - id: gate_lit
+    name: Gate lit
+    scope: field
+    expr: "match_state == 'running' and phase != 'launch' and field.gate_open"
+
+  - id: urgency
+    name: Urgency
+    scope: field
+    expr: "phase == 'reentry' and phase_remaining <= 10 ? 'high' : 'normal'"
+
+  - id: lane_open
+    name: Lane open
+    scope: alliance
+    expr: "field.gate_lit and own.momentum"
+
+breakdown:
+  - { id: launch_points, name: Launch, expr: "own.phase_points.cargo.launch + own.points.launched + own.points.beacon" }
+  - { id: cargo_points, name: Cargo, expr: "own.points.cargo - own.phase_points.cargo.launch + own.points.gravity_bonus" }
+  - { id: robot_points, name: Robots, expr: "own.points.relays + own.points.spin_time + own.points.fuel_left" }
+  - { id: station_points, name: Station, expr: "own.points.shield + own.points.station_hold + own.points.payload_mass" }
+  - { id: dock_points, name: Docking, expr: "own.points.dock + own.points.double_dock + own.points.storm_dock_bonus" }
+  - { id: bonus_points, name: Bonuses, expr: "own.points.overdrive + own.points.coop_bonus" }
+  - { id: foul_points, name: Fouls, expr: "own.foul_points" }
+  # A row may read the rows above it.
+  - id: earned_points
+    name: Earned
+    expr: >
+      own.breakdown.launch_points + own.breakdown.cargo_points + own.breakdown.robot_points +
+      own.breakdown.station_points + own.breakdown.dock_points + own.breakdown.bonus_points
+
+ranking:
+  # Five ranking points. A condition counts as one point when true.
+  points:
+    - { id: win, name: Win, expr: "result == 'win' ? 3 : result == 'tie' ? 1 : 0" }
+    - { id: cargo, name: Cargo, expr: "own.cargo.total >= params.cargo_threshold" }
+    - { id: dock, name: Docking, expr: "own.high_docks >= 2" }
+    - { id: coop, name: Co-op, expr: "field.coop and own.fouls.warning.count < 2" }
+    - { id: clean, name: Clean sheet, expr: "own.fouls.count == 0 and len(own.cards) == 0" }
+  stats:
+    - { id: match_points, name: Match points, expr: "own.score - own.foul_points" }
+    - { id: launch_points, name: Launch points, expr: "own.breakdown.launch_points" }
+    - { id: dock_points, name: Dock points, expr: "own.breakdown.dock_points" }
+    - { id: fouls_given, name: Fouls, expr: "own.fouls.count" }
+  # Four tiebreakers and a coin flip. One of them ranks lower values first.
+  order:
+    - { name: Ranking score, expr: "rp / played", decimals: 2 }
+    - { name: Avg match, expr: "match_points / played", decimals: 1 }
+    - { name: Avg launch, expr: "launch_points / played", decimals: 1 }
+    - { name: Avg dock, expr: "dock_points / played", decimals: 1 }
+    - { name: Fewest fouls, expr: "fouls_given", dir: asc }
+    - { random: true }
+
+playoff:
+  tiebreakers:
+    - { name: Fewest major fouls, expr: "-own.fouls.major.count" }
+    - { name: Launch points, expr: "own.breakdown.launch_points" }
+    - { name: Dock points, expr: "own.breakdown.dock_points" }
+
+layout:
+  scoring_panels:
+    - { id: red, name: Red scorer, alliances: [red], groups: [Cargo, Station, Robots] }
+    - { id: blue, name: Blue scorer, alliances: [blue], groups: [Cargo, Station, Robots] }
+    - { id: green, name: Green scorer, alliances: [green], groups: [Cargo, Station, Robots] }
+    - { id: field, name: Field scorer, groups: [Field] }
+  audience:
+    live: [cargo.total, high_docks]
+    indicators: [lane_open, gate_lit]
+  team_sign: "string(own.cargo.total) + (own.lane_open ? ' GO' : '')"

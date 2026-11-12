@@ -1,0 +1,65 @@
+# Ball Count: the smallest useful game definition.
+#
+# Two alliances score balls. A ball is worth more in autonomous. Most points wins.
+# Start here when writing your own game, then look at orbital-rush for everything else the schema can do.
+
+schema: 1
+id: ball-count
+name: Ball Count
+version: "1.0"
+description: Robots score balls. A ball in autonomous is worth two points, in teleop one. Most points wins.
+
+alliances:
+  size: 3
+  list:
+    - { id: red, name: Red, short: R, color: "#d32f2f" }
+    - { id: blue, name: Blue, short: B, color: "#1565c0" }
+
+match:
+  countdown: { enabled: true, voice: drivers_behind_lines, beats: 3 }
+  phases:
+    - id: auto
+      name: Autonomous
+      duration: 15
+      robots: auto
+      cues:
+        - { at: start, sound: match_start }
+        - { at: end, sound: phase_end }
+    - { id: pause, name: Pause, duration: 2, robots: disabled }
+    - id: teleop
+      name: Teleop
+      duration: 120
+      robots: teleop
+      cues:
+        - { at: start, sound: resume }
+        - { remaining: 20, sound: warning, id: endgame }
+        - { at: end, sound: match_end }
+  score_grace: 2
+
+elements:
+  - id: balls
+    name: Balls
+    type: counter
+    scope: alliance
+    points: { auto: 2, teleop: 1 }
+    edit: [device, scorer]
+    cycle: true
+
+fouls:
+  types:
+    - { id: foul, name: Foul, points: 3 }
+
+breakdown:
+  - { id: auto_points, name: Auto, expr: "own.phase_points.balls.auto" }
+  - { id: teleop_points, name: Teleop, expr: "own.phase_points.balls.teleop" }
+  - { id: foul_points, name: Fouls, expr: "own.foul_points" }
+
+ranking:
+  points:
+    - { id: win, name: Win, expr: "result == 'win' ? 2 : result == 'tie' ? 1 : 0" }
+  stats:
+    - { id: match_points, name: Match points, expr: "own.score - own.foul_points" }
+  order:
+    - { name: Ranking score, expr: "rp / played", decimals: 2 }
+    - { name: Avg match points, expr: "match_points / played", decimals: 1 }
+    - { random: true }

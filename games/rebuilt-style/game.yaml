@@ -1,0 +1,230 @@
+# Rebuilt-style: a game modelled on the 2026 FRC game, as Cheesy Arena implements it.
+#
+# It exists to prove that the game engine can express a real, awkward game with no Go code:
+#   - teleop is split into a transition, four "shifts" and an endgame;
+#   - fuel scored in a hub only counts while that alliance's hub is active;
+#   - which hub is active in which shift depends on who scored more fuel in autonomous (coin flip on a tie);
+#   - the answer is sent to the robots as game data;
+#   - three bonus ranking points have thresholds an event can tune.
+#
+# Rule descriptions are written for this project and are not quoted from any game manual.
+
+schema: 1
+id: rebuilt-style
+name: Rebuilt-style
+version: "1.0"
+description: >
+  Fuel is scored in each alliance's hub. Hubs take turns being active during teleop, in an order decided by the
+  autonomous result. Robots climb a tower in autonomous and in the endgame.
+
+alliances:
+  size: 3
+  list:
+    - { id: red, name: Red, short: R, color: "#d32f2f", ds: red }
+    - { id: blue, name: Blue, short: B, color: "#1565c0", ds: blue }
+
+params:
+  energized_threshold: { name: Energized fuel threshold, type: int, default: 100, min: 0 }
+  supercharged_threshold: { name: Supercharged fuel threshold, type: int, default: 360, min: 0 }
+  traversal_threshold: { name: Traversal tower points threshold (0 turns it off), type: int, default: 50, min: 0 }
+
+match:
+  countdown: { enabled: true, voice: drivers_behind_lines, beats: 3 }
+  phases:
+    - id: auto
+      name: Autonomous
+      duration: 20
+      robots: auto
+      cues:
+        - { at: start, sound: match_start }
+        - { at: end, sound: phase_end }
+    - { id: pause, name: Pause, duration: 3, robots: disabled }
+    - id: transition
+      name: Transition
+      duration: 10
+      robots: teleop
+      cues: [{ at: start, sound: resume }]
+    - { id: shift1, name: Shift 1, duration: 25, robots: teleop, cues: [{ at: start, sound: shift_change }] }
+    - { id: shift2, name: Shift 2, duration: 25, robots: teleop, cues: [{ at: start, sound: shift_change }] }
+    - { id: shift3, name: Shift 3, duration: 25, robots: teleop, cues: [{ at: start, sound: shift_change }] }
+    - { id: shift4, name: Shift 4, duration: 25, robots: teleop, cues: [{ at: start, sound: shift_change }] }
+    - id: endgame
+      name: Endgame
+      duration: 30
+      robots: teleop
+      cues:
+        - { at: start, sound: warning, id: endgame }
+        - { at: end, sound: match_end }
+  score_grace: 3
+  # Robots are told which alliance's hub goes inactive first: the alliance that won autonomous.
+  ds_game_data: "field.auto_winner == 'red' ? 'R' : field.auto_winner == 'blue' ? 'B' : ''"
+
+elements:
+  - id: fuel
+    name: Fuel
+    type: counter
+    scope: alliance
+    edit: [device, scorer]
+    cycle: true
+    # One point per fuel scored while the hub was active. The hub is always active in auto, the transition and
+    # the endgame. The alliance that won auto is active in shifts 2 and 4; the other alliance in shifts 1 and 3.
+    points:
+      expr: >
+        value.auto + value.transition + value.endgame +
+        (field.auto_winner == own.id ? value.shift2 + value.shift4 : value.shift1 + value.shift3)
+    ui: { group: Hub, widget: stepper, order: 1 }
+
+  - id: auto_tower
+    name: Auto tower
+    type: enum
+    scope: robot
+    phases: [auto]
+    edit: [scorer, referee]
+    options:
+      - { id: none, name: None }
+      - { id: level1, name: Level 1 }
+      - { id: level2, name: Level 2 }
+      - { id: level3, name: Level 3 }
+    ui: { group: Tower, widget: buttons, order: 2 }
+
+  - id: endgame_tower
+    name: Endgame tower
+    type: enum
+    scope: robot
+    edit: [scorer, referee]
+    options:
+      - { id: none, name: None, points: 0 }
+      - { id: level1, name: Level 1, points: 10 }
+      - { id: level2, name: Level 2, points: 20 }
+      - { id: level3, name: Level 3, points: 30 }
+    ui: { group: Tower, widget: buttons, order: 3 }
+
+  - id: auto_winner
+    name: Autonomous winner
+    type: enum
+    scope: field
+    edit: [scorer]
+    options:
+      - { id: none, name: Not decided }
+      - { id: red, name: Red }
+      - { id: blue, name: Blue }
+    ui: { group: Hub, widget: buttons, order: 4 }
+
+fouls:
+  types:
+    - { id: minor, name: Foul, points: 5, to: opponents }
+    - { id: major, name: Major foul, points: 15, to: opponents }
+    # No points, but the alliance loses its bonus ranking points for the match.
+    - { id: collusion, name: Collusion, points: 0, to: none }
+  rules:
+    - { id: G206, name: Collusion, foul: collusion, text: Teams may not agree to break rules together in order to affect ranking points. }
+    - { id: G210, name: Forcing fouls, foul: major, text: A strategy aimed at making the opponent break a rule is not allowed. }
+    - { id: G403, name: Auto contact across the centre line, foul: major, text: In autonomous a robot fully across the centre line may not contact an opponent robot. }
+    - { id: G407, name: Launching from outside the zone, foul: major, text: A robot may launch into its hub only while its bumpers are at least partly in its own alliance zone. }
+    - { id: G418, name: Pinning, foul: minor, text: A robot may not pin an opponent for more than three seconds. }
+    - { id: G418, name: Extended pinning, foul: major, text: Continued or repeated pinning after the first call. }
+    - { id: G420, name: Endgame tower contact, foul: major, text: In the last thirty seconds a robot may not contact an opponent that is touching its own tower. }
+    - { id: G421, name: Leaving the assigned area, foul: minor, text: Drive team members must stay in their designated areas. }
+
+cards:
+  - { id: yellow, name: Yellow card, color: "#fdd835", second_becomes: red }
+  - { id: red, name: Red card, color: "#d32f2f", disqualifies: true }
+
+derived:
+  # Fifteen points for each robot on the tower at the end of auto, for at most two robots.
+  - id: auto_tower_points
+    name: Auto tower points
+    scope: alliance
+    points: "min(count(own.robots, #.auto_tower != 'none'), 2) * 15"
+
+  - id: tower_points
+    name: Tower points
+    scope: alliance
+    expr: "own.points.auto_tower_points + own.points.endgame_tower"
+
+  - id: bonus_eligible
+    name: Eligible for bonus ranking points
+    scope: alliance
+    expr: "own.fouls.collusion.count == 0"
+
+triggers:
+  # Decided when teleop begins, from fuel scored in auto. A tie is settled by a coin flip.
+  - on: { phase_start: transition }
+    set:
+      element: auto_winner
+      value: "red.fuel.auto > blue.fuel.auto ? 'red' : blue.fuel.auto > red.fuel.auto ? 'blue' : pick('red', 'blue')"
+
+live:
+  - id: hub_active
+    name: Hub active
+    scope: alliance
+    expr: >
+      match_state == 'running' and (phase in ['auto', 'pause', 'transition', 'endgame'] or
+      (phase in ['shift2', 'shift4']) == (field.auto_winner == own.id))
+
+breakdown:
+  - { id: auto_fuel_points, name: Auto fuel, expr: "own.fuel.auto" }
+  - { id: auto_tower_points, name: Auto tower, expr: "own.points.auto_tower_points" }
+  - { id: teleop_fuel_points, name: Teleop fuel, expr: "own.points.fuel - own.fuel.auto" }
+  - { id: teleop_tower_points, name: Endgame tower, expr: "own.points.endgame_tower" }
+  - { id: foul_points, name: Fouls, expr: "own.foul_points" }
+
+ranking:
+  points:
+    - id: win
+      name: Win
+      expr: "result == 'win' ? (params.traversal_threshold == 0 ? 2 : 3) : result == 'tie' ? 1 : 0"
+    - id: energized
+      name: Energized
+      expr: "own.bonus_eligible and own.points.fuel >= params.energized_threshold"
+    - id: supercharged
+      name: Supercharged
+      expr: "own.bonus_eligible and own.points.fuel >= params.supercharged_threshold"
+    - id: traversal
+      name: Traversal
+      expr: "own.bonus_eligible and params.traversal_threshold != 0 and own.tower_points >= params.traversal_threshold"
+  stats:
+    - { id: match_points, name: Match points, expr: "own.score - own.foul_points" }
+    - { id: auto_fuel_points, name: Auto fuel, expr: "own.fuel.auto" }
+    - { id: tower_points, name: Tower points, expr: "own.tower_points" }
+  order:
+    - { name: Ranking score, expr: "rp / played", decimals: 2 }
+    - { name: Avg match, expr: "match_points / played", decimals: 2 }
+    - { name: Avg auto fuel, expr: "auto_fuel_points / played", decimals: 2 }
+    - { name: Avg tower, expr: "tower_points / played", decimals: 2 }
+    - { random: true }
+
+playoff:
+  tiebreakers:
+    - { name: Major fouls by the opponent, expr: "sum(opponents, #.fouls.major.count)" }
+    - { name: Auto fuel, expr: "own.fuel.auto" }
+    - { name: Tower points, expr: "own.tower_points" }
+
+layout:
+  scoring_panels:
+    - { id: red_near, name: Red near side, alliances: [red], groups: [Tower] }
+    - { id: red_far, name: Red far side, alliances: [red], groups: [Tower] }
+    - { id: blue_near, name: Blue near side, alliances: [blue], groups: [Tower] }
+    - { id: blue_far, name: Blue far side, alliances: [blue], groups: [Tower] }
+  audience:
+    live: [fuel.total]
+    indicators: [hub_active]
+  team_sign: "string(own.points.fuel)"
+
+tba:
+  year: 2026
+  breakdown:
+    autoTowerPoints: "own.points.auto_tower_points"
+    endGameTowerPoints: "own.points.endgame_tower"
+    totalTowerPoints: "own.tower_points"
+    minorFoulCount: "own.fouls.minor.count"
+    majorFoulCount: "own.fouls.major.count"
+    foulPoints: "own.foul_points"
+    totalAutoPoints: "own.fuel.auto + own.points.auto_tower_points"
+    totalTeleopPoints: "own.points.fuel - own.fuel.auto + own.points.endgame_tower"
+    totalPoints: "own.score"
+    energizedAchieved: "own.rp.energized == 1"
+    superchargedAchieved: "own.rp.supercharged == 1"
+    traversalAchieved: "own.rp.traversal == 1"
+    g206Penalty: "own.fouls.collusion.count > 0"
+    rp: "own.rp.total"

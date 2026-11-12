@@ -537,8 +537,8 @@ What each type stores and exposes to expressions:
 | Type | Raw value stored | In expressions |
 |------|------------------|----------------|
 | `counter` | Count per phase | `.total`, `.<phase>` |
-| `boolean` | `true`/`false` and the phase it was set in | the boolean itself, `.phase` |
-| `enum` | Option id and the phase it was set in | the option id as a string, `.phase` |
+| `boolean` | `true`/`false` and the phase it was set in | the boolean itself |
+| `enum` | Option id and the phase it was set in | the option id as a string |
 | `timer` | Accumulated seconds, running flag | `.seconds`, `.running` |
 | `number` | The number | the number |
 
@@ -601,8 +601,8 @@ live:                               # may read the clock; for displays and devic
 
 ```yaml
 breakdown:                          # rows on the final score screen, announcer view and TBA
-  - { id: auto_points,   name: Auto,    expr: "own.points.balls.auto + own.points.leave" }
-  - { id: teleop_points, name: Teleop,  expr: "own.points.balls.teleop" }
+  - { id: auto_points,   name: Auto,    expr: "own.phase_points.balls.auto + own.points.leave" }
+  - { id: teleop_points, name: Teleop,  expr: "own.phase_points.balls.teleop" }
   - { id: climb_points,  name: Climb,   expr: "own.points.climb + own.points.climb_bonus" }
   - { id: foul_points,   name: Fouls,   expr: "own.foul_points" }
 
@@ -691,8 +691,10 @@ The environment a scoring expression sees:
 | `rp`, `played`, stat ids | In ranking order expressions: the team's accumulated values |
 
 An alliance object has: `id`; each alliance-scope element and derived value by id; `robots` (a list, each
-with its robot-scope elements, `position` and `team`); `points.<element>` and `points.<element>.<phase>`;
-`fouls.<type>.count`; `foul_points`; `cards`; `breakdown.<row>`; `score`.
+with its robot-scope elements, `position` and `team`); `points.<element>` and
+`phase_points.<element>.<phase>`; `fouls.<type>.count`; `foul_points`; `cards`; `breakdown.<row>`; `score`.
+
+The implemented and authoritative version of this section is [game-definition.md](game-definition.md).
 
 Functions: `count`, `sum`, `all`, `any`, `filter`, `map`, `min`, `max`, `abs`, `floor`, `ceil`, `round`,
 `clamp`, and `pick` (triggers only).

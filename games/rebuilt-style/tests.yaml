@@ -1,0 +1,173 @@
+# Worked examples for Rebuilt-style. The first group reproduces the cases in Cheesy Arena's own score tests for the
+# 2026 game (game/score_test.go, game/hub_test.go, game/score_summary_test.go upstream), to show that the generic
+# engine computes the same numbers as the hand-written Go it replaces.
+
+cases:
+  # Upstream TestScoreSummary: TestScore1 (red) against TestScore2 (blue). Blue won auto.
+  - name: Upstream score summary
+    state:
+      field: { auto_winner: blue }
+      red:
+        fuel: { auto: 18, transition: 10, shift1: 20, shift2: 30, shift3: 25, shift4: 40, endgame: 15 }
+        robots:
+          - { auto_tower: none, endgame_tower: level1 }
+          - { auto_tower: level2, endgame_tower: level2 }
+          - { auto_tower: none, endgame_tower: none }
+        fouls: [major, minor, minor, major, major, major, major]
+      blue:
+        fuel: { auto: 35, transition: 12, shift1: 40, shift2: 30, shift3: 50, shift4: 28, endgame: 9 }
+        robots:
+          - { auto_tower: level1, endgame_tower: level3 }
+          - { auto_tower: none, endgame_tower: level2 }
+          - { auto_tower: level3, endgame_tower: level1 }
+    expect:
+      winner: blue
+      red:
+        score: 133
+        result: loss
+        foul_points: 0
+        points: { fuel: 88, auto_tower_points: 15, endgame_tower: 30 }
+        breakdown: { auto_fuel_points: 18, auto_tower_points: 15, teleop_fuel_points: 70, teleop_tower_points: 30, foul_points: 0 }
+        rp: { win: 0, energized: 0, supercharged: 0, traversal: 0 }
+        rp_total: 0
+        stats: { match_points: 133, auto_fuel_points: 18, tower_points: 45 }
+      blue:
+        score: 289
+        result: win
+        foul_points: 85
+        points: { fuel: 114, auto_tower_points: 30, endgame_tower: 60 }
+        breakdown: { auto_fuel_points: 35, auto_tower_points: 30, teleop_fuel_points: 79, teleop_tower_points: 60, foul_points: 85 }
+        rp: { win: 3, energized: 1, supercharged: 0, traversal: 1 }
+        rp_total: 5
+        stats: { match_points: 204, auto_fuel_points: 35, tower_points: 90 }
+
+  # Upstream TestScoreAutonomousTowerPoints.
+  - name: Auto tower, one robot at level 1
+    state:
+      red: { robots: [{ auto_tower: level1 }, {}, {}] }
+    expect:
+      red: { score: 15, points: { auto_tower_points: 15 } }
+
+  - name: Auto tower, levels 2 and 3 count the same as level 1
+    state:
+      red: { robots: [{ auto_tower: level2 }, { auto_tower: level3 }, {}] }
+    expect:
+      red: { score: 30 }
+
+  - name: Auto tower, a third robot adds nothing
+    state:
+      red: { robots: [{ auto_tower: level1 }, { auto_tower: level2 }, { auto_tower: level3 }] }
+    expect:
+      red: { score: 30, points: { auto_tower_points: 30 } }
+
+  # Upstream TestScorePostMatchFuelSummary: red did not win auto, so shifts 1 and 3 count. Fuel that arrives in the
+  # grace period after the match is credited to the endgame, giving 5 + 15 there.
+  - name: Inactive shifts earn nothing
+    state:
+      field: { auto_winner: blue }
+      red:
+        fuel: { auto: 20, transition: 20, shift1: 20, shift2: 9, shift3: 20, shift4: 9, endgame: 20 }
+        robots: [{ endgame_tower: level2 }, {}, {}]
+    expect:
+      red:
+        points: { fuel: 100, endgame_tower: 20 }
+        breakdown: { teleop_fuel_points: 80 }
+        rp: { energized: 1 }
+
+  - name: The auto winner is active in shifts 2 and 4
+    state:
+      field: { auto_winner: red }
+      red: { fuel: { shift1: 7, shift2: 11, shift3: 13, shift4: 17 } }
+      blue: { fuel: { shift1: 7, shift2: 11, shift3: 13, shift4: 17 } }
+    expect:
+      red: { points: { fuel: 28 } }
+      blue: { points: { fuel: 20 } }
+
+  # Upstream: a G206 call carries no points but removes the alliance's bonus ranking points.
+  - name: Collusion removes bonus ranking points
+    state:
+      field: { auto_winner: red }
+      red:
+        fuel: { auto: 150 }
+        robots: [{ endgame_tower: level3 }, { endgame_tower: level3 }, {}]
+        fouls: [{ type: collusion, rule: G206 }]
+      blue: {}
+    expect:
+      red: { result: win, rp: { win: 3, energized: 0, traversal: 0 }, rp_total: 3 }
+      blue: { foul_points: 0 }
+
+  - name: Supercharged implies energized
+    params: { energized_threshold: 10, supercharged_threshold: 20 }
+    state:
+      red: { fuel: { auto: 25 } }
+    expect:
+      red: { rp: { energized: 1, supercharged: 1, traversal: 0 } }
+
+  # Upstream GetWinRankingPoints: a win is worth 2 when the traversal bonus is switched off.
+  - name: Traversal switched off
+    params: { traversal_threshold: 0 }
+    state:
+      red: { fuel: { auto: 1 }, robots: [{ endgame_tower: level3 }, { endgame_tower: level3 }, {}] }
+    expect:
+      red: { rp: { win: 2, traversal: 0 } }
+
+  # Upstream TestScoreSummary: a disqualified alliance scores zero and loses.
+  - name: Playoff disqualification
+    playoff: true
+    state:
+      red: { fuel: { auto: 50 }, disqualified: true }
+      blue: { fuel: { auto: 1 } }
+    expect:
+      winner: blue
+      red: { score: 0, result: loss }
+      blue: { score: 1, result: win }
+
+  # Upstream DetermineMatchStatus playoff tiebreakers, in order.
+  - name: Playoff tie broken by opponent major fouls
+    playoff: true
+    state:
+      red: { fuel: { auto: 15 }, fouls: [major] }
+      blue: { fuel: { auto: 30 }, fouls: [major, major] }
+    expect:
+      winner: red
+      tiebreak: Major fouls by the opponent
+      red: { score: 45, result: win }
+      blue: { score: 45, result: loss }
+
+  - name: Playoff tie broken by auto fuel
+    playoff: true
+    state:
+      field: { auto_winner: red }
+      red: { fuel: { auto: 10, endgame: 5 } }
+      blue: { fuel: { auto: 5, endgame: 10 } }
+    expect:
+      winner: red
+      tiebreak: Auto fuel
+
+  - name: Playoff tie broken by tower points
+    playoff: true
+    state:
+      red: { fuel: { auto: 10 }, robots: [{ endgame_tower: level2 }, {}, {}] }
+      blue: { fuel: { auto: 10, endgame: 20 } }
+    expect:
+      winner: red
+      tiebreak: Tower points
+
+  - name: A true playoff tie
+    playoff: true
+    state:
+      red: { fuel: { auto: 10 } }
+      blue: { fuel: { auto: 10 } }
+    expect:
+      winner: none
+      red: { result: tie }
+      blue: { result: tie }
+
+  - name: Qualification ties are not broken
+    state:
+      red: { fuel: { auto: 15 }, fouls: [major] }
+      blue: { fuel: { auto: 30 }, fouls: [major, major] }
+    expect:
+      winner: none
+      red: { score: 45, result: tie, rp: { win: 1 } }
+      blue: { score: 45, result: tie, rp: { win: 1 } }

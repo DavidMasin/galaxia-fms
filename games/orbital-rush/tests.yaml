@@ -1,0 +1,149 @@
+# Worked examples for Orbital Rush. Run them with:  galaxia-fms game test games/orbital-rush
+#
+# Every robot starts with a full tank, so an untouched alliance already has 6 points: 4 for the flagship in
+# position 1 and 2 for the other robot.
+
+cases:
+  - name: Untouched match is a three-way tie
+    state: {}
+    expect:
+      winner: none
+      field: { cargo_total: 0, coop: false }
+      red: { score: 6, result: tie, points: { fuel_left: 6 }, rp: { win: 1, cargo: 0, dock: 0, coop: 0, clean: 1 }, rp_total: 2 }
+      blue: { score: 6, result: tie }
+      green: { score: 6, result: tie }
+
+  - name: Everything at once
+    state:
+      field: { storm: solar, gravity: 1.5, comets: { orbit: 3 }, gate_open: true }
+      red:
+        cargo: { launch: 2, orbit: 6, reentry: 5 }
+        beacon: true
+        shield: { value: full, phase: orbit }
+        station_hold: 27
+        payload_mass: 26
+        momentum: true
+        robots:
+          - { launched: true, dock: high, relays: { orbit: 3 }, spin_time: 10, fuel_left: 60 }
+          - { dock: high, relays: { orbit: 1 }, spin_time: 5, fuel_left: 40 }
+      blue: { cargo: { orbit: 6 } }
+      green: { cargo: { launch: 1, orbit: 5 } }
+    expect:
+      winner: red
+      field: { cargo_total: 25, coop: true }
+      red:
+        score: 128
+        result: win
+        points:
+          cargo: 22
+          beacon: 5
+          shield: 9
+          station_hold: 5
+          payload_mass: 8
+          momentum: 0
+          launched: 4
+          dock: 20
+          relays: 4
+          spin_time: 3
+          fuel_left: 4
+          double_dock: 10
+          storm_dock_bonus: 10
+          gravity_bonus: 11
+          overdrive: 7
+          coop_bonus: 6
+        values: { high_docks: 2, orbit_lead: 0 }
+        breakdown:
+          launch_points: 15
+          cargo_points: 27
+          robot_points: 11
+          station_points: 22
+          dock_points: 40
+          bonus_points: 13
+          foul_points: 0
+          earned_points: 128
+        rp: { win: 3, cargo: 1, dock: 1, coop: 1, clean: 1 }
+        rp_total: 7
+        stats: { match_points: 128, launch_points: 15, dock_points: 40, fouls_given: 0 }
+      blue: { score: 21, result: loss, points: { cargo: 6, gravity_bonus: 3, coop_bonus: 6 }, rp_total: 2 }
+      green: { score: 24, result: loss, points: { cargo: 8, gravity_bonus: 4, coop_bonus: 6 }, rp_total: 2 }
+
+  - name: Enum points can depend on the phase, and a calm storm multiplies nothing
+    state:
+      red:
+        shield: { value: full, phase: reentry }
+        robots: [{ dock: low }, { dock: high }]
+    expect:
+      red:
+        score: 26
+        points: { shield: 6, dock: 14, storm_dock_bonus: 0, double_dock: 0 }
+        values: { high_docks: 1 }
+
+  - name: Fouls credit both other alliances and two warnings cost the co-op point
+    state:
+      field: { comets: { orbit: 3 } }
+      red: { cargo: { orbit: 6 }, fouls: [minor, major, warning, warning] }
+      blue: { cargo: { orbit: 6 } }
+      green: { cargo: { orbit: 6 } }
+    expect:
+      winner: none
+      field: { coop: true }
+      red: { score: 18, foul_points: 0, result: loss, rp: { win: 0, coop: 0, clean: 0 }, stats: { fouls_given: 4 } }
+      blue: { score: 26, foul_points: 8, result: tie, rp: { win: 1, coop: 1, clean: 1 }, rp_total: 3 }
+      green: { score: 26, foul_points: 8, result: tie }
+
+  - name: Playoff tie among three is settled by launch points
+    playoff: true
+    state:
+      blue: { cargo: { orbit: 10 } }
+      green: { cargo: { launch: 2, orbit: 4 } }
+    expect:
+      winner: green
+      tiebreak: Launch points
+      red: { score: 6, result: loss }
+      blue: { score: 16, result: loss }
+      green: { score: 16, result: win }
+
+  - name: Overdrive needs momentum and five re-entry cargo
+    state:
+      red: { momentum: true, cargo: { reentry: 5 } }
+      blue: { momentum: true, cargo: { reentry: 4 } }
+      green: { cargo: { reentry: 5 } }
+    expect:
+      red: { score: 23, points: { overdrive: 7 } }
+      blue: { score: 14, points: { overdrive: 0 } }
+      green: { score: 16, points: { overdrive: 0 } }
+
+  - name: A bool parameter switches overdrive off
+    params: { overdrive_enabled: 0 }
+    state:
+      red: { momentum: true, cargo: { reentry: 5 } }
+    expect:
+      red: { score: 16, points: { overdrive: 0 } }
+
+  - name: A card costs the clean sheet point
+    state:
+      red: { cards: { 1: yellow } }
+    expect:
+      red: { rp: { clean: 0 } }
+      blue: { rp: { clean: 1 } }
+
+  - name: Values can compare against the other alliances, and gravity multiplies cargo
+    state:
+      field: { gravity: 2 }
+      red: { cargo: { orbit: 9 } }
+      blue: { cargo: { orbit: 4 } }
+      green: { cargo: { orbit: 2 } }
+    expect:
+      winner: red
+      field: { cargo_total: 15, coop: false }
+      red: { score: 24, values: { orbit_lead: 5 }, points: { gravity_bonus: 9 } }
+      blue: { score: 14, values: { orbit_lead: -5 } }
+      green: { score: 10, values: { orbit_lead: -7 } }
+
+  - name: Timers and numbers score through expressions
+    state:
+      red: { station_hold: 24.9, payload_mass: 10 }
+      blue: { station_hold: 25, payload_mass: 9.5 }
+    expect:
+      red: { points: { station_hold: 4, payload_mass: 3 } }
+      blue: { points: { station_hold: 5, payload_mass: 0 } }

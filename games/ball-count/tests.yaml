@@ -1,0 +1,39 @@
+# Worked examples for Ball Count. Run them with:  galaxia-fms game test games/ball-count
+
+cases:
+  - name: Empty match is a tie
+    state: {}
+    expect:
+      winner: none
+      red: { score: 0, result: tie, rp: { win: 1 } }
+      blue: { score: 0, result: tie, rp: { win: 1 } }
+
+  - name: Auto balls are worth double
+    state:
+      red: { balls: { auto: 3, teleop: 10 } }
+      blue: { balls: { teleop: 15 } }
+    expect:
+      winner: red
+      red:
+        score: 16
+        result: win
+        points: { balls: 16 }
+        breakdown: { auto_points: 6, teleop_points: 10, foul_points: 0 }
+        rp: { win: 2 }
+        stats: { match_points: 16 }
+      blue: { score: 15, result: loss, rp: { win: 0 }, rp_total: 0 }
+
+  - name: Balls scored during the pause earn nothing
+    state:
+      red: { balls: { auto: 1, pause: 4, teleop: 1 } }
+    expect:
+      red: { score: 3 }
+
+  - name: Fouls give points to the other alliance
+    state:
+      red: { balls: { teleop: 5 }, fouls: [foul, foul] }
+      blue: { balls: { teleop: 2 } }
+    expect:
+      winner: blue
+      red: { score: 5, foul_points: 0, result: loss, stats: { match_points: 5 } }
+      blue: { score: 8, foul_points: 6, result: win, stats: { match_points: 2 }, breakdown: { foul_points: 6 } }

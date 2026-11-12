@@ -6,9 +6,11 @@ package main
 import (
 	"flag"
 	"github.com/DavidMasin/galaxia-fms/field"
+	"github.com/DavidMasin/galaxia-fms/gamecli"
 	"github.com/DavidMasin/galaxia-fms/network"
 	"github.com/DavidMasin/galaxia-fms/web"
 	"log"
+	"os"
 )
 
 const eventDbPath = "./event.db"
@@ -16,6 +18,11 @@ const httpPort = 8080
 
 // Main entry point for the application.
 func main() {
+	// "galaxia-fms game ..." works on game definition files and never starts the field.
+	if len(os.Args) > 1 && os.Args[1] == "game" {
+		os.Exit(gamecli.Run(os.Args[2:], os.Stdout, os.Stderr))
+	}
+
 	flag.BoolVar(&network.DevMode, "dev", false, "Bind driver station listeners to all IP addresses for development")
 	flag.Parse()
 

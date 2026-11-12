@@ -1,0 +1,415 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DavidMasin/galaxia-fms/gamedef/game.schema.json",
+  "title": "Galaxia FMS game definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "name", "alliances", "match"],
+  "properties": {
+    "schema": { "const": 1, "description": "Schema version. Always 1." },
+    "id": { "$ref": "#/$defs/slug", "description": "Unique id of the game. Matches its directory name." },
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string" },
+    "description": { "type": "string" },
+    "alliances": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "list"],
+      "properties": {
+        "size": { "type": "integer", "minimum": 1, "maximum": 4, "description": "Robots per alliance." },
+        "list": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "name", "short", "color"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "name": { "type": "string", "minLength": 1 },
+              "short": { "type": "string", "pattern": "^[A-Z]$", "description": "One capital letter used in station ids such as R1." },
+              "color": { "$ref": "#/$defs/color" },
+              "ds": { "enum": ["red", "blue"], "description": "Alliance colour reported to the driver station and robot." }
+            }
+          }
+        }
+      }
+    },
+    "params": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/id" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["default"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "enum": ["int", "number", "bool"] },
+          "default": { "type": ["number", "boolean"] },
+          "min": { "type": "number" },
+          "max": { "type": "number" }
+        }
+      }
+    },
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phases"],
+      "properties": {
+        "countdown": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "voice": { "type": "string" },
+            "beats": { "type": "integer", "minimum": 0, "maximum": 10 },
+            "quick_beats": { "type": "integer", "minimum": 0, "maximum": 10 }
+          }
+        },
+        "phases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "duration", "robots"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "name": { "type": "string" },
+              "duration": { "type": "number", "exclusiveMinimum": 0 },
+              "robots": { "enum": ["auto", "teleop", "disabled"] },
+              "cues": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": { "$ref": "#/$defs/id" },
+                    "at": { "enum": ["start", "end"] },
+                    "remaining": { "type": "number", "minimum": 0 },
+                    "elapsed": { "type": "number", "minimum": 0 },
+                    "sound": { "type": "string" }
+                  },
+                  "oneOf": [
+                    { "required": ["at"] },
+                    { "required": ["remaining"] },
+                    { "required": ["elapsed"] }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "score_grace": { "type": "number", "minimum": 0 },
+        "ds_game_data": { "$ref": "#/$defs/expr" }
+      }
+    },
+    "elements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "scope"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "name": { "type": "string" },
+          "type": { "enum": ["counter", "boolean", "enum", "timer", "number"] },
+          "scope": { "enum": ["alliance", "robot", "field"] },
+          "min": { "type": "number" },
+          "max": { "type": "number" },
+          "step": { "type": "number", "exclusiveMinimum": 0 },
+          "unit": { "type": "string" },
+          "initial": { "type": ["number", "boolean", "string"] },
+          "options": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id"],
+              "properties": {
+                "id": { "$ref": "#/$defs/id" },
+                "name": { "type": "string" },
+                "points": { "$ref": "#/$defs/optionPoints" }
+              }
+            }
+          },
+          "points": { "$ref": "#/$defs/points" },
+          "edit": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "enum": ["device", "scorer", "referee"] }
+          },
+          "phases": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+          "cycle": { "type": "boolean", "description": "A change to this element ends a scoring cycle, for practice statistics." },
+          "ui": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "group": { "type": "string" },
+              "widget": { "enum": ["stepper", "toggle", "buttons", "select", "timer", "slider", "input"] },
+              "order": { "type": "number" },
+              "hidden": { "type": "boolean" }
+            }
+          }
+        },
+        "allOf": [
+          { "if": { "properties": { "type": { "const": "enum" } } }, "then": { "required": ["options"] } }
+        ]
+      }
+    },
+    "fouls": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "types": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "points"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "name": { "type": "string" },
+              "points": { "type": "number", "minimum": 0 },
+              "to": { "enum": ["opponents", "none"] }
+            }
+          }
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "foul"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "name": { "type": "string" },
+              "text": { "type": "string" },
+              "foul": { "$ref": "#/$defs/id" }
+            }
+          }
+        }
+      }
+    },
+    "cards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "name": { "type": "string" },
+          "color": { "$ref": "#/$defs/color" },
+          "second_becomes": { "$ref": "#/$defs/id" },
+          "disqualifies": { "type": "boolean" }
+        }
+      }
+    },
+    "derived": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "scope"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "name": { "type": "string" },
+          "scope": { "enum": ["alliance", "field"] },
+          "expr": { "$ref": "#/$defs/expr" },
+          "points": { "$ref": "#/$defs/expr" }
+        },
+        "oneOf": [{ "required": ["expr"] }, { "required": ["points"] }]
+      }
+    },
+    "triggers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["on", "set"],
+        "properties": {
+          "on": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "maxProperties": 1,
+            "properties": {
+              "phase_start": { "$ref": "#/$defs/id" },
+              "phase_end": { "$ref": "#/$defs/id" },
+              "cue": { "$ref": "#/$defs/id" }
+            }
+          },
+          "set": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["element", "value"],
+            "properties": {
+              "element": { "$ref": "#/$defs/id" },
+              "value": { "$ref": "#/$defs/expr" }
+            }
+          }
+        }
+      }
+    },
+    "live": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "scope", "expr"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "name": { "type": "string" },
+          "scope": { "enum": ["alliance", "field"] },
+          "expr": { "$ref": "#/$defs/expr" }
+        }
+      }
+    },
+    "breakdown": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "expr"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "name": { "type": "string" },
+          "expr": { "$ref": "#/$defs/expr" }
+        }
+      }
+    },
+    "ranking": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "expr"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "name": { "type": "string" },
+              "expr": { "$ref": "#/$defs/expr" }
+            }
+          }
+        },
+        "stats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "expr"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "name": { "type": "string" },
+              "expr": { "$ref": "#/$defs/expr" }
+            }
+          }
+        },
+        "order": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "expr": { "$ref": "#/$defs/expr" },
+              "dir": { "enum": ["desc", "asc"] },
+              "decimals": { "type": "integer", "minimum": 0, "maximum": 4 },
+              "random": { "const": true }
+            },
+            "oneOf": [{ "required": ["expr"] }, { "required": ["random"] }]
+          }
+        }
+      }
+    },
+    "playoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tiebreakers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "expr"],
+            "properties": {
+              "name": { "type": "string" },
+              "expr": { "$ref": "#/$defs/expr" }
+            }
+          }
+        }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scoring_panels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "name": { "type": "string" },
+              "alliances": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+              "groups": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "audience": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "live": { "type": "array", "items": { "type": "string" } },
+            "indicators": { "type": "array", "items": { "$ref": "#/$defs/id" } }
+          }
+        },
+        "team_sign": { "$ref": "#/$defs/expr" }
+      }
+    },
+    "tba": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "year": { "type": "integer" },
+        "breakdown": { "type": "object", "additionalProperties": { "$ref": "#/$defs/expr" } }
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 40 },
+    "slug": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "maxLength": 40 },
+    "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+    "expr": { "type": ["string", "number", "boolean"], "description": "An expression. See the game definition reference." },
+    "phasePoints": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/id" },
+      "additionalProperties": { "type": "number" }
+    },
+    "optionPoints": {
+      "oneOf": [{ "type": "number" }, { "$ref": "#/$defs/phasePoints" }]
+    },
+    "points": {
+      "anyOf": [
+        { "type": "number" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expr"],
+          "properties": { "expr": { "$ref": "#/$defs/expr" } }
+        },
+        { "$ref": "#/$defs/phasePoints" }
+      ]
+    }
+  }
+}

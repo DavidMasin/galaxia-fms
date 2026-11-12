@@ -356,8 +356,10 @@ func (arena *Arena) generateRealtimeScoreMessage() any {
 
 	score := arena.Score
 	message := &RealtimeScoreMessage{
-		GameHash:  arena.Game.Hash,
-		Field:     RealtimeFieldScore{State: copyValues(score.State.Field), Values: map[string]any{}, Live: map[string]any{}},
+		GameHash: arena.Game.Hash,
+		Field: RealtimeFieldScore{
+			State: copyValues(score.State.Field), Values: map[string]any{}, Live: map[string]any{},
+		},
 		Alliances: make(map[string]*RealtimeAllianceScore, len(arena.Game.Alliances.List)),
 	}
 	if len(score.Changes) > 0 {

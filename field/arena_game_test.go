@@ -318,8 +318,9 @@ func TestChangedGameFileIsTakenIntoUseInPreMatch(t *testing.T) {
 
 	// The stored result is still scored the way the match was played.
 	result, _, err := matchResult.Compute(arena.Database, false)
-	assert.Nil(t, err)
-	assert.Equal(t, 20.0, result.Alliances["red"].Score)
+	if assert.Nil(t, err) {
+		assert.Equal(t, 20.0, result.Alliances["red"].Score)
+	}
 }
 
 func TestInvalidGameFileNeverReplacesValidGame(t *testing.T) {

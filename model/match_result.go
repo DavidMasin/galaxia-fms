@@ -89,9 +89,8 @@ func (matchResult *MatchResult) Compute(database *Database, playoff bool) (*scor
 	if state == nil {
 		state, _ = scoring.Fold(g, matchResult.Changes)
 	}
-	result, err := ComputeResult(
-		g, state, matchResult.MatchType, scoring.Options{Params: matchResult.Params, Playoff: playoff, Teams: matchResult.Teams},
-	)
+	options := scoring.Options{Params: matchResult.Params, Playoff: playoff, Teams: matchResult.Teams}
+	result, err := ComputeResult(g, state, matchResult.MatchType, options)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -113,7 +112,9 @@ func ComputeResult(
 // disqualifyCardedAlliances returns a copy of the state in which every alliance holding a disqualifying card is
 // disqualified. The stored state is left alone, so removing the card later undoes the disqualification.
 func disqualifyCardedAlliances(g *gamedef.Game, state *scoring.State) *scoring.State {
-	adjusted := &scoring.State{Alliances: make(map[string]*scoring.AllianceState, len(state.Alliances)), Field: state.Field}
+	adjusted := &scoring.State{
+		Alliances: make(map[string]*scoring.AllianceState, len(state.Alliances)), Field: state.Field,
+	}
 	for id, allianceState := range state.Alliances {
 		adjusted.Alliances[id] = allianceState
 		if allianceState.Disqualified || len(DisqualifiedPositions(g, allianceState)) == 0 {
@@ -218,7 +219,9 @@ func (matchResult *MatchResult) AllianceIds(database *Database) (red, blue strin
 		return "", "", err
 	}
 	if len(g.Alliances.List) != 2 {
-		return "", "", fmt.Errorf("game %q has %d alliances; a match record holds exactly two", g.ID, len(g.Alliances.List))
+		return "", "", fmt.Errorf(
+			"game %q has %d alliances; a match record holds exactly two", g.ID, len(g.Alliances.List),
+		)
 	}
 	return g.Alliances.List[0].ID, g.Alliances.List[1].ID, nil
 }

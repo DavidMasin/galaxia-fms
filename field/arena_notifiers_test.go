@@ -50,7 +50,9 @@ func TestRealtimeScoreMessage(t *testing.T) {
 	apply(t, arena, count("blue", "balls", testDevice))
 	foul := apply(
 		t, arena,
-		scoring.Change{Alliance: "red", Element: scoring.TargetFoul, Op: scoring.OpAdd, Value: "foul", Source: testReferee},
+		scoring.Change{
+			Alliance: "red", Element: scoring.TargetFoul, Op: scoring.OpAdd, Value: "foul", Source: testReferee,
+		},
 	)
 	assert.Equal(t, 15, foul.Seq)
 	message = arena.generateRealtimeScoreMessage().(*RealtimeScoreMessage)
@@ -121,7 +123,10 @@ func TestRealtimeScoreMessageFieldAndRobots(t *testing.T) {
 	)
 	apply(
 		t, arena,
-		scoring.Change{Alliance: "blue", Robot: 2, Element: scoring.TargetCard, Op: scoring.OpSet, Value: "yellow", Source: testReferee},
+		scoring.Change{
+			Alliance: "blue", Robot: 2, Element: scoring.TargetCard, Op: scoring.OpSet, Value: "yellow",
+			Source: testReferee,
+		},
 	)
 	apply(t, arena, scoring.Change{Element: "auto_winner", Op: scoring.OpSet, Value: "blue", Source: testScorer})
 
@@ -338,9 +343,11 @@ func TestScorePostedMessage(t *testing.T) {
 	assert.Equal(
 		t,
 		[]scoring.Row{
-			{ID: "auto_fuel_points", Name: "Auto fuel", Value: 35}, {ID: "auto_tower_points", Name: "Auto tower", Value: 30},
+			{ID: "auto_fuel_points", Name: "Auto fuel", Value: 35},
+			{ID: "auto_tower_points", Name: "Auto tower", Value: 30},
 			{ID: "teleop_fuel_points", Name: "Teleop fuel", Value: 79},
-			{ID: "teleop_tower_points", Name: "Endgame tower", Value: 60}, {ID: "foul_points", Name: "Fouls", Value: 100},
+			{ID: "teleop_tower_points", Name: "Endgame tower", Value: 60},
+			{ID: "foul_points", Name: "Fouls", Value: 100},
 		},
 		blue.Breakdown,
 	)
@@ -449,7 +456,9 @@ func TestScorePostedMessagePlayoff(t *testing.T) {
 	// A red card on any robot disqualifies the whole alliance in the playoffs.
 	_, err := matchResult.Edit(
 		g,
-		scoring.Change{Alliance: "red", Robot: 2, Element: scoring.TargetCard, Op: scoring.OpSet, Value: "red", Source: testReferee},
+		scoring.Change{
+			Alliance: "red", Robot: 2, Element: scoring.TargetCard, Op: scoring.OpSet, Value: "red", Source: testReferee,
+		},
 	)
 	assert.Nil(t, err)
 	message = arena.GenerateScorePostedMessage().(*ScorePostedMessage)

@@ -134,7 +134,7 @@ func TestScoreChangePermissionsBySourceKind(t *testing.T) {
 		{"referee cannot count fuel", count("red", "fuel", testReferee), "fuel cannot be changed by a referee"},
 		{"scorer sets the auto tower", set("auto_tower", 1, "level1", testScorer), ""},
 		{"referee sets the auto tower", set("auto_tower", 2, "level2", testReferee), ""},
-		{"device cannot set the auto tower", set("auto_tower", 3, "level1", testDevice), "cannot be changed by a device"},
+		{"device cannot set a tower", set("auto_tower", 3, "level1", testDevice), "cannot be changed by a device"},
 		{"scorer sets a field element", set("auto_winner", 0, "blue", testScorer), ""},
 		{"referee cannot", set("auto_winner", 0, "red", testReferee), "auto_winner cannot be changed by a referee"},
 		{"device cannot", set("auto_winner", 0, "red", testDevice), "auto_winner cannot be changed by a device"},
@@ -430,7 +430,9 @@ func TestUndoScoreChange(t *testing.T) {
 	// Undoing takes the same permission as making the change: a scorer cannot take back a referee's foul.
 	foul := apply(
 		t, arena,
-		scoring.Change{Alliance: "blue", Element: scoring.TargetFoul, Op: scoring.OpAdd, Value: "foul", Source: testReferee},
+		scoring.Change{
+			Alliance: "blue", Element: scoring.TargetFoul, Op: scoring.OpAdd, Value: "foul", Source: testReferee,
+		},
 	)
 	assert.Equal(t, 3.0+6, allianceScore(arena, "red"))
 	_, err = arena.UndoScoreChange(foul.Seq, testScorer)
@@ -566,7 +568,8 @@ func TestLiveValuesFollowTheClock(t *testing.T) {
 			apply(
 				t, arena,
 				scoring.Change{
-					Alliance: alliance, Element: "fuel", Op: scoring.OpSet, Value: 10, Bucket: phase, Source: testScorer,
+					Alliance: alliance, Element: "fuel", Op: scoring.OpSet, Value: 10, Bucket: phase,
+					Source: testScorer,
 				},
 			)
 		}

@@ -827,7 +827,8 @@ func (arena *Arena) publishStationStatuses() {
 				eStop: allianceStation.EStop, aStop: allianceStation.AStop, bypass: allianceStation.Bypass,
 			}
 			if dsConn := allianceStation.DsConn; dsConn != nil {
-				status.driverStation, status.robot, status.radio = dsConn.DsLinked, dsConn.RobotLinked, dsConn.RadioLinked
+				status.driverStation, status.robot = dsConn.DsLinked, dsConn.RobotLinked
+				status.radio = dsConn.RadioLinked
 			}
 			last := arena.lastStationStatuses[stationId]
 			if status == last {

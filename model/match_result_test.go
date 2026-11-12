@@ -37,7 +37,8 @@ func TestMatchResultCrud(t *testing.T) {
 	_, err = matchResult.Edit(
 		TestGame("rebuilt-style"),
 		scoring.Change{
-			Alliance: "blue", Robot: 2, Element: "endgame_tower", Op: scoring.OpSet, Value: "level1", Source: testScorer,
+			Alliance: "blue", Robot: 2, Element: "endgame_tower", Op: scoring.OpSet, Value: "level1",
+			Source: testScorer,
 		},
 	)
 	assert.Nil(t, err)
@@ -145,9 +146,10 @@ func TestMatchResultComputeUsesItsOwnSnapshot(t *testing.T) {
 	assert.Nil(t, db.CreateMatchResult(matchResult))
 
 	// The same game edited later, so that a teleop ball is worth ten points instead of one.
-	edited, diagnostics := gamedef.Parse(
-		[]byte(strings.Replace(string(g.Source), "points: { auto: 2, teleop: 1 }", "points: { auto: 2, teleop: 10 }", 1)),
+	editedSource := strings.Replace(
+		string(g.Source), "points: { auto: 2, teleop: 1 }", "points: { auto: 2, teleop: 10 }", 1,
 	)
+	edited, diagnostics := gamedef.Parse([]byte(editedSource))
 	if !assert.NotNil(t, edited, "%v", diagnostics) {
 		return
 	}
@@ -257,7 +259,9 @@ func TestComputeResultPlayoffDisqualification(t *testing.T) {
 	referee := scoring.Source{Kind: scoring.SourceReferee}
 	_, err := matchResult.Edit(
 		g,
-		scoring.Change{Alliance: "blue", Robot: 3, Element: scoring.TargetCard, Op: scoring.OpSet, Value: "red", Source: referee},
+		scoring.Change{
+			Alliance: "blue", Robot: 3, Element: scoring.TargetCard, Op: scoring.OpSet, Value: "red", Source: referee,
+		},
 	)
 	assert.Nil(t, err)
 	assert.Equal(t, map[int]string{101: "yellow"}, matchResult.TeamCards("red"))
@@ -284,7 +288,9 @@ func TestComputeResultPlayoffDisqualification(t *testing.T) {
 	// Taking the card away again undoes it.
 	_, err = matchResult.Edit(
 		g,
-		scoring.Change{Alliance: "blue", Robot: 3, Element: scoring.TargetCard, Op: scoring.OpSet, Value: "", Source: referee},
+		scoring.Change{
+			Alliance: "blue", Robot: 3, Element: scoring.TargetCard, Op: scoring.OpSet, Value: "", Source: referee,
+		},
 	)
 	assert.Nil(t, err)
 	result, _, err = matchResult.Compute(db, true)

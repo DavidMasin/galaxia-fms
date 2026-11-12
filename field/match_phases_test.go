@@ -291,7 +291,8 @@ func TestMatchPhasesCuesAndEvents(t *testing.T) {
 	assert.Equal(
 		t,
 		MatchTimeMessage{
-			MatchState: InMatch, MatchTimeSec: 9, PhaseIndex: 0, PhaseId: "auto", PhaseTimeSec: 9, PhaseRemainingSec: 11,
+			MatchState: InMatch, MatchTimeSec: 9, PhaseIndex: 0, PhaseId: "auto", PhaseTimeSec: 9,
+			PhaseRemainingSec: 11,
 		},
 		arena.generateMatchTimeMessage(),
 	)
@@ -362,7 +363,8 @@ func TestMatchCatchesUpThroughPhases(t *testing.T) {
 	assert.Equal(
 		t,
 		[]string{
-			"phase_end", "resume", "shift_change", "shift_change", "shift_change", "shift_change", "warning", "match_end",
+			"phase_end", "resume", "shift_change", "shift_change", "shift_change", "shift_change", "warning",
+			"match_end",
 		},
 		sounds,
 	)
@@ -514,7 +516,8 @@ func TestAutoWinnerDecidedAtTeleopStart(t *testing.T) {
 				)
 				arena.lastDsPacketTime = time.Unix(0, 0)
 				arena.Update()
-				assert.Equal(t, map[string]string{"red": "R", "blue": "B"}[other], arena.AllianceStations["R1"].GameData)
+				expectedGameData := map[string]string{"red": "R", "blue": "B"}[other]
+				assert.Equal(t, expectedGameData, arena.AllianceStations["R1"].GameData)
 			},
 		)
 	}

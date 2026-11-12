@@ -129,19 +129,39 @@ func (arena *Arena) gracePhase() *gamedef.Phase {
 	return nil
 }
 
-// dsSecondsRemaining returns the countdown sent to driver stations: the whole seconds left in the current phase.
-// Before the match it is the length of the first phase, so that a driver station shows what is about to start.
+// stretchDurationSec returns the length of the stretch of the match that begins at the given phase: that phase and
+// the phases after it for as long as the robots stay in the same state.
+func (arena *Arena) stretchDurationSec(index int) float64 {
+	phases := arena.Game.Match.Phases
+	duration := 0.0
+	for i := index; i >= 0 && i < len(phases) && phases[i].Robots == phases[index].Robots; i++ {
+		duration += phases[i].Duration
+	}
+	return duration
+}
+
+// dsSecondsRemaining returns the countdown sent to driver stations, which robot code reads as the match time. It
+// is the whole seconds left until the robots are next told to do something different, so a teleop period that the
+// game divides into several phases counts down once, as it does at an official event. During a pause, before the
+// match and during a timeout it is the length of the stretch that comes next, so that a driver station shows what
+// is about to start.
 func (arena *Arena) dsSecondsRemaining() int {
+	phases := arena.Game.Match.Phases
 	switch arena.MatchState {
-	case InMatch:
-		return int(math.Ceil(arena.phaseRemainingSec()))
 	case PostMatch:
 		return 0
+	case InMatch:
+		if phase := arena.CurrentPhase(); phase != nil && phase.Robots != gamedef.RobotsDisabled {
+			return int(math.Ceil(arena.modeRemainingSec()))
+		}
+		for i := arena.PhaseIndex + 1; i < len(phases); i++ {
+			if phases[i].Robots != gamedef.RobotsDisabled {
+				return int(math.Ceil(arena.stretchDurationSec(i)))
+			}
+		}
+		return 0
 	}
-	if phases := arena.Game.Match.Phases; len(phases) > 0 {
-		return int(math.Ceil(phases[0].Duration))
-	}
-	return 0
+	return int(math.Ceil(arena.stretchDurationSec(0)))
 }
 
 // clock returns the match clock as the game's live expressions see it.

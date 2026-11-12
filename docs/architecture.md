@@ -76,8 +76,10 @@ Nothing outside `games/` may name a scoring element, phase or rule of a particul
   trigger is skipped.
 - When the last phase ends the state becomes `PostMatch`, running timers are stopped by rule changes, and
   `match.ended` is published. `AbortMatch()` does the same and publishes `match.aborted`.
-- The seconds-remaining field sent to driver stations is the time left in the current phase; before the match
-  it is the length of the first phase.
+- The seconds-remaining field sent to driver stations is the time left until the robots' state next changes:
+  consecutive phases with the same `robots` value count down as one stretch, so a teleop split into several
+  phases is one countdown, as at an official event. During a pause, before the match and during a timeout it
+  is the length of the stretch that comes next.
 - Game data sent to a driver station is the game's `ds_game_data` expression evaluated for that station, or
   empty if the game has none. It is evaluated every time a driver station packet is sent.
 - Sound names: a cue's `sound` is played as `static/audio/<sound>.wav`. Three aliases keep the example games

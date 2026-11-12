@@ -1,52 +1,118 @@
-// Copyright 2014 Team 254. All Rights Reserved.
+// Copyright 2018 Team 254. All Rights Reserved.
 // Author: pat@patfairbank.com (Patrick Fairbank)
 //
-// Shared client-side logic for interpreting match state and timing notifications.
+// Shared client-side logic for interpreting match state and timing notifications from the server.
+//
+// The phases of a match come from the active game (see game_view.js, which must be loaded first). This file turns
+// the "matchTime" websocket message into what displays show: a state name, a label, and a countdown.
 
-// MatchType enum values.
-const matchTypeTest = 0;
 const matchTypePractice = 1;
 const matchTypeQualification = 2;
 const matchTypePlayoff = 3;
 
+// Values of field.MatchState. While IN_MATCH, the message's PhaseIndex says which phase of the game is running.
 const matchStates = {
   0: "PRE_MATCH",
   1: "START_MATCH",
-  2: "AUTO_PERIOD",
-  3: "PAUSE_PERIOD",
-  4: "TELEOP_PERIOD",
-  5: "POST_MATCH",
-  6: "TIMEOUT_ACTIVE",
-  7: "POST_TIMEOUT"
-};
-let matchTiming;
-
-const getTeleopDurationSec = function () {
-  return matchTiming.TransitionShiftDurationSec + 4 * matchTiming.ShiftDurationSec + matchTiming.EndgameDurationSec;
+  2: "IN_MATCH",
+  3: "POST_MATCH",
+  4: "TIMEOUT_ACTIVE",
+  5: "POST_TIMEOUT"
 };
 
-// Handles a websocket message containing the length of each period in the match.
-const handleMatchTiming = function (data) {
-  matchTiming = data;
+// Returns the stretch of the match that contains the given phase: the run of consecutive phases in which robots
+// are in the same state (all autonomous, all teleoperated, or all disabled). Clocks count down to the end of the
+// stretch, so a game whose teleop is divided into several phases still shows one teleop countdown.
+const getStretch = function (phaseIndex) {
+  const phases = GameView.phases();
+  const phase = phases[phaseIndex];
+  if (!phase) {
+    return null;
+  }
+  let first = phaseIndex;
+  while (first > 0 && phases[first - 1].robots === phase.robots) {
+    first--;
+  }
+  let last = phaseIndex;
+  while (last < phases.length - 1 && phases[last + 1].robots === phase.robots) {
+    last++;
+  }
+  return {
+    robots: phase.robots,
+    start: phases[first].start,
+    end: phases[last].start + phases[last].duration,
+    firstIndex: first,
+    lastIndex: last,
+  };
 };
 
-// Converts the raw match state and time into a human-readable state and per-period time. Calls the provided
-// callback with the result.
-const translateMatchTime = function (data, callback) {
-  var matchStateText;
+// Returns the label for a robot state.
+const getRobotsText = function (robots) {
+  switch (robots) {
+    case "auto":
+      return "AUTONOMOUS";
+    case "teleop":
+      return "TELEOPERATED";
+    default:
+      return "PAUSE";
+  }
+};
+
+// Returns the phase named by a matchTime message, or null when no phase is running.
+const getCurrentPhase = function (data) {
+  if (matchStates[data.MatchState] !== "IN_MATCH") {
+    return null;
+  }
+  return GameView.phaseAt(data.PhaseIndex);
+};
+
+// Returns the countdown, in whole seconds, that a clock should show for a matchTime message.
+//   Before the match: the length of the first stretch.
+//   During a stretch in which robots are enabled: the time left in that stretch.
+//   During a pause: zero.
+//   During a timeout: the time left in the timeout.
+const getCountdown = function (data) {
   switch (matchStates[data.MatchState]) {
+    case "PRE_MATCH":
+    case "START_MATCH": {
+      const stretch = getStretch(0);
+      return stretch === null ? 0 : Math.round(stretch.end - stretch.start);
+    }
+    case "IN_MATCH": {
+      const stretch = getStretch(data.PhaseIndex);
+      if (stretch === null || stretch.robots === "disabled") {
+        return 0;
+      }
+      return Math.max(0, Math.ceil(stretch.end - data.MatchTimeSec));
+    }
+    case "TIMEOUT_ACTIVE":
+      return Math.max(0, Math.ceil(data.TimeoutDurationSec - data.MatchTimeSec));
+    default:
+      return 0;
+  }
+};
+
+// Converts the raw match state and time into a human-readable state and countdown. Calls the provided callback with
+// the state name (a value of matchStates), the label to show, the countdown in seconds, and the current phase (or
+// null when no phase is running). Does nothing until the game has arrived.
+const translateMatchTime = function (data, callback) {
+  if (!GameView.isReady()) {
+    return;
+  }
+  const matchState = matchStates[data.MatchState];
+  const phase = getCurrentPhase(data);
+  let matchStateText;
+  switch (matchState) {
     case "PRE_MATCH":
       matchStateText = "PRE-MATCH";
       break;
-    case "START_MATCH":
-    case "AUTO_PERIOD":
-      matchStateText = "AUTONOMOUS";
+    case "START_MATCH": {
+      const first = GameView.phaseAt(0);
+      matchStateText = first === null ? "" : getRobotsText(first.robots);
       break;
-    case "PAUSE_PERIOD":
-      matchStateText = "PAUSE";
-      break;
-    case "TELEOP_PERIOD":
-      matchStateText = "TELEOPERATED";
+    }
+    case "IN_MATCH":
+      matchStateText = phase === null ? "" : getRobotsText(phase.robots);
       break;
     case "POST_MATCH":
       matchStateText = "POST-MATCH";
@@ -56,24 +122,7 @@ const translateMatchTime = function (data, callback) {
       matchStateText = "TIMEOUT";
       break;
   }
-  callback(matchStates[data.MatchState], matchStateText, getCountdown(data.MatchState, data.MatchTimeSec));
-};
-
-// Returns the per-period countdown for the given match state and overall time into the match.
-const getCountdown = function (matchState, matchTimeSec) {
-  switch (matchStates[matchState]) {
-    case "PRE_MATCH":
-    case "START_MATCH":
-      return matchTiming.AutoDurationSec;
-    case "AUTO_PERIOD":
-      return matchTiming.AutoDurationSec - matchTimeSec;
-    case "TELEOP_PERIOD":
-      return matchTiming.AutoDurationSec + getTeleopDurationSec() + matchTiming.PauseDurationSec - matchTimeSec;
-    case "TIMEOUT_ACTIVE":
-      return matchTiming.TimeoutDurationSec - matchTimeSec;
-    default:
-      return 0;
-  }
+  callback(matchState, matchStateText, getCountdown(data), phase);
 };
 
 // Converts the given countdown in seconds to a string with a colon separator and leading zero padding.

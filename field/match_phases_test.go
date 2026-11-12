@@ -557,14 +557,15 @@ func TestRobotModeAndCountdowns(t *testing.T) {
 	assert.InDelta(t, 15, arena.modeRemainingSec(), 0.2)
 	assert.Equal(t, 15, arena.dsSecondsRemaining())
 
-	// A pause shows zero on the field timers, while driver stations see the pause run out.
+	// A pause shows zero on the field timers, while driver stations show the length of the teleop that is about to
+	// start: 10 + 4 x 25 + 30 seconds.
 	runMatchTo(arena, 21)
 	auto, enabled = arena.robotMode()
 	assert.False(t, auto)
 	assert.False(t, enabled)
 	assert.False(t, arena.inAutoPhase())
 	assert.Equal(t, 0.0, arena.modeRemainingSec())
-	assert.Equal(t, 2, arena.dsSecondsRemaining())
+	assert.Equal(t, 140, arena.dsSecondsRemaining())
 
 	// Teleop is counted down as a whole on the field, whatever phases the game splits it into.
 	runMatchTo(arena, 63)
@@ -573,7 +574,8 @@ func TestRobotModeAndCountdowns(t *testing.T) {
 	assert.False(t, auto)
 	assert.True(t, enabled)
 	assert.InDelta(t, 100, arena.modeRemainingSec(), 0.2)
-	assert.Equal(t, 20, arena.dsSecondsRemaining())
+	// Robots see the same single teleop countdown, not one that restarts at every phase.
+	assert.Equal(t, 100, arena.dsSecondsRemaining())
 
 	runMatchTo(arena, 163.05)
 	auto, enabled = arena.robotMode()

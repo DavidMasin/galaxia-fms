@@ -128,7 +128,8 @@ func TestEncodeControlPacket(t *testing.T) {
 	assert.Equal(t, byte(0), data[7])
 	assert.Equal(t, byte(13), data[8])
 
-	// Check the countdown at different points during the match: it is the time left in the current phase.
+	// Check the countdown at different points during the match: it is the time left until the robots' state next
+	// changes, and during the pause the length of the teleop that follows.
 	arena.MatchState = InMatch
 	arena.PhaseIndex = 0
 	arena.MatchStartTime = time.Now().Add(-9 * time.Second)
@@ -137,11 +138,11 @@ func TestEncodeControlPacket(t *testing.T) {
 	arena.PhaseIndex = 1
 	arena.MatchStartTime = time.Now().Add(-21 * time.Second)
 	data = dsConn.encodeControlPacket(arena, "")
-	assert.Equal(t, byte(2), data[21])
+	assert.Equal(t, byte(140), data[21])
 	arena.PhaseIndex = 3
 	arena.MatchStartTime = time.Now().Add(-40500 * time.Millisecond)
 	data = dsConn.encodeControlPacket(arena, "")
-	assert.Equal(t, byte(18), data[21])
+	assert.Equal(t, byte(123), data[21])
 	arena.PhaseIndex = 7
 	arena.MatchStartTime = time.Now().Add(-160 * time.Second)
 	data = dsConn.encodeControlPacket(arena, "")

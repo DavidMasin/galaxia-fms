@@ -9,15 +9,14 @@ package rules
 import (
 	"errors"
 	"fmt"
-	"math"
-	"sort"
-	"strings"
-
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/ast"
 	"github.com/expr-lang/expr/file"
 	"github.com/expr-lang/expr/parser"
 	"github.com/expr-lang/expr/vm"
+	"math"
+	"sort"
+	"strings"
 )
 
 // Kind is the coarse type of a value in an expression environment.

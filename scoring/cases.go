@@ -2,13 +2,12 @@ package scoring
 
 import (
 	"fmt"
-	"math"
-	"sort"
-	"strconv"
-
 	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/rules"
 	"go.yaml.in/yaml/v3"
+	"math"
+	"sort"
+	"strconv"
 )
 
 // A case file holds worked examples for a game: raw states written in a compact form, and the scores they must

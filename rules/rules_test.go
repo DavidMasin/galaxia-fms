@@ -1,9 +1,8 @@
 package rules
 
 import (
-	"testing"
-
 	"github.com/stretchr/testify/assert"
+	"testing"
 )
 
 func testRoots() map[string]*Shape {

@@ -1,11 +1,10 @@
 package scoring
 
 import (
+	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"math"
 	"math/rand/v2"
 	"sort"
-
-	"github.com/DavidMasin/galaxia-fms/gamedef"
 )
 
 // TeamRanking is one team's accumulated record across the matches it has played.

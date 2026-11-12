@@ -2,10 +2,9 @@ package scoring
 
 import (
 	"fmt"
-	"math"
-
 	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/rules"
+	"math"
 )
 
 // Results of a match from one alliance's point of view.

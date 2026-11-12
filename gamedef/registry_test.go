@@ -2,14 +2,13 @@ package gamedef
 
 import (
 	"encoding/json"
+	"github.com/stretchr/testify/assert"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestRegistrySeedsOnlyWhenMissing(t *testing.T) {

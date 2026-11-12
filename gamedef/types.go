@@ -4,10 +4,9 @@ package gamedef
 
 import (
 	"fmt"
-	"strconv"
-
 	"github.com/DavidMasin/galaxia-fms/rules"
 	"go.yaml.in/yaml/v3"
+	"strconv"
 )
 
 // Element types.

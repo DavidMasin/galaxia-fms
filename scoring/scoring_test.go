@@ -1,13 +1,12 @@
 package scoring
 
 import (
-	"os"
-	"path/filepath"
-	"testing"
-
 	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/rules"
 	"github.com/stretchr/testify/assert"
+	"os"
+	"path/filepath"
+	"testing"
 )
 
 const gamesDir = "../games"

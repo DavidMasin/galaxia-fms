@@ -8,11 +8,10 @@ package scoring
 
 import (
 	"fmt"
-	"sort"
-	"time"
-
 	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/rules"
+	"sort"
+	"time"
 )
 
 // Operations a Change can perform.

@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-//go:generate go run golang.org/x/tools/cmd/stringer@v0.43.0 -type=MatchType
+//go:generate go run golang.org/x/tools/cmd/stringer@v0.52.0 -type=MatchType
 type MatchType int
 
 const (

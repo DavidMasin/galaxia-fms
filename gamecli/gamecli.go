@@ -5,15 +5,14 @@ package gamecli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/DavidMasin/galaxia-fms/gamedef"
+	"github.com/DavidMasin/galaxia-fms/scoring"
+	"go.yaml.in/yaml/v3"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/DavidMasin/galaxia-fms/gamedef"
-	"github.com/DavidMasin/galaxia-fms/scoring"
-	"go.yaml.in/yaml/v3"
 )
 
 const usage = `Work with game definitions.

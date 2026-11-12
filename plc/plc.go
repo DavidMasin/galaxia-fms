@@ -66,7 +66,7 @@ const (
 
 // Discrete inputs
 //
-//go:generate go run golang.org/x/tools/cmd/stringer@v0.43.0 -type=input
+//go:generate go run golang.org/x/tools/cmd/stringer@v0.52.0 -type=input
 type input int
 
 const (
@@ -95,7 +95,7 @@ const (
 
 // 16-bit registers
 //
-//go:generate go run golang.org/x/tools/cmd/stringer@v0.43.0 -type=register
+//go:generate go run golang.org/x/tools/cmd/stringer@v0.52.0 -type=register
 type register int
 
 const (
@@ -105,7 +105,7 @@ const (
 
 // Coils
 //
-//go:generate go run golang.org/x/tools/cmd/stringer@v0.43.0 -type=coil
+//go:generate go run golang.org/x/tools/cmd/stringer@v0.52.0 -type=coil
 type coil int
 
 const (
@@ -123,7 +123,7 @@ const (
 
 // Bitmask for decoding fieldIoConnection into individual ArmorBlock connection statuses.
 //
-//go:generate go run golang.org/x/tools/cmd/stringer@v0.43.0 -type=armorBlock
+//go:generate go run golang.org/x/tools/cmd/stringer@v0.52.0 -type=armorBlock
 type armorBlock int
 
 const (

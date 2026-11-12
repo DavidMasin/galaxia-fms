@@ -3,14 +3,13 @@ package gamedef
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/stretchr/testify/assert"
+	"go.yaml.in/yaml/v3"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"go.yaml.in/yaml/v3"
 )
 
 const gamesDir = "../games"

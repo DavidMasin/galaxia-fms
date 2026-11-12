@@ -7,6 +7,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/DavidMasin/galaxia-fms/rules"
+	"github.com/santhosh-tekuri/jsonschema/v6"
+	"go.yaml.in/yaml/v3"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,12 +19,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/DavidMasin/galaxia-fms/rules"
-	"github.com/santhosh-tekuri/jsonschema/v6"
-	"go.yaml.in/yaml/v3"
-	"golang.org/x/text/language"
-	"golang.org/x/text/message"
 )
 
 //go:embed game.schema.json

@@ -269,3 +269,37 @@ thing to try with hardware.
   description lists one that does not exist.
 - 9 new tests pass. Not committed yet: they hook into the same route registration as the device pages, which are
   still being written.
+
+## 2026-11-13 19:00 - Exports, win probability and The Blue Alliance check (milestones 4 and 10, early)
+
+Done on files no other job is touching, while the device pages are being built.
+
+**Exports** (`web/api_exports.go`, not committed yet; same reason as the rest of the API):
+`/api/v1/exports/{matches,scores,rankings,audit}.{csv,json}`, optionally filtered by `?type=`.
+- Game-specific columns come from the game each match was played with. In `scores.csv` they are named
+  `breakdown.<row>`, `points.<element>` and `rp.<id>`.
+- The audit export lists every score change: time, phase, the phase it was credited to, source, and the
+  confidence a device reported.
+- Its test found a wrong expectation in the test itself, not in the code: blue's 20 tower points beat red's
+  12 fuel.
+
+**Win probability** (`predict`, commit `5a33db9`; not shown on any screen yet)
+- Before a match: Statbotics' own formula for two alliances. For three or four alliances, the chance of
+  having the highest of independent normal scores, computed numerically. The two-alliance case of that
+  calculation is checked against the exact formula.
+- During a match: score so far plus the share of each alliance's rating still to come, with a spread that
+  shrinks as time runs out.
+- Ratings come from a Statbotics-compatible URL and are cached in a file, so predictions work offline after one
+  fetch. Both shapes Statbotics has used for its rating field are accepted; it changed in June 2026.
+- 6 tests, including fetching from a fake server, then working offline from the cache.
+
+**The Blue Alliance check** (commit `1fba4a5`)
+- The Blue Alliance rejects a whole publish for a single breakdown key it does not know. Before publishing, each
+  game's mapping is now checked against the official keys for its year, kept as data in `partner/tbakeys/`
+  (2026's 38 keys come from upstream).
+- Unknown keys, a missing year, more than two alliances, or a mapping that fails to evaluate block the publish
+  with a message saying exactly why. Keys left unmapped are a warning.
+- Result for the examples:
+  - `rebuilt-style` passes with one warning (some official keys unmapped);
+  - `ball-count` publishes scores without a breakdown;
+  - `orbital-rush` (three alliances) cannot be published.

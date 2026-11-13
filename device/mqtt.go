@@ -101,10 +101,12 @@ func (t *MqttTransport) Start(sink Sink) error {
 	}
 	t.sink = sink
 	config := t.config
-	t.mu.Unlock()
 	if config.TCPAddress == "" && config.WSAddress == "" {
+		t.lastError = ""
+		t.mu.Unlock()
 		return nil
 	}
+	t.mu.Unlock()
 
 	b, err := startBroker(config, t)
 	t.mu.Lock()

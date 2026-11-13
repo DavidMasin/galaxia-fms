@@ -77,19 +77,22 @@ func (m *Manager) latchDeviceFaults(deviceID, reason string) {
 	}
 }
 
-// watchdog latches a fault on the stops of a device with safety channels that has stopped sending heartbeats.
-// The caller holds mu.
+// watchdog latches a fault on every stop bound to a device that has a safety channel bound to a stop and has stopped
+// sending heartbeats: a device that has gone quiet cannot be trusted with any of its stops. The caller holds mu.
 func (m *Manager) watchdog(now time.Time) {
+	checked := make(map[string]bool)
 	for _, binding := range m.set.stops {
-		if !binding.safety || m.faults[binding.def.ID] != nil {
+		deviceID := binding.ref.Device
+		if !binding.safety || checked[deviceID] {
 			continue
 		}
-		dev := m.devices[binding.ref.Device]
+		checked[deviceID] = true
+		dev := m.devices[deviceID]
 		if dev == nil || !dev.approved() || !dev.online() {
 			continue
 		}
 		if silence := now.Sub(dev.hbTime); silence > HeartbeatTimeout {
-			m.latchFault(binding, fmt.Sprintf("no heartbeat for %.1f seconds", silence.Seconds()))
+			m.latchDeviceFaults(deviceID, fmt.Sprintf("no heartbeat for %.1f seconds", silence.Seconds()))
 		}
 	}
 }
@@ -256,7 +259,7 @@ func (m *Manager) StartConditions() []string {
 		}
 		var reasons []string
 		for _, fault := range m.sortedFaults() {
-			if fault.Device == deviceID {
+			if fault.Device == deviceID && !contains(reasons, fault.Reason) {
 				reasons = append(reasons, fault.Reason)
 			}
 		}

@@ -141,3 +141,53 @@ the merge.
 
 **Next, after the core lands:** the Lighting engine and page, the Devices and Bindings pages, the virtual device
 page, and the WebSocket, HTTP and serial transports.
+
+## 2026-11-13 18:18 - Countdown audio made (milestone 9 work, done early)
+
+**Why now:** the device work is running in the background and the audio does not touch any of the same files.
+
+**Done**
+- Installed Piper 1.8.0 (offline text-to-speech) in an isolated Python environment outside the repository, and
+  downloaded the `en_US-ljspeech-high` voice. Its model card says the dataset is public domain and the model was
+  trained from scratch, so audio made with it can ship in the repository. Piper itself (GPL) is not shipped.
+- Wrote `tools/audio/make_countdown_audio.py`. It speaks "Drivers, behind the lines", "Three!", "Two!", "One!"
+  and "Go!", puts the voice in a light room reverb, and synthesises a hit under each number (heavier towards
+  "Go!"), a shockwave on "Go!", and a 3-second riser that ends on "Go!".
+- Output: `static/audio/countdown/` (intro, 3, 2, 1, go, riser), plus `countdown.json` describing when each one
+  is played relative to its beat, and a README with the sources.
+
+**Checked:** every beat file starts within 0.2 ms of its first sample, peaks at -1 dBFS, and contains no invalid
+samples. The riser is exactly 3.00 s. Waveform plots look as intended.
+
+**Not checked:** how it sounds. I cannot listen; David should, once the countdown plays in milestone 9. All the
+files can be replaced with recordings.
+
+## 2026-11-13 18:26 - Countdown animation built (milestone 9 work, done early)
+
+**Done:** the match-start countdown as a standalone module, so the displays can use it once the server side
+exists. It touches none of the files the device work was changing.
+- `static/js/countdown.js` and `static/css/countdown.css`. The sequence is "DRIVERS BEHIND THE LINES", then 3, 2
+  and 1 slamming in with trailing copies for motion blur and a glow. A ring empties clockwise through each beat.
+  The two alliance colours close in from the sides on every beat and meet on "GO!", with a camera pulse on each
+  beat. On "GO!" there is a white flash, three shockwaves and a 260-particle burst, then "GO!" shrinks into the
+  match timer.
+- Every frame is computed from the shared clock ("milliseconds until GO"), never from a frame count. Displays
+  therefore agree on the beat, and a dropped frame catches up instead of drifting.
+- Sounds are scheduled on the Web Audio clock, mapped with the audio hardware's own timestamp. A per-display audio
+  latency offset is supported, and a sound more than 0.25 s late is skipped rather than played out of time.
+- There is a transparent version for OBS, and a light renderer (no particles, no blur copies). The light
+  renderer switches on by itself if the first 30 frames run slow, or can be forced.
+- An abort fades everything out in 0.2 s and stops the sound.
+- `static/countdown_preview.html` plays it on its own with sound, colour, transparency, light-renderer and
+  latency controls, and reports frame times.
+
+**Checked**
+- Frames captured in headless Chrome at 1920x1080 at eleven moments, and in the transparent version. Adjusted
+  after looking at them: a stronger backdrop, thinner shockwaves, the ring now empties clockwise, and "GO!"
+  reaches the timer earlier.
+- Live run in headless Chrome at 1920x1080: average frame 16.9 ms (60 fps), 95th percentile 16.9 ms, 3 frames
+  over 20 ms out of about 420 (at start-up). Script time per frame: 95th percentile 1.4 ms.
+
+**Not checked:** the frame rate on the real field PC and TV with a GPU, and the sound. The in-app browser pane
+cannot measure it while the app window is in the background. Open
+`http://<fms>:8080/static/countdown_preview.html` on the display hardware to see the numbers.

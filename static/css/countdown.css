@@ -1,0 +1,156 @@
+/* The match-start countdown. Everything that moves is animated through transform and opacity only, so the browser
+   can keep it on the GPU and hold 60 frames a second. Sizes come from --gc-unit, one hundredth of the shorter side
+   of the container, which countdown.js keeps up to date. */
+
+/* Declared here as well as in cheesy-arena.css, so the countdown looks the same on pages that load only this file. */
+@font-face {
+  font-family: "FuturaLTBold";
+  src: url("fonts/futura-lt-bold.otf") format("opentype");
+}
+
+@font-face {
+  font-family: "FuturaLT";
+  src: url("fonts/futura-lt.otf") format("opentype");
+}
+
+.gc-root {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 1;
+  z-index: 1000;
+  contain: strict;
+  font-family: "FuturaLTBold", "Futura", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --gc-unit: 10px;
+  --gc-a: #d32f2f;
+  --gc-b: #1565c0;
+  --gc-a-clear: rgba(211, 47, 47, 0);
+  --gc-b-clear: rgba(21, 101, 192, 0);
+  --gc-glow: rgba(255, 255, 255, 0.5);
+}
+
+.gc-root.gc-active {
+  visibility: visible;
+}
+
+.gc-dim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(4, 8, 20, 0.82) 0%, rgba(2, 4, 10, 0.96) 100%);
+  opacity: 0;
+  will-change: opacity;
+}
+
+.gc-transparent .gc-dim {
+  display: none;
+}
+
+.gc-stage {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+/* The two alliance colours sweep in from the sides and meet in the middle on "GO!". */
+.gc-panel {
+  position: absolute;
+  top: -5%;
+  bottom: -5%;
+  width: 52%;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.gc-panel-left {
+  left: 0;
+  background: linear-gradient(90deg, var(--gc-a) 0%, var(--gc-a) 18%, var(--gc-a-clear) 100%);
+}
+
+.gc-panel-right {
+  right: 0;
+  background: linear-gradient(270deg, var(--gc-b) 0%, var(--gc-b) 18%, var(--gc-b-clear) 100%);
+}
+
+.gc-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.gc-title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  margin-top: calc(var(--gc-unit) * -4);
+  text-align: center;
+  color: #ffffff;
+  font-size: calc(var(--gc-unit) * 6.5);
+  line-height: calc(var(--gc-unit) * 8);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  text-shadow: 0 0 calc(var(--gc-unit) * 2.5) rgba(255, 255, 255, 0.35);
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.gc-subtitle {
+  display: block;
+  font-family: "FuturaLT", "Futura", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: calc(var(--gc-unit) * 2.6);
+  line-height: calc(var(--gc-unit) * 4);
+  letter-spacing: 0.3em;
+  opacity: 0.8;
+}
+
+.gc-numeral-wrap {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+
+.gc-numeral,
+.gc-ghost {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #ffffff;
+  font-size: calc(var(--gc-unit) * 40);
+  line-height: 1;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  will-change: transform, opacity;
+}
+
+.gc-numeral {
+  text-shadow: 0 0 calc(var(--gc-unit) * 2) rgba(255, 255, 255, 0.75),
+    0 0 calc(var(--gc-unit) * 7) var(--gc-glow);
+}
+
+/* Trailing copies that stretch behind a numeral as it slams in, standing in for motion blur. */
+.gc-ghost {
+  color: rgba(255, 255, 255, 0.55);
+  filter: blur(calc(var(--gc-unit) * 0.7));
+}
+
+.gc-lite .gc-ghost {
+  display: none;
+}
+
+.gc-flash {
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
+  opacity: 0;
+  will-change: opacity;
+}
+
+.gc-transparent .gc-flash {
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0) 70%);
+}

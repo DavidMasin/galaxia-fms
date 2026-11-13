@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<!--
+Plays the match-start countdown on its own, without a match: for checking how it looks, sounds and performs on a
+display. It is a static page, so it also works with nothing but a file server.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Countdown Preview - Galaxia FMS</title>
+    <link href="/static/css/countdown.css" rel="stylesheet">
+    <style>
+      html, body { margin: 0; height: 100%; background: #0b1020; color: #e6e9f2;
+        font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
+      body.checker { background: repeating-conic-gradient(#3a3f4b 0% 25%, #2a2e38 0% 50%) 50% / 40px 40px; }
+      #stage { position: fixed; inset: 0; }
+      #fakeScene { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        font-size: 4vmin; opacity: 0.35; letter-spacing: 0.2em; }
+      #timerBar { position: absolute; left: 50%; bottom: 4vmin; transform: translateX(-50%); display: flex;
+        align-items: center; gap: 2vmin; padding: 1vmin 3vmin; border-radius: 1vmin; background: rgba(0, 0, 0, 0.55); }
+      #timerBar .score { font: 700 4vmin "FuturaLTBold", sans-serif; padding: 0.4vmin 2vmin; border-radius: 0.6vmin; }
+      #matchTimer { font: 700 6vmin "FuturaLTBold", sans-serif; min-width: 16vmin; text-align: center;
+        transition: opacity 0.25s; }
+      #controls { position: fixed; top: 12px; left: 12px; z-index: 2000; display: flex; flex-wrap: wrap; gap: 8px;
+        align-items: center; max-width: calc(100vw - 24px); padding: 10px; border-radius: 8px;
+        background: rgba(10, 14, 28, 0.85); font-size: 14px; }
+      #controls button { font-size: 14px; padding: 6px 12px; border-radius: 6px; border: 1px solid #4a5370;
+        background: #1c2440; color: #fff; cursor: pointer; }
+      #controls label { display: flex; gap: 4px; align-items: center; }
+      #controls input[type=color] { width: 32px; height: 26px; padding: 0; border: none; background: none; }
+      #controls input[type=number] { width: 64px; }
+      #report { position: fixed; bottom: 12px; left: 12px; z-index: 2000; font: 12px/1.4 Consolas, monospace;
+        white-space: pre; background: rgba(10, 14, 28, 0.85); padding: 8px 10px; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="fakeScene">MATCH IN PROGRESS</div>
+      <div id="timerBar">
+        <span class="score" id="scoreA">0</span>
+        <span id="matchTimer">2:40</span>
+        <span class="score" id="scoreB">0</span>
+      </div>
+    </div>
+    <div id="controls">
+      <button id="play">Play countdown</button>
+      <button id="quick">Quick (1 beat)</button>
+      <button id="abort">Abort</button>
+      <label><input type="checkbox" id="sound" checked> Sound</label>
+      <label><input type="checkbox" id="transparent"> Transparent (OBS)</label>
+      <label><input type="checkbox" id="lite"> Light renderer</label>
+      <label>Colours <input type="color" id="colorA" value="#d32f2f"><input type="color" id="colorB" value="#1565c0"></label>
+      <label>Audio latency <input type="number" id="latency" value="0" step="10"> ms</label>
+    </div>
+    <div id="report">Press "Play countdown". Sound needs one click on this page first (a browser rule).</div>
+    <script src="/static/js/countdown.js"></script>
+    <script>
+      let countdown = null;
+      let audioReady = null;
+      let matchStart = null;
+
+      const setTimer = function (seconds) {
+        const whole = Math.max(0, Math.ceil(seconds));
+        $("#matchTimer").textContent = Math.floor(whole / 60) + ":" + String(whole % 60).padStart(2, "0");
+      };
+      function $(selector) {
+        return document.querySelector(selector);
+      }
+
+      const build = function () {
+        if (countdown !== null) {
+          countdown.cancel(true);
+          countdown.root.remove();
+        }
+        document.body.classList.toggle("checker", $("#transparent").checked);
+        $("#fakeScene").style.display = $("#transparent").checked ? "none" : "flex";
+        countdown = GalaxiaCountdown.create($("#stage"), {
+          transparent: $("#transparent").checked, lite: $("#lite").checked ? true : "auto",
+        });
+        audioReady = $("#sound").checked ? countdown.preloadAudio("/static/audio/countdown/") : Promise.resolve();
+      };
+
+      const play = function (beats) {
+        build();
+        $("#scoreA").style.background = $("#colorA").value;
+        $("#scoreB").style.background = $("#colorB").value;
+        $("#matchTimer").style.opacity = "0";
+        matchStart = null;
+        audioReady.then(function () {
+          const lead = GalaxiaCountdown.leadMs(beats, beats > 1);
+          const goAt = Date.now() + lead + 300;
+          $("#report").textContent = "Playing...";
+          countdown.arm({
+            goAt: goAt, beats: beats, intro: beats > 1, clockOffsetMs: 0,
+            colors: [$("#colorA").value, $("#colorB").value], audio: $("#sound").checked,
+            audioLatencyMs: parseFloat($("#latency").value) || 0, resolveTarget: $("#matchTimer"),
+            onGo: function () {
+              matchStart = performance.now();
+            },
+            onDone: function () {
+              $("#matchTimer").style.opacity = "1";
+              const stats = countdown.stats();
+              if (stats.frames > 0) {
+                $("#report").textContent = "Frames: " + stats.frames + "\nAverage: " + stats.averageMs.toFixed(2) +
+                  " ms (" + (1000 / stats.averageMs).toFixed(1) + " fps)\n95th percentile: " +
+                  stats.p95Ms.toFixed(2) + " ms\nWorst: " + stats.worstMs.toFixed(2) + " ms\nFrames over 20 ms: " +
+                  stats.over20Ms + "\nScript time per frame: 95th percentile " + stats.renderP95Ms.toFixed(2) +
+                  " ms, worst " + stats.renderWorstMs.toFixed(2) + " ms\nRenderer: " + (stats.lite ? "light" : "full");
+                window.lastCountdownStats = stats;
+              }
+            },
+          });
+        }).catch(function (error) {
+          $("#report").textContent = "Could not load the countdown sounds: " + error;
+        });
+      };
+
+      $("#play").addEventListener("click", function () { play(3); });
+      $("#quick").addEventListener("click", function () { play(1); });
+      $("#abort").addEventListener("click", function () {
+        if (countdown !== null) {
+          countdown.cancel();
+          $("#matchTimer").style.opacity = "1";
+          $("#report").textContent = "Aborted.";
+        }
+      });
+
+      // A pretend match clock, so the "GO!" has something to resolve into.
+      setInterval(function () {
+        setTimer(matchStart === null ? 160 : 160 - (performance.now() - matchStart) / 1000);
+      }, 100);
+      build();
+    </script>
+  </body>
+</html>

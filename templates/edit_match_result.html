@@ -68,7 +68,7 @@ played with; the audit log below it is rendered here.
           <td>{{$change.MatchTime}}</td>
           <td>{{$change.Description | html}}</td>
           <td class="nowrap">
-            {{if $change.RevertedBy}}Undone by #{{$change.RevertedBy}}{{else if $change.Reverts}}Undo{{else if $change.InEffect}}In effect{{else}}Not applied{{end}}
+            {{if $change.RevertedBy}}Undone by #{{$change.RevertedBy}}{{else if $change.Reverts}}Reverses #{{$change.Reverts}}{{else if $change.InEffect}}In effect{{else}}Not applied{{end}}
           </td>
           <td class="audit-log-action">
             {{if not $change.RevertedBy}}

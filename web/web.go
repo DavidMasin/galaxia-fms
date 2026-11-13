@@ -106,8 +106,9 @@ func (web *Web) ServeWebInterface(port int) {
 	log.Printf("Serving HTTP requests on port %d", port)
 
 	// Start Server
+	// A field management system without its web interface cannot be operated, so failing to serve it is fatal.
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
-		log.Printf("HTTP server error: %v", err)
+		log.Fatalf("HTTP server error: %v", err)
 	}
 }
 

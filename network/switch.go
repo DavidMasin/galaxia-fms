@@ -41,7 +41,13 @@ type Switch struct {
 	Status                string
 }
 
-const ServerIpAddress = "10.0.100.5" // The DS will try to connect to this address only.
+// DefaultServerIpAddress is the address driver stations look for the FMS at, by a convention built into the FRC
+// Driver Station software.
+const DefaultServerIpAddress = "10.0.100.5"
+
+// ServerIpAddress is the address the driver station listeners bind to. It can be changed at startup, for example to
+// run a second copy of the FMS for testing on the same computer.
+var ServerIpAddress = DefaultServerIpAddress
 
 // DevMode allows driver station listeners to bind to all local IP addresses.
 var DevMode = false

@@ -13,8 +13,8 @@ import (
 	"os"
 )
 
-const eventDbPath = "./event.db"
-const httpPort = 8080
+const defaultEventDbPath = "./event.db"
+const defaultHttpPort = 8080
 
 // Main entry point for the application.
 func main() {
@@ -24,16 +24,22 @@ func main() {
 	}
 
 	flag.BoolVar(&network.DevMode, "dev", false, "Bind driver station listeners to all IP addresses for development")
+	flag.StringVar(
+		&network.ServerIpAddress, "server-ip", network.DefaultServerIpAddress,
+		"IP address the driver station listeners bind to (ignored with -dev)",
+	)
+	httpPort := flag.Int("port", defaultHttpPort, "Port the web interface is served on")
+	eventDbPath := flag.String("db", defaultEventDbPath, "Path of the event database file")
 	flag.Parse()
 
-	arena, err := field.NewArena(eventDbPath)
+	arena, err := field.NewArena(*eventDbPath)
 	if err != nil {
 		log.Fatalln("Error during startup: ", err)
 	}
 
 	// Start the web server in a separate goroutine.
 	web := web.NewWeb(arena)
-	go web.ServeWebInterface(httpPort)
+	go web.ServeWebInterface(*httpPort)
 
 	// Run the arena state machine in the main thread.
 	arena.Run()

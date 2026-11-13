@@ -11,9 +11,12 @@ replaces the parts written for one specific game. See [NOTICE.md](NOTICE.md).
 ## Status
 
 Work in progress. The plan, the design and the milestone list are in [docs/PLAN.md](docs/PLAN.md); a report
-for each finished milestone is in [docs/milestones/](docs/milestones/).
+for each finished milestone is in [docs/milestones/](docs/milestones/), and a running record of the work is in
+[WORKLOG.md](WORKLOG.md).
 
-Until milestone 3 lands, the running application still plays the game that upstream Cheesy Arena ships with.
+Matches, scoring panels, the referee panel, match review, rankings and every display run from a game definition
+file. Three example games ship in [games/](games/); [docs/game-definition.md](docs/game-definition.md) explains how
+to write your own. Field electronics (sensors, buttons, LED strips) are the next milestone.
 
 ## Building and running
 
@@ -23,8 +26,20 @@ Until milestone 3 lands, the running application still plays the game that upstr
 1. Run `./galaxia-fms` (`galaxia-fms.exe` on Windows) from the repository directory.
 1. Open http://localhost:8080 in a browser (Google Chrome recommended).
 
-When running without robots, pass `-dev` so the driver station listeners bind to every address instead of
-only `10.0.100.5`.
+Startup options:
+
+| Option | Default | Use |
+|--------|---------|-----|
+| `-dev` | off | Accept driver stations on every network address, for running without the field network |
+| `-server-ip` | `10.0.100.5` | The address driver stations connect to |
+| `-port` | `8080` | The web port |
+| `-db` | `./event.db` | The event database file |
+
+A second copy can run beside the first for testing, for example
+`./galaxia-fms -port 8090 -server-ip 127.0.0.2 -db test.db`.
+
+Choose the game under Setup → Settings and edit games under Setup → Games. To check game files from a terminal:
+`./galaxia-fms game validate games` and `./galaxia-fms game test games`.
 
 Run the tests with `go test ./...`.
 

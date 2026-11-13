@@ -65,3 +65,50 @@ be documented in a log file in the FMS folder.
   alliance ids and robot positions, so it will not need changing when that work lands.
 
 **Next:** finish the milestone 3 browser check, starting with the autonomous winner display.
+
+## 2026-11-13 17:17 - Milestone 3 browser check, part 2
+
+**Found:** David is running the FMS himself (galaxia-fms.exe on port 8080, using the repository's event.db). To test
+without disturbing it, a second copy has to run on the same laptop.
+
+**Done:** three startup options, so a second copy can run alongside:
+- `-port` sets the web port (default 8080).
+- `-db` sets the event database file (default `./event.db`).
+- `-server-ip` sets the address the driver station listeners bind to (default 10.0.100.5). This brings back the
+  `-serverIP` option from David's old fork under the new naming.
+
+Failing to serve the web interface is now fatal instead of leaving a running field that nobody can operate.
+The test copy runs with `-port 8090 -server-ip 127.0.0.2` and a scratch database outside the repository.
+
+**Checked in the browser (rebuilt-style game, test match, all stations bypassed):**
+- Scoring panel, red near side: 3 fuel scored in autonomous. When teleop began, the game's rule set
+  "Autonomous winner = Red". It appears in the panel's change list, and the Red button is shown selected.
+  The earlier suspicion that this display was broken was wrong: the first check read the wrong attribute.
+- Referee panel: a major foul called against red appears in the foul list, with the rule choices filtered to
+  major-foul rules. Blue's score rose by 15, and Match Play's breakdown shows Fouls 15 for blue.
+- Commit & Post on the test match: the audience final-score screen showed the game's breakdown rows (Auto fuel,
+  Auto tower, Teleop fuel, Endgame tower, Fouls, Total) with red 3, blue 15 and WINNER on blue. Measured at
+  1920x1080, the centre logo sits between the two scores and clears the rows.
+- Practice match: created six teams and a practice schedule, played P1 with 4 fuel and a level 3 climb, aborted
+  and committed it. It was stored with 5 changes, a copy of its game, and red winning 34-0.
+- Match Review → Edit on P1: the audit log listed all 5 changes, with team numbers. Undoing the climb dropped red
+  to 4. Setting blue's Shift 1 fuel to 50 and saving made blue the winner, 50-4. Both corrections are in the log
+  with source "admin: Match review" and phase "post".
+- Switched the active game to ball-count in Settings. Match Play picked up the new game straight away, the
+  scoring panels became "red" and "blue", and P1's review page still showed its own game.
+
+## 2026-11-13 17:25 - Milestone 3 finished
+
+**Fixed while checking**
+- The four logo images on the displays and in printed reports were the 2026 game's artwork. They are replaced by
+  a neutral Galaxia logo with the same sizes, drawn by `tools/brand/make_logos.py` (Pillow, Segoe UI), so they
+  can be regenerated.
+- The audit log called an undo record "Undo" in its state column, next to a "Redo" button. It now says
+  "Reverses #N".
+
+**Checked:** `go test ./...` passes in every package; `game test` passes all 29 examples.
+
+**Written:** [docs/milestones/03-generated-panels-and-displays.md](docs/milestones/03-generated-panels-and-displays.md),
+the README (status, startup options).
+
+**Next:** merge `wip/m3b-core` into `main` and push, then start the device framework.

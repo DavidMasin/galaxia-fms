@@ -14,6 +14,7 @@ require (
 	github.com/mochi-mqtt/server/v2 v2.7.9
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/stretchr/testify v1.11.1
+	go.bug.st/serial v1.8.0
 	go.etcd.io/bbolt v1.4.3
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.56.0

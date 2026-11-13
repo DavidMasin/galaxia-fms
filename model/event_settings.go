@@ -5,7 +5,10 @@
 
 package model
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // DefaultGameId is the game a new event starts with.
 const DefaultGameId = "rebuilt-style"
@@ -120,6 +123,30 @@ type EventSettings struct {
 	FieldProfile                     string             // The physical setup whose device bindings are in use.
 	DeviceMqttPort                   int                // TCP port of the device MQTT broker; 0 turns it off.
 	DeviceMqttWsPort                 int                // Port of MQTT over WebSocket for devices; 0 turns it off.
+	DeviceSerialPorts                string             // Ports devices are plugged into, comma-separated.
+}
+
+// SerialPorts returns the serial ports field devices are plugged into, which the FMS keeps open: none unless some
+// were chosen.
+func (eventSettings *EventSettings) SerialPorts() []string {
+	return cleanSerialPorts(strings.Split(eventSettings.DeviceSerialPorts, ","))
+}
+
+// SetSerialPorts chooses the serial ports field devices are plugged into. A port name cannot hold a comma, which is
+// what separates them.
+func (eventSettings *EventSettings) SetSerialPorts(ports []string) {
+	eventSettings.DeviceSerialPorts = strings.Join(cleanSerialPorts(ports), ",")
+}
+
+// cleanSerialPorts drops blank and repeated port names.
+func cleanSerialPorts(ports []string) []string {
+	var clean []string
+	for _, port := range ports {
+		if port = strings.TrimSpace(port); port != "" && !slices.Contains(clean, port) {
+			clean = append(clean, port)
+		}
+	}
+	return clean
 }
 
 func (database *Database) GetEventSettings() (*EventSettings, error) {

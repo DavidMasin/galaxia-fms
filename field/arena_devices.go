@@ -41,8 +41,8 @@ func (arena *Arena) newDevices() error {
 	return arena.Devices.AddTransport(arena.DeviceMqtt)
 }
 
-// applyDeviceSettings takes the device settings into use: the field profile whose bindings apply, and the ports of
-// the MQTT broker, which is restarted if they changed while it runs.
+// applyDeviceSettings takes the device settings into use: the field profile whose bindings apply, the ports of the
+// MQTT broker, which is restarted if they changed while it runs, and the serial ports to open.
 func (arena *Arena) applyDeviceSettings() {
 	arena.Devices.SetProfile(arena.EventSettings.FieldProfile)
 	config := device.MqttConfig{
@@ -52,6 +52,7 @@ func (arena *Arena) applyDeviceSettings() {
 	if err := arena.DeviceMqtt.Configure(config); err != nil {
 		log.Printf("Failed to restart the device MQTT broker: %v", err)
 	}
+	arena.applyDeviceTransportSettings()
 }
 
 // fieldStationIdList returns the id of every station of the field, the ones the active game leaves unused too:

@@ -439,6 +439,7 @@ hands it the state of the match. Nothing in it names a game, a device or a chann
 | `device.Environment`, `Problem`, `Problems` | What bindings are checked against (`Validate`), and what is wrong. |
 | `device.Transport`, `Sink` | A transport carries device messages; the manager is its sink. |
 | `device.MqttTransport` | The embedded broker. `Arena.DeviceMqtt`. |
+| `device.WsTransport`, `HttpTransport`, `SerialTransport` | The other transports. `Arena.DeviceWebsocket()`, `DeviceHttp()`, `DeviceSerial()`. |
 | `device.VirtualTransport`, `VirtualDevice` | Devices inside the FMS. `Arena.DeviceVirtual`. |
 | `device.Snapshot`, `StationState` | The state of the field handed to output evaluation. |
 | `device.Stops`, `Fault`, `FieldAction` | What devices ask of the arena. |
@@ -446,8 +447,9 @@ hands it the state of the match. Nothing in it names a game, a device or a chann
 | `model.Device`, `FieldProfile`, `BindingSet` | The stored records. A binding set is stored as its YAML. |
 
 `EventSettings` has `FieldProfile` (the profile whose bindings apply, `default` for a new event), `DeviceMqttPort`
-(1883) and `DeviceMqttWsPort` (8083); a port of 0 turns that listener off. A record written before devices
-existed (its profile is empty) gets the defaults. `GetAllFieldProfiles` creates the `default` profile on first
+(1883) and `DeviceMqttWsPort` (8083); a port of 0 turns that listener off. `DeviceSerialPorts` lists the serial
+ports to open, separated by commas (none by default). A record written before devices existed (its profile is
+empty) gets the defaults. `GetAllFieldProfiles` creates the `default` profile on first
 use; renaming a profile carries its binding sets and the event's choice along; the active one cannot be deleted.
 
 ### The manager API
@@ -513,11 +515,18 @@ opens a port; `LoadSettings` applies the profile and restarts the broker if its 
 - The MQTT transport's `presenceMu` is held while a connection is recorded and reported, so that `Online` and
   `Offline` reach the manager in the order they happened even when a device reconnects before its old connection
   is seen to go; only a device's current connection counts.
+- The WebSocket transport has a reader goroutine per connection (the HTTP handler) and a writer, using the MQTT
+  outbox type, and its own `presenceMu`, as for MQTT. HTTP waits run on the request goroutines. The serial
+  transport has one goroutine that opens and retries ports and sends the clock, and a reader and a writer per port;
+  a per-port lock keeps what the manager hears about a device in order, whether it comes from the port or from an
+  access change.
 - The PLC is read on the arena goroutine (`UpdatePlc`), where the arena reads it anyway.
 
 ### Plugging in
 
-- **A transport** (WebSocket, HTTP, serial) implements `device.Transport` and is added with `AddTransport`. When
+- **A transport** implements `device.Transport` and is added with `AddTransport`; the WebSocket, HTTP and serial
+  ones are created in `field/arena_device_transports.go` the first time settings load, and found again with
+  `Manager.Transport(name)`. When
   a device connects it calls `Authenticate` (or `AuthenticateLocal`, without a token) and then `Online`; it decodes
   messages with `ParseManifest`, `ParseStatus`, `ParseReading` and `ParseHeartbeat`, hands them to `Manifest`,
   `Status`, `Input` and `Heartbeat`, reports what it cannot read with `Malformed`, and calls `Offline` when the
@@ -533,6 +542,7 @@ opens a port; `LoadSettings` applies the profile and restarts the broker if its 
   `device.*` bus events.
 - The broker library (mochi-mqtt) is only used in `device/mqtt_mochi.go` and `device/mqtt_ws.go`, behind the
   `broker` interface. Replacing it means writing those again. `mochiBroker.Repair` works around a race in its
-  session takeover that can leave a reconnected device deaf.
+  session takeover that can leave a reconnected device deaf. The serial library (`go.bug.st/serial`) is only used
+  in `device/serial_transport*.go`; without cgo on macOS it lists port names only.
 - Tests speak MQTT through `device/mqtttest`, a minimal MQTT 3.1.1 client, rather than a client library, so that
   `go.mod` gains only the broker.

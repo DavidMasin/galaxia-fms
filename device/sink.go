@@ -91,7 +91,7 @@ func (m *Manager) Online(transport, deviceID, remote string) {
 		return
 	}
 	now := m.now()
-	if dev.presence[transport] != nil && dev.approved() {
+	if dev.presence[transport] != nil && dev.approved() && !dev.reconnectingAfterApproval(now) {
 		// The transport saw a new connection before it saw the old one go: the device lost its connection.
 		m.latchDeviceFaults(deviceID, "it reconnected, so its connection had dropped")
 	}
@@ -118,7 +118,7 @@ func (m *Manager) Offline(transport, deviceID string) {
 	dev.record.LastSeen = now.UTC()
 	m.persist(deviceID)
 	m.releaseInputs(deviceID, now)
-	if dev.approved() {
+	if dev.approved() && !dev.reconnectingAfterApproval(now) {
 		m.latchDeviceFaults(deviceID, "it disconnected")
 	}
 }

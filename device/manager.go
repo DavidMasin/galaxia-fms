@@ -90,6 +90,16 @@ type device struct {
 	hbTime     time.Time           // The last heartbeat, or the time the device connected.
 	hbSeq      int64
 	refusal    *Refusal
+	approvedAt time.Time // When it was last approved: its transport may drop it then, to reconnect it.
+}
+
+// A transport drops a device it has just approved so that it reconnects with its new rights (see
+// Transport.AccessChanged). Losing the connection this long after the approval is that, not a fault.
+const approvalReconnectGrace = 5 * time.Second
+
+// reconnectingAfterApproval reports whether a lost connection is the one dropped because the device was approved.
+func (dev *device) reconnectingAfterApproval(now time.Time) bool {
+	return !dev.approvedAt.IsZero() && now.Sub(dev.approvedAt) < approvalReconnectGrace
 }
 
 // Presence is a device's connection over one transport.
@@ -583,6 +593,9 @@ func (m *Manager) changeState(id, state string) error {
 	if dev.record.State == state {
 		m.mu.Unlock()
 		return fmt.Errorf("device %q is already %s", id, state)
+	}
+	if state == model.DeviceApproved && dev.record.State == model.DevicePending && dev.online() {
+		dev.approvedAt = m.now()
 	}
 	dev.record.State = state
 	if state == model.DeviceBlocked {

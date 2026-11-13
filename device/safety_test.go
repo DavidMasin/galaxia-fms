@@ -136,6 +136,26 @@ func TestDisconnectFaults(t *testing.T) {
 	assert.Equal(t, "it reconnected, so its connection had dropped", h.m.Faults()[0].Reason)
 }
 
+func TestApprovalReconnectIsNoFault(t *testing.T) {
+	h := newHarness(t)
+	h.bind(stopBindings)
+	manifest := &Manifest{Proto: 1, ID: "stopbox", Channels: []*Channel{safety("stop"), digital("auto"), digital("field")}}
+	box, err := h.virtual.Connect(manifest)
+	require.Nil(t, err)
+
+	// Approving a device makes its transport drop it so that it reconnects with its new rights; that is no fault.
+	require.Nil(t, h.m.Approve("stopbox"))
+	box.Disconnect()
+	assert.Empty(t, h.m.Faults())
+	box, err = h.virtual.Connect(manifest)
+	require.Nil(t, err)
+
+	// Later, a disconnection is.
+	h.clock.Advance(approvalReconnectGrace)
+	box.Disconnect()
+	assert.Equal(t, 3, len(h.m.Faults()))
+}
+
 func TestStartConditions(t *testing.T) {
 	h := newHarness(t)
 	h.bind(stopBindings + `

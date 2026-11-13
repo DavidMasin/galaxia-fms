@@ -140,14 +140,16 @@ func (h *harness) running(phase string) {
 	h.m.SetMatch(MatchInfo{Running: true, Phase: phase, Scoring: true})
 }
 
-// connect connects a virtual device and approves it.
+// connect connects a virtual device that has already been approved.
 func (h *harness) connect(id string, channels ...*Channel) *VirtualDevice {
 	h.t.Helper()
-	dev, err := h.virtual.Connect(&Manifest{Proto: 1, ID: id, Name: "Test " + id, Channels: channels})
-	require.Nil(h.t, err)
 	if h.m.Access(id) != AccessApproved {
+		_, err := h.m.AuthenticateLocal(VirtualTransportName, id)
+		require.Nil(h.t, err)
 		require.Nil(h.t, h.m.Approve(id))
 	}
+	dev, err := h.virtual.Connect(&Manifest{Proto: 1, ID: id, Name: "Test " + id, Channels: channels})
+	require.Nil(h.t, err)
 	return dev
 }
 

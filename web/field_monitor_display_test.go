@@ -15,9 +15,14 @@ import (
 func TestFieldMonitorDisplay(t *testing.T) {
 	web := setupTestWeb(t)
 
-	recorder := web.getHttpResponse("/displays/field_monitor?displayId=1&ds=false&fta=true&reversed=false")
+	recorder := web.getHttpResponse("/displays/field_monitor?displayId=1&ds=false&fta=true&qr=false&reversed=false")
 	assert.Equal(t, 200, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "Field Monitor - Untitled Event - Galaxia FMS")
+
+	// The QR option is part of the display's configuration, so an address without it is filled in.
+	recorder = web.getHttpResponse("/displays/field_monitor?displayId=1&ds=false&fta=false&reversed=false")
+	assert.Equal(t, 302, recorder.Code)
+	assert.Contains(t, recorder.Header().Get("Location"), "qr=false")
 }
 
 func TestFmsFieldMonitorDisplay(t *testing.T) {

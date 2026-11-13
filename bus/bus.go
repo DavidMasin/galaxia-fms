@@ -142,6 +142,13 @@ func (s *Subscription) Dropped() uint64 {
 	return s.dropped
 }
 
+// ResetDropped sets the dropped count back to zero, once the subscriber has dealt with the gap.
+func (s *Subscription) ResetDropped() {
+	s.bus.mu.Lock()
+	defer s.bus.mu.Unlock()
+	s.dropped = 0
+}
+
 // Close stops delivery and closes the channel.
 func (s *Subscription) Close() {
 	s.bus.mu.Lock()

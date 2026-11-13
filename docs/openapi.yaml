@@ -1,0 +1,632 @@
+openapi: 3.1.0
+info:
+  title: Galaxia FMS API
+  version: "1"
+  description: >
+    The version 1 API of Galaxia FMS. Reading is open to anyone on the field network, like the displays. Changing a
+    game requires the admin login while an admin password is set. Everything that happens on the field is also
+    published as an event: poll /events, or stream /events/stream (Server-Sent Events) or /events/ws (WebSocket).
+    Device endpoints are described in docs/devices.md.
+servers:
+  - url: http://10.0.100.5:8080
+    description: The field's FMS at its usual address
+paths:
+  /api/v1/time:
+    get:
+      summary: The server's clock
+      description: For measuring how far a display's or device's clock is from the server's.
+      responses:
+        "200":
+          description: Current time
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [t, iso]
+                properties:
+                  t: {type: integer, description: UTC milliseconds since 1970}
+                  iso: {type: string, format: date-time}
+  /api/v1/health:
+    get:
+      summary: Whether the server is up and what it is doing
+      responses:
+        "200":
+          description: Health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, uptimeSec, game, matchState, lastEvent]
+                properties:
+                  status: {type: string, enum: [ok]}
+                  uptimeSec: {type: integer}
+                  game: {type: string, description: Id of the active game}
+                  matchState: {$ref: "#/components/schemas/MatchState"}
+                  lastEvent: {type: integer, description: Sequence number of the latest event}
+  /api/v1/openapi.yaml:
+    get:
+      summary: This description
+      responses:
+        "200":
+          description: The OpenAPI description in YAML
+          content:
+            application/yaml: {}
+  /api/v1/game:
+    get:
+      summary: The active game
+      description: >
+        What browsers build scoring panels and displays from: alliances, stations, phases, elements, fouls, cards,
+        breakdown rows, ranking points and layout hints. See docs/game-definition.md.
+      responses:
+        "200":
+          description: The active game's view
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/GameView"}
+        "503": {$ref: "#/components/responses/Error"}
+  /api/v1/match:
+    get:
+      summary: The match on the field now
+      responses:
+        "200":
+          description: The current match, its clock and its live score
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state, matchTimeSec, phaseIndex, phaseId, phaseTimeSec, phaseRemainingSec, score]
+                properties:
+                  match: {$ref: "#/components/schemas/MatchSummary"}
+                  state: {$ref: "#/components/schemas/MatchState"}
+                  matchTimeSec: {type: integer}
+                  phaseIndex: {type: integer, description: Index into the game's phases, or -1 outside a match}
+                  phaseId: {type: string}
+                  phaseTimeSec: {type: integer}
+                  phaseRemainingSec: {type: integer}
+                  timeoutDurationSec: {type: integer}
+                  score:
+                    type: object
+                    description: The live score, in the shape of the realtimeScore message in docs/architecture.md
+  /api/v1/matches:
+    get:
+      summary: The matches of one type, with their results
+      parameters:
+        - name: type
+          in: query
+          schema: {type: string, enum: [practice, qualification, playoff], default: qualification}
+      responses:
+        "200":
+          description: Matches
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [matches]
+                properties:
+                  matches:
+                    type: array
+                    items: {$ref: "#/components/schemas/MatchSummary"}
+        "400": {$ref: "#/components/responses/Error"}
+  /api/v1/matches/{id}:
+    get:
+      summary: One match with its full result and audit log
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: The match
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [match, changes]
+                properties:
+                  match: {$ref: "#/components/schemas/MatchSummary"}
+                  computed:
+                    type: [object, "null"]
+                    description: The computed result (scoring.Result), recomputed from the stored raw state
+                  state:
+                    type: object
+                    description: The stored raw state (scoring.State)
+                  changes:
+                    type: array
+                    description: Every score change, including undo records
+                    items: {$ref: "#/components/schemas/ScoreChange"}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+  /api/v1/rankings:
+    get:
+      summary: Qualification rankings
+      responses:
+        "200":
+          description: Rankings, best first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [columns, rankings]
+                properties:
+                  columns:
+                    type: array
+                    description: The game's ranking order, without the random tiebreaker
+                    items:
+                      type: object
+                      required: [name, decimals]
+                      properties:
+                        name: {type: string}
+                        decimals: {type: integer}
+                  rankings:
+                    type: array
+                    items:
+                      type: object
+                      required: [rank, team, rp, played, wins, losses, ties, values]
+                      properties:
+                        rank: {type: integer}
+                        previousRank: {type: integer}
+                        team: {type: integer}
+                        rp: {type: number}
+                        played: {type: integer}
+                        wins: {type: integer}
+                        losses: {type: integer}
+                        ties: {type: integer}
+                        disqualifications: {type: integer}
+                        values:
+                          type: array
+                          description: One value per column
+                          items: {type: number}
+                        stats:
+                          type: object
+                          additionalProperties: {type: number}
+  /api/v1/teams:
+    get:
+      summary: The teams at the event
+      responses:
+        "200":
+          description: Teams
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [teams]
+                properties:
+                  teams:
+                    type: array
+                    items:
+                      type: object
+                      required: [id]
+                      properties:
+                        id: {type: integer}
+                        name: {type: string}
+                        nickname: {type: string}
+                        city: {type: string}
+                        stateProv: {type: string}
+                        country: {type: string}
+                        schoolName: {type: string}
+                        rookieYear: {type: integer}
+                        robotName: {type: string}
+  /api/v1/alliances:
+    get:
+      summary: Playoff alliances
+      responses:
+        "200":
+          description: Alliances
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [alliances]
+                properties:
+                  alliances:
+                    type: array
+                    items:
+                      type: object
+                      required: [number, teams]
+                      properties:
+                        number: {type: integer}
+                        teams: {type: array, items: {type: integer}}
+                        lineup: {type: array, items: {type: integer}}
+  /api/v1/events:
+    get:
+      summary: Events after a sequence number
+      description: For clients that poll. The server remembers the last 5000 events.
+      parameters:
+        - name: since
+          in: query
+          schema: {type: integer, default: 0}
+        - $ref: "#/components/parameters/Types"
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 1000, default: 1000}
+      responses:
+        "200":
+          description: Events, oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events, complete, more, lastSeq]
+                properties:
+                  events:
+                    type: array
+                    items: {$ref: "#/components/schemas/Event"}
+                  complete:
+                    type: boolean
+                    description: False when events after "since" have already been forgotten
+                  more: {type: boolean, description: True when the limit cut the list short}
+                  lastSeq: {type: integer}
+        "400": {$ref: "#/components/responses/Error"}
+  /api/v1/events/stream:
+    get:
+      summary: Live events as Server-Sent Events
+      description: >
+        Each event has its sequence number as the SSE id and its type as the SSE event name, so EventSource resumes
+        after a reconnect. When events could not be delivered (forgotten, or the client fell behind), a
+        "stream.gap" event says so: reload state from the read endpoints. A comment line keeps the connection open
+        every 15 seconds.
+      parameters:
+        - name: since
+          in: query
+          description: Start after this sequence number. Without it (and without Last-Event-ID), only new events.
+          schema: {type: integer}
+        - name: Last-Event-ID
+          in: header
+          schema: {type: string}
+        - $ref: "#/components/parameters/Types"
+      responses:
+        "200":
+          description: An open event stream
+          content:
+            text/event-stream: {}
+        "400": {$ref: "#/components/responses/Error"}
+  /api/v1/events/ws:
+    get:
+      summary: Live events over a WebSocket
+      description: The same events and gap notices as the SSE stream, one JSON event per text message.
+      parameters:
+        - name: since
+          in: query
+          schema: {type: integer}
+        - $ref: "#/components/parameters/Types"
+      responses:
+        "101":
+          description: Switching to the WebSocket protocol
+        "400": {$ref: "#/components/responses/Error"}
+  /api/v1/exports/{file}:
+    get:
+      summary: Download matches, scores, rankings or the audit log
+      description: >
+        CSV for spreadsheets or JSON for programs. Columns that depend on the game (breakdown rows, element and
+        derived points, ranking points) come from the game each match was played with; in scores.csv they are
+        named breakdown.<id>, points.<id> and rp.<id>.
+      parameters:
+        - name: file
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [matches.csv, matches.json, scores.csv, scores.json, rankings.csv, rankings.json, audit.csv,
+              audit.json]
+        - name: type
+          in: query
+          description: Only matches of this type; every played type when absent. Ignored for rankings.
+          schema: {type: string, enum: [practice, qualification, playoff]}
+      responses:
+        "200":
+          description: The export, as an attachment
+          content:
+            text/csv: {}
+            application/json: {}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+  /api/v1/diagnostics/connection/{matchId}/{stationId}:
+    get:
+      summary: How well a robot stayed connected through a match
+      description: >
+        Built from the team's match log: packets lost, round-trip times, battery (with brownout risk), radio link
+        rates and signal, and every disconnection, with a verdict of good, watch or poor and plain findings. One
+        report per time the match was played.
+      parameters:
+        - name: matchId
+          in: path
+          required: true
+          schema: {type: integer}
+        - name: stationId
+          in: path
+          required: true
+          schema: {type: string, examples: [R1, B3]}
+      responses:
+        "200":
+          description: Reports
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [match, station, team, plays]
+                properties:
+                  match: {type: string}
+                  station: {type: string}
+                  team: {type: integer}
+                  plays:
+                    type: array
+                    items:
+                      type: object
+                      required: [startTime, file, report]
+                      properties:
+                        startTime: {type: string}
+                        file: {type: string, description: Path of the raw CSV log}
+                        report:
+                          type: object
+                          required: [verdict, findings, outages]
+                          properties:
+                            verdict: {type: string, enum: [good, watch, poor]}
+                            findings: {type: array, items: {type: string}}
+                            lostPackets: {type: integer}
+                            lossPercent: {type: number}
+                            robotDownSec: {type: number}
+                            outages:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  link: {type: string, enum: [driver station, robot]}
+                                  startSec: {type: number}
+                                  endSec: {type: number}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+  /api/v1/games:
+    get:
+      summary: Every game in the games folder, valid or not
+      responses:
+        "200":
+          description: Games
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [games]
+                properties:
+                  games:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name, valid, diagnostics]
+                      properties:
+                        id: {type: string}
+                        name: {type: string}
+                        description: {type: string}
+                        valid: {type: boolean}
+                        hash: {type: string}
+                        diagnostics:
+                          type: array
+                          items: {$ref: "#/components/schemas/Diagnostic"}
+  /api/v1/games/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, pattern: "^[a-z][a-z0-9-]{0,39}$"}
+    get:
+      summary: One game's definition
+      responses:
+        "200":
+          description: The game
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/GameDocument"}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+    put:
+      summary: Save a game definition
+      description: Requires the admin login while an admin password is set. Nothing is written if it has errors.
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema: {type: string, description: The game definition YAML}
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/GameDocument"}
+        "307":
+          description: Redirect to the login page
+        "400": {$ref: "#/components/responses/Error"}
+        "413": {$ref: "#/components/responses/Error"}
+        "422":
+          description: The definition has errors; nothing was written
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/GameDocument"}
+  /api/v1/games/validate:
+    post:
+      summary: Check a game definition without saving it
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema: {type: string}
+      responses:
+        "200":
+          description: The result of the check
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/GameDocument"}
+        "413": {$ref: "#/components/responses/Error"}
+  /api/v1/games/score:
+    post:
+      summary: Score a raw state with a game, in a sandbox
+      description: The test-match sandbox behind the game editor. Nothing on the field changes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: {type: string, description: A saved game; or give yaml instead}
+                yaml: {type: string}
+                state:
+                  type: object
+                  description: The compact state form described in docs/game-definition.md (Worked examples)
+                params:
+                  type: object
+                  additionalProperties: {type: number}
+                playoff: {type: boolean}
+                clock:
+                  type: object
+                  properties:
+                    phase: {type: string}
+                    elapsed: {type: number}
+      responses:
+        "200":
+          description: The computed result, live values and raw state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [result, live, state]
+                properties:
+                  result: {type: object}
+                  live: {type: object}
+                  state: {type: object}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+components:
+  parameters:
+    Types:
+      name: types
+      in: query
+      description: Comma-separated event type prefixes, such as "match,score.changed". Empty means every event.
+      schema: {type: string}
+  responses:
+    Error:
+      description: An error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: {type: string}
+              diagnostics:
+                type: array
+                items: {$ref: "#/components/schemas/Diagnostic"}
+  schemas:
+    MatchState:
+      type: string
+      enum: [pre_match, starting, in_match, post_match, timeout, post_timeout, unknown]
+    MatchSummary:
+      type: object
+      required: [id, type, typeOrder, shortName, longName, status, teams]
+      properties:
+        id: {type: integer}
+        type: {type: string, enum: [Test, Practice, Qualification, Playoff]}
+        typeOrder: {type: integer}
+        shortName: {type: string}
+        longName: {type: string}
+        time: {type: string, format: date-time}
+        startedAt: {type: [string, "null"], format: date-time}
+        status: {type: string, enum: [scheduled, hidden, complete, unknown]}
+        teams:
+          type: object
+          description: Alliance id to team numbers by robot position, zero where empty
+          additionalProperties:
+            type: array
+            items: {type: integer}
+        result:
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [gameId, winner, scores]
+              properties:
+                gameId: {type: string}
+                playNumber: {type: integer}
+                winner: {type: string, description: Alliance id, or empty for a tie}
+                tiebreak: {type: string}
+                scores:
+                  type: object
+                  additionalProperties: {type: number}
+    ScoreChange:
+      type: object
+      required: [seq, time, element, op, source]
+      properties:
+        seq: {type: integer}
+        time: {type: string, format: date-time}
+        phase: {type: string}
+        match_time: {type: number}
+        alliance: {type: string}
+        robot: {type: integer}
+        element: {type: string}
+        op: {type: string}
+        value: {}
+        rule: {type: string}
+        bucket: {type: string}
+        reverts: {type: integer}
+        source:
+          type: object
+          required: [kind]
+          properties:
+            kind: {type: string, enum: [device, scorer, referee, admin, rule, api]}
+            id: {type: string}
+            name: {type: string}
+            confidence: {type: number}
+    Event:
+      type: object
+      required: [seq, time, type]
+      properties:
+        seq: {type: integer, description: Zero for stream notices such as stream.gap}
+        time: {type: string, format: date-time}
+        type: {type: string, description: "Dotted, most general first: match.phase_changed, score.changed, device.online"}
+        match: {type: string}
+        run: {type: string}
+        data: {}
+    GameView:
+      type: object
+      required: [id, name, alliances, stations, phases, elements]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        hash: {type: string}
+        allianceSize: {type: integer}
+        alliances:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: string}
+              name: {type: string}
+              short: {type: string}
+              color: {type: string}
+              ds: {type: string}
+        stations: {type: array, items: {type: string}}
+        phases: {type: array, items: {type: object}}
+        elements: {type: array, items: {type: object}}
+      additionalProperties: true
+    GameDocument:
+      type: object
+      required: [id, yaml, valid, diagnostics]
+      properties:
+        id: {type: string}
+        yaml: {type: string}
+        valid: {type: boolean}
+        saved: {type: boolean}
+        diagnostics:
+          type: array
+          items: {$ref: "#/components/schemas/Diagnostic"}
+        view:
+          oneOf:
+            - type: "null"
+            - {$ref: "#/components/schemas/GameView"}
+    Diagnostic:
+      type: object
+      required: [severity, message]
+      properties:
+        severity: {type: string, enum: [error, warning]}
+        path: {type: string}
+        line: {type: integer}
+        column: {type: integer}
+        message: {type: string}

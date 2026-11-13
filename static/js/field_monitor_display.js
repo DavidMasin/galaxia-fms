@@ -18,6 +18,27 @@ const highBtuThreshold = 7.0;
 let lastMatchTime = null;
 let lastRealtimeScore = null;
 
+// Whether team boxes carry a QR code (?qr=true), for a monitor teams walk past in the queue or the pits.
+let showTeamQr = false;
+
+// Draws the QR code a team scans to open the connection report of its last match. The address is per team, not per
+// match, so it stays valid after the match ends; it is drawn again only when the team in the box changes.
+const drawTeamQr = function (element, teamId) {
+  if (!showTeamQr || element.length === 0 || element.attr("data-team") === String(teamId)) {
+    return;
+  }
+  element.attr("data-team", String(teamId));
+  if (!teamId) {
+    element.empty().removeAttr("href");
+    return;
+  }
+  const url = location.origin + "/reports/connection/team/" + teamId;
+  const qr = qrcode(0, "M");
+  qr.addData(url);
+  qr.make();
+  element.attr("href", url).html(qr.createSvgTag({cellSize: 4, margin: 4, scalable: true}));
+};
+
 const handleArenaStatus = function (data) {
   // If getting data for the wrong match (e.g. after a server restart), reload the page.
   if (currentMatchId == null) {
@@ -50,6 +71,8 @@ const handleArenaStatus = function (data) {
     const teamMissedPacketsElement = $(teamElementPrefix + "MissedPackets");
 
     teamNotesTextElement.attr("data-station", station);
+
+    drawTeamQr($(teamElementPrefix + "Qr"), stationStatus.Team ? stationStatus.Team.Id : 0);
 
     if (stationStatus.Team) {
       // Set the team number and status.
@@ -241,6 +264,9 @@ $(function () {
     $(".fta-dependent").attr("data-fta", urlParams.get("fta"));
     $(".ds-dependent").attr("data-ds", driverStation);
   }
+
+  showTeamQr = urlParams.get("qr") === "true";
+  $(".qr-dependent").attr("data-qr", showTeamQr ? "true" : "false");
 
   $(".reversible-left").attr("data-reversed", reversed);
   $(".reversible-right").attr("data-reversed", reversed);

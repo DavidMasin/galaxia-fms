@@ -56,6 +56,7 @@ Display showing robot connection status.
   <script src="/static/js/game_view.js"></script>
   <script src="/static/js/match_timing.js"></script>
   <script src="/static/js/display_shared.js"></script>
+  <script src="/static/js/lib/qrcode-generator-2.0.4.js"></script>
   <script src="/static/js/field_monitor_display.js"></script>
 
 </html>
@@ -72,6 +73,7 @@ Display showing robot connection status.
 {{define "team"}}
 <div id="{{.side}}Team{{.position}}" class="team team-{{.side}} ds-dependent">
   <div id="{{.side}}Team{{.position}}Id" class="team-id center fta-dependent"></div>
+  <a id="{{.side}}Team{{.position}}Qr" class="team-qr qr-dependent" title="Scan for this team's connection report"></a>
   <div id="{{.side}}Team{{.position}}Notes" class="team-notes fta-dependent" title="FTA Notes">
     <i class="bi-chat-left-fill"></i>
     <div onclick="editFtaNotes(this);"></div>

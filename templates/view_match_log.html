@@ -6,7 +6,7 @@ Page showing the logs of a single match for a single team.
 */}}
 {{define "title"}}Match Log - {{.Match.ShortName}} - {{ .MatchLogs.TeamId}} ({{.MatchLogs.AllianceStation}}){{end}}
 {{define "body"}}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="/static/js/lib/chart-4.6.1.umd.min.js"></script>
 <h3>Match Log: {{.Match.ShortName}} - {{ .MatchLogs.TeamId}} ({{.MatchLogs.AllianceStation}})</h3>
 <ul id="matchTabs" class="nav nav-tabs mt-4">
   {{range $logs := .MatchLogs.Logs}}
@@ -23,6 +23,34 @@ Page showing the logs of a single match for a single team.
     <div class="mt-3 mb-2 ms-2">
       <a href="/{{$logs.Filename}}">Download CSV</a>
     </div>
+    {{with index $.Reports $logs.StartTime}}
+    <div class="card card-body bg-body-tertiary mb-3">
+      <h5 class="mb-2">Connection report:
+        <span class="badge {{if eq .Verdict "good"}}text-bg-success{{else if eq .Verdict "watch"}}text-bg-warning{{else}}text-bg-danger{{end}}">
+          {{if eq .Verdict "good"}}Good{{else if eq .Verdict "watch"}}Worth a look{{else}}Problems{{end}}</span>
+      </h5>
+      {{range .Findings}}<div>&bull; {{.}}</div>{{end}}
+      <div class="row mt-2 small">
+        <div class="col-md-3">Packets lost: {{.LostPackets}} (about {{printf "%.1f" .LossPercent}}%)</div>
+        <div class="col-md-3">Round trip: average {{printf "%.0f" .TripTimeMs.Average}} ms, 95% under
+          {{printf "%.0f" .TripTimeMs.P95}} ms, worst {{printf "%.0f" .TripTimeMs.Max}} ms</div>
+        <div class="col-md-3">Battery: lowest {{printf "%.2f" .BatteryVolts.Min}} V, average
+          {{printf "%.2f" .BatteryVolts.Average}} V</div>
+        <div class="col-md-3">Robot disconnected: {{printf "%.1f" .RobotDownSec}} s</div>
+        {{if .RxRateMbps.Count}}
+        <div class="col-md-3">Radio link: receive {{printf "%.0f" .RxRateMbps.Average}} Mbit/s, transmit
+          {{printf "%.0f" .TxRateMbps.Average}} Mbit/s</div>
+        <div class="col-md-3">Signal to noise: lowest {{printf "%.0f" .SignalNoiseDb.Min}} dB</div>
+        {{end}}
+      </div>
+      {{if .Outages}}
+      <div class="mt-2 small">Disconnections:
+        {{range .Outages}}<span class="badge text-bg-secondary me-1">{{.Link}}: {{printf "%.1f" .StartSec}} s to
+          {{printf "%.1f" .EndSec}} s</span>{{end}}
+      </div>
+      {{end}}
+    </div>
+    {{end}}
 
     <div style="position: relative; height:40vh;">
       <canvas id="link_chart_{{$logs.StartTime}}"></canvas>

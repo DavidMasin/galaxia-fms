@@ -20,7 +20,10 @@ func (web *Web) fieldMonitorDisplayHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if !web.enforceDisplayConfiguration(w, r, map[string]string{"ds": "false", "fta": "false", "reversed": "false"}) {
+	// qr=true puts a QR code on each team box that opens the team's connection report.
+	if !web.enforceDisplayConfiguration(
+		w, r, map[string]string{"ds": "false", "fta": "false", "qr": "false", "reversed": "false"},
+	) {
 		return
 	}
 

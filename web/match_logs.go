@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/DavidMasin/galaxia-fms/diag"
 	"github.com/DavidMasin/galaxia-fms/model"
 )
 
@@ -126,12 +127,19 @@ func (web *Web) matchLogsViewGetHandler(w http.ResponseWriter, r *http.Request) 
 	if len(matchLogs.Logs) > 0 {
 		firstMatch = matchLogs.Logs[0].StartTime
 	}
+	reports := map[string]*diag.ConnectionReport{}
+	if matchLogs != nil {
+		for _, log := range matchLogs.Logs {
+			reports[log.StartTime] = connectionReport(log)
+		}
+	}
 	data := struct {
 		*model.EventSettings
 		Match      *model.Match
 		MatchLogs  *MatchLogs
 		FirstMatch string
-	}{web.arena.EventSettings, match, matchLogs, firstMatch}
+		Reports    map[string]*diag.ConnectionReport
+	}{web.arena.EventSettings, match, matchLogs, firstMatch, reports}
 	err = template.ExecuteTemplate(w, "base", data)
 	if err != nil {
 		handleWebErr(w, err)

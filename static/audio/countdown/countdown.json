@@ -1,0 +1,35 @@
+{
+  "sampleRate": 48000,
+  "sounds": {
+    "intro": {
+      "file": "intro.wav",
+      "anchor": "start",
+      "note": "played before the first beat"
+    },
+    "3": {
+      "file": "3.wav",
+      "anchor": "beat",
+      "offset": 0
+    },
+    "2": {
+      "file": "2.wav",
+      "anchor": "beat",
+      "offset": 0
+    },
+    "1": {
+      "file": "1.wav",
+      "anchor": "beat",
+      "offset": 0
+    },
+    "go": {
+      "file": "go.wav",
+      "anchor": "go",
+      "offset": 0
+    },
+    "riser": {
+      "file": "riser.wav",
+      "anchor": "go",
+      "offset": -3.0
+    }
+  }
+}

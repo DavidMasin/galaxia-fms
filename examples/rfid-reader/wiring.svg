@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 416" width="760" height="416" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<title>RFID reader (MFRC522)</title>
+<rect width="760" height="416" fill="#ffffff"/>
+<text x="20" y="30" font-size="17" font-weight="bold" fill="#263238">RFID reader (MFRC522)</text>
+<path d="M220 120 L300 120 L300 120 L500 120" fill="none" stroke="#d32f2f" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="220" cy="120" r="4" fill="#d32f2f"/>
+<circle cx="500" cy="120" r="4" fill="#d32f2f"/>
+<path d="M220 150 L300 150 L300 150 L500 150" fill="none" stroke="#212121" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="220" cy="150" r="4" fill="#212121"/>
+<circle cx="500" cy="150" r="4" fill="#212121"/>
+<path d="M220 180 L300 180 L300 180 L500 180" fill="none" stroke="#f9a825" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="220" cy="180" r="4" fill="#f9a825"/>
+<circle cx="500" cy="180" r="4" fill="#f9a825"/>
+<path d="M220 210 L300 210 L300 210 L500 210" fill="none" stroke="#1e88e5" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="220" cy="210" r="4" fill="#1e88e5"/>
+<circle cx="500" cy="210" r="4" fill="#1e88e5"/>
+<path d="M220 240 L300 240 L300 240 L500 240" fill="none" stroke="#43a047" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="220" cy="240" r="4" fill="#43a047"/>
+<circle cx="500" cy="240" r="4" fill="#43a047"/>
+<path d="M220 270 L300 270 L300 270 L500 270" fill="none" stroke="#00897b" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="220" cy="270" r="4" fill="#00897b"/>
+<circle cx="500" cy="270" r="4" fill="#00897b"/>
+<path d="M220 300 L300 300 L300 300 L500 300" fill="none" stroke="#6d4c41" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="220" cy="300" r="4" fill="#6d4c41"/>
+<circle cx="500" cy="300" r="4" fill="#6d4c41"/>
+<rect x="30" y="60" width="190" height="280" rx="10" fill="#1f2a44" stroke="#90a4ae" stroke-width="1.5"/>
+<text x="125" y="84" text-anchor="middle" font-weight="bold" fill="#ffffff">ESP32 DevKit</text>
+<text x="125" y="100" text-anchor="middle" font-size="11" fill="#ffffff">esp32dev</text>
+<rect x="215" y="115" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="210" y="124" text-anchor="end" fill="#ffffff">3V3</text>
+<rect x="215" y="145" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="210" y="154" text-anchor="end" fill="#ffffff">GND</text>
+<rect x="215" y="175" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="210" y="184" text-anchor="end" fill="#ffffff">GPIO 5</text>
+<rect x="215" y="205" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="210" y="214" text-anchor="end" fill="#ffffff">GPIO 18 (SCK)</text>
+<rect x="215" y="235" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="210" y="244" text-anchor="end" fill="#ffffff">GPIO 23 (MOSI)</text>
+<rect x="215" y="265" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="210" y="274" text-anchor="end" fill="#ffffff">GPIO 19 (MISO)</text>
+<rect x="215" y="295" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="210" y="304" text-anchor="end" fill="#ffffff">GPIO 22</text>
+<rect x="500" y="60" width="200" height="280" rx="10" fill="#eceff1" stroke="#90a4ae" stroke-width="1.5"/>
+<text x="600" y="84" text-anchor="middle" font-weight="bold" fill="#263238">MFRC522 module</text>
+<text x="600" y="100" text-anchor="middle" font-size="11" fill="#263238">13.56 MHz, 3.3 V only</text>
+<rect x="495" y="115" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="510" y="124" fill="#263238">3.3V</text>
+<rect x="495" y="145" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="510" y="154" fill="#263238">GND</text>
+<rect x="495" y="175" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="510" y="184" fill="#263238">SDA (SS)</text>
+<rect x="495" y="205" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="510" y="214" fill="#263238">SCK</text>
+<rect x="495" y="235" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="510" y="244" fill="#263238">MOSI</text>
+<rect x="495" y="265" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="510" y="274" fill="#263238">MISO</text>
+<rect x="495" y="295" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="510" y="304" fill="#263238">RST</text>
+<text x="20" y="370" font-size="12" fill="#37474f">The MFRC522 is a 3.3 V part: never connect its 3.3V pin to 5 V. The IRQ pin is not used.</text>
+<text x="20" y="388" font-size="12" fill="#37474f">Tags are read through up to about 3 cm of plastic or wood; keep metal away from the antenna.</text>
+</svg>

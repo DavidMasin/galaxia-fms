@@ -1,0 +1,41 @@
+{
+  "name": "Galaxia",
+  "version": "0.1.0",
+  "description": "Connect sensors, buttons, lights and LED strips on an ESP32 to Galaxia FMS, a field management system for FRC practice fields.",
+  "keywords": "frc, fms, field, mqtt, sensor, led, neopixel, robotics",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DavidMasin/galaxia-fms.git"
+  },
+  "authors": [
+    {
+      "name": "Galaxia FMS contributors"
+    }
+  ],
+  "license": "MIT",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "headers": "Galaxia.h",
+  "dependencies": [
+    {
+      "owner": "256dpi",
+      "name": "MQTT",
+      "version": "~2.5.3"
+    },
+    {
+      "owner": "bblanchon",
+      "name": "ArduinoJson",
+      "version": "~7.4.3"
+    },
+    {
+      "owner": "adafruit",
+      "name": "Adafruit NeoPixel",
+      "version": "~1.15.5"
+    }
+  ],
+  "export": {
+    "exclude": [
+      "test/*"
+    ]
+  }
+}

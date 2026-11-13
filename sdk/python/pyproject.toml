@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "galaxia-device"
+version = "0.1.0"
+description = "Connect sensors, buttons, lights and vision programs to Galaxia FMS, a field management system for FRC practice fields."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Galaxia FMS contributors" }]
+requires-python = ">=3.9"
+dependencies = ["paho-mqtt>=2.0,<3"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+  "Topic :: System :: Hardware",
+]
+
+[project.optional-dependencies]
+gpio = ["gpiozero>=2.0"]
+test = ["pytest>=8", "gpiozero>=2.0"]
+
+[project.urls]
+Source = "https://github.com/DavidMasin/galaxia-fms"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

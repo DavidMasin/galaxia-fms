@@ -1,0 +1,9 @@
+{
+  "urls": [
+    ["galaxia.py", "github:DavidMasin/galaxia-fms/sdk/micropython/galaxia.py"]
+  ],
+  "deps": [
+    ["github:peterhinch/micropython-mqtt", "4dbce9ba8df169b1c1356deba14aec0bf7cde664"]
+  ],
+  "version": "0.1.0"
+}

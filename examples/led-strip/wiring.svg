@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 522" width="760" height="522" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<title>WS2812B LED strip</title>
+<rect width="760" height="522" fill="#ffffff"/>
+<text x="20" y="30" font-size="17" font-weight="bold" fill="#263238">WS2812B LED strip</text>
+<path d="M220 120 L300 120 L300 120 L520 120" fill="none" stroke="#f9a825" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="220" cy="120" r="4" fill="#f9a825"/>
+<circle cx="520" cy="120" r="4" fill="#f9a825"/>
+<text x="370" y="112" font-size="11" text-anchor="middle" fill="#f9a825">330 ohm resistor in this wire</text>
+<path d="M220 150 L300 150 L300 150 L520 150" fill="none" stroke="#212121" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="220" cy="150" r="4" fill="#212121"/>
+<circle cx="520" cy="150" r="4" fill="#212121"/>
+<path d="M220 180 L300 180 L300 180 L520 180" fill="none" stroke="#e65100" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="220" cy="180" r="4" fill="#e65100"/>
+<circle cx="520" cy="180" r="4" fill="#e65100"/>
+<path d="M430 340 L470 340 L470 180 L520 180" fill="none" stroke="#e65100" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="430" cy="340" r="4" fill="#e65100"/>
+<circle cx="520" cy="180" r="4" fill="#e65100"/>
+<path d="M430 370 L490 370 L490 150 L520 150" fill="none" stroke="#212121" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="430" cy="370" r="4" fill="#212121"/>
+<circle cx="520" cy="150" r="4" fill="#212121"/>
+<rect x="30" y="60" width="190" height="160" rx="10" fill="#1f2a44" stroke="#90a4ae" stroke-width="1.5"/>
+<text x="125" y="84" text-anchor="middle" font-weight="bold" fill="#ffffff">ESP32 DevKit</text>
+<text x="125" y="100" text-anchor="middle" font-size="11" fill="#ffffff">esp32dev</text>
+<rect x="215" y="115" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="210" y="124" text-anchor="end" fill="#ffffff">GPIO 4</text>
+<rect x="215" y="145" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="210" y="154" text-anchor="end" fill="#ffffff">GND</text>
+<rect x="215" y="175" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="210" y="184" text-anchor="end" fill="#ffffff">VIN (5 V)</text>
+<rect x="520" y="60" width="200" height="160" rx="10" fill="#eceff1" stroke="#90a4ae" stroke-width="1.5"/>
+<text x="620" y="84" text-anchor="middle" font-weight="bold" fill="#263238">WS2812B strip</text>
+<text x="620" y="100" text-anchor="middle" font-size="11" fill="#263238">60 LEDs, 5 V</text>
+<rect x="515" y="115" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="530" y="124" fill="#263238">DIN</text>
+<rect x="515" y="145" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="530" y="154" fill="#263238">GND</text>
+<rect x="515" y="175" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="530" y="184" fill="#263238">+5V</text>
+<rect x="260" y="280" width="170" height="130" rx="10" fill="#eceff1" stroke="#90a4ae" stroke-width="1.5"/>
+<text x="345" y="304" text-anchor="middle" font-weight="bold" fill="#263238">5 V supply</text>
+<text x="345" y="320" text-anchor="middle" font-size="11" fill="#263238">4 A for 60 LEDs</text>
+<rect x="425" y="335" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="420" y="344" text-anchor="end" fill="#263238">+5 V</text>
+<rect x="425" y="365" width="10" height="10" fill="#cfd8dc" stroke="#546e7a"/>
+<text x="420" y="374" text-anchor="end" fill="#263238">- (0 V)</text>
+<text x="20" y="440" font-size="12" fill="#37474f">Put a 1000 uF capacitor across +5 V and GND where the supply meets the strip.</text>
+<text x="20" y="458" font-size="12" fill="#37474f">All grounds must be joined. Power the ESP32 from USB or from the same 5 V (VIN), not both.</text>
+<text x="20" y="476" font-size="12" fill="#37474f">Long data runs or flicker: add a 74AHCT125 level shifter (3.3 V to 5 V) in the data wire.</text>
+<text x="20" y="494" font-size="12" fill="#37474f">Pico W: DIN to GP0 (pin 1) through the resistor; VSYS (pin 39) can take the 5 V.</text>
+</svg>

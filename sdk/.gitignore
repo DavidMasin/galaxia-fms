@@ -1,0 +1,8 @@
+# PlatformIO, Python and test output
+.pio/
+.vscode/
+__pycache__/
+*.egg-info/
+build/
+dist/
+.pytest_cache/

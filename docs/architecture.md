@@ -21,6 +21,7 @@ upstream's hard-coded 2026 game (packages `game` and `led`) is gone.
 | `tournament`, `playoff` | Schedules, rankings across matches, brackets |
 | `partner` | The Blue Alliance, Nexus, Blackmagic, Companion |
 | `plc` | The field PLC: stops, stack lights, field reset. No game-specific inputs or outputs. |
+| `device` | Field devices: registry, transports (MQTT, virtual), bindings, safety. Does not import `field`. |
 | `web` | HTTP handlers, templates, WebSockets |
 
 Nothing outside `games/` may name a scoring element, phase or rule of a particular game.
@@ -416,3 +417,122 @@ screen.
 
 `match.committed` and `match.result_edited` are published by `Arena.PublishMatchCommitted(match, result,
 edited)`, which the code that commits a result calls.
+
+Field devices publish the `device.*` events listed at the end of [devices.md](devices.md).
+
+## Devices (M5)
+
+Field devices are specified in [devices.md](devices.md); this is how the code is put together. The package
+`device` holds everything about them and never imports `field`: the arena drives it through the API below and
+hands it the state of the match. Nothing in it names a game, a device or a channel.
+
+### Types
+
+| Type | What it is |
+|------|------------|
+| `device.Manager` | Registry, binding set in force, input processing, outputs, faults, stops. `Arena.Devices`. |
+| `device.Manifest`, `Channel` | What a device says it has. `ParseManifest`, `Manifest.Validate`. |
+| `device.Reading`, `Status`, `Heartbeat` | Input, status and heartbeat messages (`ParseReading` and so on). |
+| `device.Command`, `Segment` | An output command; `nil` clears the output. `Transient` marks a sound: never retained. |
+| `device.FieldState` | The `field/state` payload. |
+| `device.BindingSet`, `InputBinding`, `Action`, `OutputBinding`, `Look` | Bindings, as YAML: `ParseBindings`, `YAML`. |
+| `device.Environment`, `Problem`, `Problems` | What bindings are checked against (`Validate`), and what is wrong. |
+| `device.Transport`, `Sink` | A transport carries device messages; the manager is its sink. |
+| `device.MqttTransport` | The embedded broker. `Arena.DeviceMqtt`. |
+| `device.VirtualTransport`, `VirtualDevice` | Devices inside the FMS. `Arena.DeviceVirtual`. |
+| `device.Snapshot`, `StationState` | The state of the field handed to output evaluation. |
+| `device.Stops`, `Fault`, `FieldAction` | What devices ask of the arena. |
+| `device.Info`, `Presence`, `InputValue`, `Refusal` | A copy of everything known about a device, for the pages. |
+| `model.Device`, `FieldProfile`, `BindingSet` | The stored records. A binding set is stored as its YAML. |
+
+`EventSettings` has `FieldProfile` (the profile whose bindings apply, `default` for a new event), `DeviceMqttPort`
+(1883) and `DeviceMqttWsPort` (8083); a port of 0 turns that listener off. A record written before devices
+existed (its profile is empty) gets the defaults. `GetAllFieldProfiles` creates the `default` profile on first
+use; renaming a profile carries its binding sets and the event's choice along; the active one cannot be deleted.
+
+### The manager API
+
+For the pages:
+
+```go
+Devices() []Info; Device(id) (Info, bool)
+CreateDevice(id, name) (token, error); RegenerateToken(id) (token, error) // The token is returned once.
+Approve(id); Block(id); Unblock(id); Delete(id)
+SetRequired(id, bool); SetNotes(id, notes); SetName(id, name)
+Identify(id); Reboot(id)
+Faults() []Fault; Faulted() bool; ClearFaults(id) error; ClearAllFaults() error
+Bindings() BindingsState // The set in force, with every problem it has now.
+ValidateBindings(set) Problems; SaveBindings(set) (Problems, error)
+ExportBindings() ([]byte, error); ImportBindings(yaml) (Problems, error)
+Environment() Environment; Profile() string; TransportStatuses() []TransportStatus
+```
+
+For the arena, from its loop:
+
+```go
+SetGame(game, stations); SetProfile(profile) // From refreshGame and LoadSettings.
+SetMatch(MatchInfo)                          // Every pass: running, phase, grace phase, whether scoring takes input.
+Tick(now)                                    // Every pass: debounce timers and the heartbeat watchdog.
+TakeFieldActions() []FieldAction; ReportFieldAction(action, err)
+Stops() Stops; StartConditions() []string
+UpdatePlc(plc); UpdateOutputs(*Snapshot)     // Every fifth pass: twenty times a second.
+```
+
+`Arena.Update` calls `updateDevices` before `handlePlcInputOutput`, so that a device stop acts in the same pass, and
+`updateDeviceOutputs` after the live values are recomputed. Field actions run on the arena goroutine:
+`start_match`, `abort_match`, `field_reset` and `volunteers` call the arena's own methods; `commit` and
+`next_match` call the handlers the web layer registers with `Arena.SetFieldActionHandler(action, func() error)`,
+on a worker goroutine, one at a time, because committing writes a database backup and may talk to The Blue
+Alliance. An error from any of them is a refusal on the device that asked. Device stops are merged in
+`handlePlcInputOutput`: with a PLC, a station is stopped if either stops it, and either's field stop aborts the
+match; without one, only the stations some device can stop go through `handleTeamStop`, so an event without device
+stops behaves exactly as before. `getStartMatchConditions` appends `StartConditions()`. The arena records
+`match.start`, `match.end`, `match.abort`, `phase.<id>.start`, `phase.<id>.end`, `cue.<id>` and `score.posted`
+(from `PublishMatchCommitted`) for the next snapshot. The transports start in `Arena.Run`, so a test arena never
+opens a port; `LoadSettings` applies the profile and restarts the broker if its ports changed while it runs.
+
+### Threading
+
+- `Manager.mu` guards the registry, the compiled bindings and their state, the outputs, the faults and the field
+  action queue. Nothing slow happens under it: score changes, bus events, sends to transports and database writes
+  are collected while it is held and carried out once it is released (`deferredWork`, run by `Manager.unlock`).
+- Database writes go through `Manager.save`, serialised by `storeMu`, which is taken before `mu` and never while
+  `mu` is held; each write stores the record as it is in memory at that moment, so writes cannot land out of
+  order. The arena loop never writes: transports (a new pending device, a counter total, going offline) and the
+  pages do.
+- Transports call the `Sink` methods from their own goroutines, in the order each device's messages arrived (MQTT
+  hands every message to the manager on the publishing client's goroutine).
+- Score changes go to `Arena.ApplyScoreChange`, which takes the score lock itself. A refused change takes `mu`
+  again to record the refusal.
+- Lock order: `storeMu`, then `Manager.mu`, then the arena's `scoreMutex` (output expressions run through
+  `Snapshot.Eval`, which takes it). The arena never calls the manager while it holds `scoreMutex`.
+- Sending never blocks: `SendOutput`, `SendCommand`, `SendField` and `AccessChanged` return at once. The MQTT
+  transport queues messages in an outbox drained by a goroutine of its own; outputs coalesce per topic, so the
+  latest command of a channel is never lost; device commands and sounds queue in order up to a limit. A
+  disconnection it makes runs on a goroutine of its own.
+- The MQTT transport's `presenceMu` is held while a connection is recorded and reported, so that `Online` and
+  `Offline` reach the manager in the order they happened even when a device reconnects before its old connection
+  is seen to go; only a device's current connection counts.
+- The PLC is read on the arena goroutine (`UpdatePlc`), where the arena reads it anyway.
+
+### Plugging in
+
+- **A transport** (WebSocket, HTTP, serial) implements `device.Transport` and is added with `AddTransport`. When
+  a device connects it calls `Authenticate` (or `AuthenticateLocal`, without a token) and then `Online`; it decodes
+  messages with `ParseManifest`, `ParseStatus`, `ParseReading` and `ParseHeartbeat`, hands them to `Manifest`,
+  `Status`, `Input` and `Heartbeat`, reports what it cannot read with `Malformed`, and calls `Offline` when the
+  device goes. `OutputsOf(id)` is what to send a device that connects; `Access(id)` is what it may do now;
+  `AccessChanged` asks the transport to make the device reconnect, or drop it. A transport that implements
+  `StatusReporter` says how it is doing on the Devices page.
+- **The Lighting engine** claims the output channels of its fixtures with `ClaimOutputs(owner, refs)` (refused
+  for a channel the bindings drive; a binding to a claimed channel is refused in turn), registers
+  `OnOutputTick(func(*Snapshot))`, which runs on the arena goroutine after the bindings are evaluated, and sends with
+  `DriveOutput(owner, ref, command)`, which like the bindings only sends what changed. `ReleaseOutputs(owner)`
+  clears its channels.
+- **The pages** use the manager API, `Arena.DeviceVirtual.Connect(manifest)` for virtual devices, and the
+  `device.*` bus events.
+- The broker library (mochi-mqtt) is only used in `device/mqtt_mochi.go` and `device/mqtt_ws.go`, behind the
+  `broker` interface. Replacing it means writing those again. `mochiBroker.Repair` works around a race in its
+  session takeover that can leave a reconnected device deaf.
+- Tests speak MQTT through `device/mqtttest`, a minimal MQTT 3.1.1 client, rather than a client library, so that
+  `go.mod` gains only the broker.

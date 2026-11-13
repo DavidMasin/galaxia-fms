@@ -5,7 +5,10 @@ Lighting page, and safety. This is the reference for firmware and for the FMS co
 sensor" tutorial builds on it.
 
 Status: the specification for milestones 5 (device framework) and 6 (firmware SDKs). It follows the protocol David
-approved in [PLAN.md](PLAN.md) section 7. Additions made while writing it are marked "added".
+approved in [PLAN.md](PLAN.md) section 7. Additions made while writing it are marked "added". The core of the
+framework is built (package `device`, described in [architecture.md](architecture.md#devices-m5)): the registry,
+the MQTT broker, virtual devices, the PLC as a device, bindings, outputs and safety. Not yet: the WebSocket, HTTP and
+serial transports, the Devices, Bindings and Lighting pages, and the CLI for virtual devices.
 
 ## Overview
 
@@ -37,7 +40,9 @@ All transports carry the same messages into the same device registry.
 | USB serial | a port chosen on the Devices page, 115200 baud | Boards with no network |
 | Virtual | in the FMS | Development and tests, driven from a web page and the command line |
 
-The MQTT broker runs inside the FMS. The ports are settings.
+The MQTT broker runs inside the FMS. The ports are settings (`DeviceMqttPort`, `DeviceMqttWsPort`); a port of 0
+turns that listener off (added). MQTT over WebSocket accepts any path; `/mqtt` is the one browser clients use by
+default (added).
 
 ## MQTT
 
@@ -59,9 +64,26 @@ The FMS decides as follows:
 | Blocked | anything | Refused (not authorised). |
 
 Approving a pending device pins the token it last presented. A device can also be created on the Devices page
-first, in which case the FMS generates the token and shows a ready-to-paste snippet for each SDK.
+first, in which case the FMS generates the token (32 random bytes in URL-safe base64, without padding) and shows a
+ready-to-paste snippet for each SDK.
 
 Tokens are stored as SHA-256 hashes. They are long random strings, so a slow hash adds nothing.
+
+Added:
+
+- The refusal codes are, for MQTT 3.1.1 and 5: bad username or password `0x04` / `0x86`, not authorised `0x05` /
+  `0x87`. A client id that is not a valid device id, or is reserved, is refused with `0x02` / `0x85`. The reserved
+  ids are `plc` (the field PLC) and `inline` (the broker's own client). A username other than the client id is a bad
+  username.
+- Approving, blocking or deleting a connected device, or giving it a new token, drops its connection, so that it
+  connects again with its new rights (a device that was pending must subscribe to its outputs again, which it may
+  now do). An SDK must reconnect by itself. Losing the connection within five seconds of being approved is not a
+  fault.
+- A device that was approved without ever presenting a token (a virtual or serial one) cannot connect over MQTT
+  until it is given one on the Devices page.
+- The FMS takes a device to be offline when the broker sees its connection go, which is also when the broker sends
+  its Last Will. The will is for other subscribers; `{"online":false}` on the status topic changes nothing by itself.
+- A session a device leaves without a clean start is forgotten after 60 seconds. Devices should connect clean.
 
 ### Topics
 
@@ -91,6 +113,15 @@ subscribes to `field/#`.
 Outputs are retained, so a device that restarts gets its current outputs as soon as it subscribes. Removing a
 binding clears the retained output.
 
+Added:
+
+- Clearing an output publishes an empty retained message, which removes the retained one; a device that receives
+  an empty message on `out/{ch}` turns that output off.
+- A `sound` command is not retained, so that a device that restarts does not play it again.
+- `field/state` is published when the state, the phase or a score changes, and once a second otherwise; the
+  remaining times alone do not count as a change. When the broker (re)starts it publishes every output in force and
+  the last field state again.
+
 ### Manifest
 
 ```json
@@ -119,9 +150,12 @@ binding clears the retained output.
 | `channels[].dir` | yes | `in` or `out` |
 | `channels[].type` | yes | See the tables below |
 | `channels[].name` | no | Shown in the binding editors |
-| `channels[].safety` | no | Inputs only: a normally-closed stop circuit with a heartbeat. See [Safety](#safety). |
-| `channels[].pixels` | `led_strip` | Number of LEDs |
-| `channels[].unit`, `min`, `max` | no | For `analog` inputs and `pwm` outputs: shown in the editors |
+| `channels[].safety` | no | `digital` inputs only: a normally-closed stop circuit with a heartbeat. See [Safety](#safety). |
+| `channels[].pixels` | `led_strip` | Number of LEDs, 1 or more; not allowed on other types |
+| `channels[].unit`, `min`, `max` | no | For `analog` inputs and `pwm` outputs only: shown in the editors |
+
+A manifest that breaks any of these rules is refused as a whole, with every problem listed, and shows as the
+device's last refusal on the Devices page (added: the "only" rules above are checked).
 
 **Input types**
 
@@ -132,6 +166,17 @@ binding clears the retained output.
 | `analog` | number | Scaling, offset and thresholds are set in the binding, not the firmware. |
 | `encoder` | signed number | A position. |
 | `text` | string | RFID tags, barcodes. |
+
+Added:
+
+- `v` may also be `true` or `false` (1 or 0). A digital value other than 0 or 1, a negative counter total, or a
+  value of the wrong kind is refused and shows on the Devices page; a number sent on a `text` channel is taken as
+  its text.
+- The first total the FMS ever receives from a counter only sets the starting point: the FMS cannot tell how much
+  of it was counted while it was not listening (before the device was approved, say). A device should report each
+  counter, at 0, right after its manifest when it starts. The last total of every counter is stored, so a restart of
+  the FMS counts nothing again.
+- An input from a pending device, or sent before the manifest, is refused.
 
 **Output types and commands**
 
@@ -203,6 +248,12 @@ switch on the PLC keep working exactly as in Cheesy Arena, directly in the arena
 Devices page but are not bindings, and the coils stay driven by the arena. A PLC that is configured but cannot be
 reached is a device fault and blocks the match start, as before.
 
+Added: the `plc` device is there while a PLC address is set, and online while the PLC answers; it is never stored
+and cannot be edited, blocked or deleted. Its channel ids are the PLC's names in snake case (`red1EStop` becomes
+`red1_e_stop`). Its inputs may be bound like any device's; its coils cannot. The coils shown are the states the
+arena drives them to; overrides made for field testing are not shown. A stop bound to a PLC input faults if the PLC
+stops answering.
+
 ## Bindings
 
 ### Input bindings
@@ -273,6 +324,36 @@ robot-scope elements. An `analog` binding may set `threshold` (and `hysteresis`)
 Field actions fire on the input's active edge. `estop`, `astop` and `field_stop` are held while the input is
 active (0 on a safety channel, 1 otherwise) and latch like the station stops do.
 
+Added, about input bindings:
+
+- Binding ids are 1 to 64 letters, digits, dots, dashes and underscores, unique among the inputs and outputs of a
+  set. Unknown keys in a binding are errors, so that a typo is not silently ignored.
+- A binding to a device the FMS has not heard from yet is kept, with a warning, and checked when the device sends
+  its manifest. A binding that does not fit a device's manifest (a channel it does not have, of the wrong direction
+  or type, or an op that does not suit it) is an error: the set is not saved, and a saved binding that stops fitting
+  when a device's manifest changes stops working and is listed as a problem until it fits again.
+- A digital input rests at 0 (inactive): a first reading of 0 is no edge, a first reading of 1 is a rising one. A
+  binding saved while its input is active takes that level without acting on it (a stop is held at once).
+- `edge`, `invert` and `debounce_ms` are for digital inputs, and analog or encoder ones with a `threshold`. A
+  threshold turns on when the scaled reading reaches it and off when it falls below `threshold - hysteresis`. A
+  safety channel cannot be inverted. A debounced level that holds for `debounce_ms` counts even if no further message
+  arrives. `min_interval_ms` does not apply to counters. A stop takes no `edge`, `min_interval_ms` or `phases`: it
+  is held at any time. `hold` takes no `edge`.
+- `scale` (default 1), `offset` (default 0) and `threshold` are for analog and encoder inputs.
+- With a counter input, `increment` and `decrement` change the element by the difference and take no `value`.
+  With a digital input, `value` is the amount (a positive number; a whole one for a counter element). `set` with an
+  analog or encoder input sets a number element; with a text input, an enum. Such a `set` is applied only when the
+  reading differs from the last one applied (a refused one is tried again with the next reading).
+- Outside a match, and once the score grace after it has passed, score actions do nothing and are not reported as
+  refusals. `phases` lets through input in the score grace after one of its phases ended, as the score credits it to
+  that phase.
+- `field_reset` and `volunteers` are refused while a match is in progress. `commit` and `next_match` are carried out
+  by the web layer, off the arena loop; if it refuses, the refusal shows on the device.
+- A refusal shows on the device (with how many times in a row it happened) and is published as `device.refused` at
+  most once a second for the same device, binding and reason.
+- The change's source is `{kind: device, id: <device id>, name: "<device name> · <channel name or id>"}`, with the
+  input's `conf` as its confidence.
+
 ### Output bindings
 
 ```yaml
@@ -310,6 +391,28 @@ outputs:
 - An output channel can be driven by one binding, or by the Lighting page, not both.
 
 The FMS evaluates output bindings 20 times a second and sends a command only when it changes.
+
+Added, about output bindings:
+
+- `stations` is keyed by the field's stations, `R1` to `B3`, the ones the game leaves unused included. `connected`
+  means the driver station is connected and its robot linked; `ready` that nothing at the station keeps the match
+  from starting.
+- `on` and `when` cannot be used together. `on` needs `pulse_ms` (except on a `sound` output), and `pulse_ms` is
+  only for `on`. An event that fires during a pulse starts it again.
+- A `digital`, `relay` or `pwm` output needs `when`, `value` or `on`. With `value` and `when`, the value applies
+  while the condition holds. Its `look` and `else` may only set `p` (`off`, `solid` or `blink`) and `ms` (the
+  blink period, 1000 by default); `else` is how it looks while the condition is false (off without one). Blinking
+  starts on, from the moment the condition last changed. A `pwm` value is clamped to 0..1.
+- A `led_strip` output needs a `look`; without an `else` it is off while the condition is false. Colours are
+  `#rrggbb` or `alliance`, which needs the binding's `alliance`. Fills (`v`, a number or an expression) are clamped
+  to 0..1 and rounded to a thousandth, so that a fill that follows the clock is not sent on every evaluation.
+- A `display` output needs a `value`: a string is shown as `{"text":...}`, a number as `{"v":...}`. While `when` is
+  false (or after a pulse) it shows `{"text":""}`.
+- A `sound` output takes `look: { play: <sound> }` and `on` or `when`: it plays when the event fires or the
+  condition turns true. Nothing else applies to it.
+- The PLC's coils cannot be bound. A binding to a device whose manifest is not known yet sends nothing until it is.
+- An output whose expression fails keeps its last command; the failure is logged once.
+- A digital output that blinks sends `{"v":1}` and `{"v":0}` in turn, and each is a `device.output` event.
 
 ## The Lighting page
 
@@ -358,11 +461,31 @@ LEDs and stack lights are configured on Setup → Lighting, without writing bind
 - **A wireless device must never be the only E-stop path.** The driver station E-stops and the wired field stops
   are the primary stops. A wireless stop box is a convenience on top of them.
 
+Added:
+
+- The heartbeat watchdog watches every approved, connected device that has a safety channel bound to a stop.
+  Silence is counted from the last heartbeat, or from the moment the device connected; when a device falls silent,
+  every stop bound to it faults, since none of them can be trusted.
+- A safety channel that reads 0 latches a fault on its stop, which holds the stop after it reads 1 again. A plain
+  digital input bound to a stop holds the stop while it is active and latches nothing.
+- Faults are also latched on every stop of a device that disconnects (unless it is reconnecting because it was just
+  approved), that connects again before its old connection was seen to go, or that is blocked.
+- A fault is cleared on request only if the device is approved and connected, has sent a heartbeat within the last
+  second (if it has a safety channel bound to a stop), and reports every stop bound to it as released; otherwise the
+  request says why. Removing a stop binding drops its fault.
+- A stop device that is pending, blocked or has never connected also keeps a match from starting, and so does an
+  active field stop from a device. Each condition names the device and the stops bound to it.
+- Without a PLC, only the stations a device can stop are handed device stops; the others behave as before. With a
+  PLC, a station is stopped if either stops it, and either's field stop aborts the match.
+
 ## Field profiles
 
 A field profile is a named physical setup, such as "tent" or "school gym". Bindings and lighting scenes are kept
 per game and per profile; fixtures are kept per profile. The active profile is chosen in Settings. A new event
 starts with one profile, `default`.
+
+Added: a profile's name is free text, unique; renaming a profile keeps its bindings, and the active profile cannot
+be deleted. Binding sets are stored as the YAML the Bindings page exports.
 
 ## Events
 
@@ -377,3 +500,10 @@ Devices publish on the event bus:
 | `device.output` | `id`, `channel`, the command |
 | `device.fault`, `device.fault_cleared` | `id`, `binding`, `reason` |
 | `device.refused` | `id`, `binding`, `reason`: an input the FMS would not apply |
+
+Added: `device.pending` is published when an unknown device first connects, with its id as its name (the manifest
+comes later). `device.input` is published for every input message, and for a heartbeat's channel only when its
+value changes; `conf` is left out when the input had none. `device.output` is published for every command sent,
+including clearing (a null command). `device.refused` also covers a malformed message, a manifest that is refused
+and a field action that failed (`binding` is empty when no binding was involved); it is published at most once a
+second for the same device, binding and reason.

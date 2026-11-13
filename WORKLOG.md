@@ -112,3 +112,32 @@ The test copy runs with `-port 8090 -server-ip 127.0.0.2` and a scratch database
 the README (status, startup options).
 
 **Next:** merge `wip/m3b-core` into `main` and push, then start the device framework.
+
+## 2026-11-13 17:30 - Milestone 3 merged; device framework started
+
+**Done:** `wip/m3b-core` fast-forwarded into `main` and pushed (`959314d`). The local branch was deleted after
+the merge.
+
+**Written:** [docs/devices.md](docs/devices.md), the device reference and the specification for milestones 5 and
+6. It follows the protocol approved in the plan, with two additions:
+- LED strip commands may carry segments, each with its own pattern, so one strip can show several things.
+- The PLC appears as a read-only device. Its station stops, field stop and "FTA ready" switch stay wired into the
+  arena code exactly as in Cheesy Arena, because they are the primary safety path and are already proven. Only
+  new devices go through bindings.
+
+**Decided**
+- Field actions from devices (start, abort, stops, commit) are queued and run on the arena's own loop, not on the
+  network threads, so a button press can never race the match clock.
+- Device tokens are stored as SHA-256 hashes. They are long random strings, so a slow password hash adds nothing.
+- An unknown device that connects is held as "pending" and may only announce itself. Approving it pins the token
+  it presented. A device can also be created first on the Devices page, with a generated token.
+
+**Started, in parallel**
+- The device framework core: registry, embedded MQTT broker, virtual devices, bindings, safety watchdog, and the
+  arena integration.
+- The firmware SDKs (Arduino/PlatformIO for ESP32, MicroPython for Pico W, Python for Raspberry Pi), nine example
+  sketches with wiring, and the "add your first sensor" tutorial. These go in `sdk/`, `examples/` and
+  `docs/tutorial-first-sensor.md`.
+
+**Next, after the core lands:** the Lighting engine and page, the Devices and Bindings pages, the virtual device
+page, and the WebSocket, HTTP and serial transports.

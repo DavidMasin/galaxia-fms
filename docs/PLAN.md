@@ -1237,6 +1237,11 @@ facing. Likewise the game editor's first working version (raw YAML with live val
 lands with milestone 3, because it is the fastest way to test generated panels; milestone 11 adds the
 form-based editor and polish.
 
+**Order change, 2026-11-13.** At David's request the device framework (milestone 5) and firmware (milestone 6)
+come straight after milestone 3, before the API (milestone 4). Running three- and four-alliance games on the field
+(generic alliances and stations, first planned as the end of milestone 3) moves to after milestone 6. The
+reasoning is in [WORKLOG.md](../WORKLOG.md).
+
 ---
 
 ## 17. Risks and limits

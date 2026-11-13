@@ -283,6 +283,7 @@ func (client *TbaClient) PublishMatches(database *model.Database) error {
 	matches := append(practiceMatches, qualMatches...)
 	matches = append(matches, playoffMatches...)
 	tbaMatches := make([]TbaMatch, len(matches))
+	checkedGames := map[string]bool{} // Game hashes already checked for The Blue Alliance.
 
 	// Build a JSON array of TBA-format matches.
 	for i, match := range matches {
@@ -299,6 +300,15 @@ func (client *TbaClient) PublishMatches(database *model.Database) error {
 				result, g, err := matchResult.Compute(database, match.UseTiebreakCriteria)
 				if err != nil {
 					return err
+				}
+
+				// The Blue Alliance rejects a whole publish for one bad key, so check each game's mapping first and
+				// say exactly what is wrong instead of sending something that will bounce.
+				if !checkedGames[g.Hash] {
+					if err := checkPublishable(g); err != nil {
+						return err
+					}
+					checkedGames[g.Hash] = true
 				}
 
 				// The Blue Alliance only knows a red and a blue side. They are the first and second alliance of the

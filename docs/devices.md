@@ -202,6 +202,24 @@ An LED strip command:
 Any command may carry `"at": <UTC milliseconds>` to say when to show it. Devices keep their clock from
 `field/clock` (or NTP). A command whose time has passed is shown at once.
 
+**Pattern definitions** (added). Every strip, the Lighting page's preview and the virtual devices draw patterns
+the same way, from the shared field clock, so strips on different devices blink and chase in step. `t` is the
+field clock in milliseconds (UTC), `n` the number of LEDs in the strip or segment, `i` the LED's index within it,
+`A` the first colour, `B` the second (black when absent), and `ms` the period, with the default shown.
+
+| Pattern | LED `i` at time `t` |
+|---------|---------------------|
+| `off` | black |
+| `solid` | `A` |
+| `blink` (500) | `A` while `t mod ms < ms / 2`, otherwise `B` |
+| `pulse` (1500) | `B + (A − B) × k`, with `k = (1 − cos(2π (t mod ms) / ms)) / 2` |
+| `chase` (1000) | `A` when `(i − head) mod n < max(1, ⌊n / 8⌋)`, otherwise `B`, where `head = ⌊(t mod ms) / ms × n⌋` |
+| `rainbow` (3000) | the hue `(i / n + (t mod ms) / ms) mod 1` at full saturation and value |
+| `progress` | `A` when `i < round(v × n)`, otherwise `B` |
+
+Brightness `br` multiplies each channel last, after the pattern. With `reverse` set on a fixture (Lighting page)
+the FMS reverses the segment order itself; devices always count from LED 0.
+
 ## WebSocket
 
 `ws://<fms>:8080/api/v1/devices/ws`. JSON text frames, one message each.

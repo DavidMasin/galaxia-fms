@@ -191,3 +191,38 @@ exists. It touches none of the files the device work was changing.
 **Not checked:** the frame rate on the real field PC and TV with a GPU, and the sound. The in-app browser pane
 cannot measure it while the app window is in the background. Open
 `http://<fms>:8080/static/countdown_preview.html` on the display hardware to see the numbers.
+
+## 2026-11-13 18:30 - Device framework core landed; pages and transports started
+
+**Landed:** the core, in four commits (`ecfd7a8` … `decdb44`), pushed with the countdown.
+- The new `device` package: manifests, the device registry (pending, approved, blocked), tokens, and the
+  embedded MQTT broker (mochi-mqtt v2.7.9) with per-device logins and topic permissions.
+- Virtual devices, the PLC shown as a read-only device, input and output bindings, and the safety watchdog.
+- Device stops merged with the PLC stops, and device start conditions.
+- New tables for devices, field profiles and binding sets; new settings for the broker ports.
+
+**Checked by me:** formatting is clean, `go vet` is clean, and `go test ./...` passes in all 14 packages
+(the `device` package is about 7,500 lines with its tests). No game- or device-specific names appear in the device
+package code.
+
+**Worth knowing from the core's report**
+- A counter's first total only sets a starting point. Devices send their total once after announcing themselves,
+  so nothing is double-counted after a restart of either side.
+- Approving, blocking or re-tokening a connected device deliberately drops its connection, so it reconnects with
+  its new rights. That reconnection does not count as a safety fault.
+- The broker library has known session-takeover bugs. A test reconnects the same device 40 times in a row
+  without hanging.
+- The FMS now starts its MQTT broker on ports 1883 and 8083. A second test copy on the same laptop must use other
+  ports, set in its own settings.
+
+**Added by me:** exact LED pattern definitions in [docs/devices.md](docs/devices.md) ("Pattern definitions"), and
+`static/js/led_patterns.js`, which draws them in the browser. 14 checks of it pass. The SDK work was told about
+the definitions and the other details the core settled, so physical strips, previews and virtual devices match.
+
+**Started, in parallel**, each on separate files:
+- the Lighting engine and page;
+- the Devices, Bindings and virtual device pages, plus a `galaxia-fms device sim` command and the commit and
+  next-match device actions;
+- the WebSocket, HTTP and USB serial transports.
+
+Each page got its own route file and its menu entry beforehand, so the three cannot overwrite each other.

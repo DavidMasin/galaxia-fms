@@ -10,6 +10,12 @@ import "strings"
 // DefaultGameId is the game a new event starts with.
 const DefaultGameId = "rebuilt-style"
 
+// The ports field devices reach the MQTT broker on, unless the settings say otherwise.
+const (
+	DefaultDeviceMqttPort   = 1883
+	DefaultDeviceMqttWsPort = 8083
+)
+
 type PlayoffType int
 
 const (
@@ -111,6 +117,9 @@ type EventSettings struct {
 	CompanionMatchAbortColumn        int
 	GameId                           string             // The game definition the event is played with.
 	GameParams                       map[string]float64 // Overrides of that game's parameter defaults.
+	FieldProfile                     string             // The physical setup whose device bindings are in use.
+	DeviceMqttPort                   int                // TCP port of the device MQTT broker; 0 turns it off.
+	DeviceMqttWsPort                 int                // Port of MQTT over WebSocket for devices; 0 turns it off.
 }
 
 func (database *Database) GetEventSettings() (*EventSettings, error) {
@@ -126,6 +135,13 @@ func (database *Database) GetEventSettings() (*EventSettings, error) {
 		}
 		if eventSettings.GameParams == nil {
 			eventSettings.GameParams = make(map[string]float64)
+		}
+		if eventSettings.FieldProfile == "" {
+			// A record written before field devices existed. The profile is never stored empty, which is what tells
+			// these zero ports apart from ports turned off on purpose.
+			eventSettings.FieldProfile = DefaultFieldProfile
+			eventSettings.DeviceMqttPort = DefaultDeviceMqttPort
+			eventSettings.DeviceMqttWsPort = DefaultDeviceMqttWsPort
 		}
 		return &eventSettings, nil
 	}
@@ -145,6 +161,9 @@ func (database *Database) GetEventSettings() (*EventSettings, error) {
 		CompanionAddress:           "",
 		GameId:                     DefaultGameId,
 		GameParams:                 make(map[string]float64),
+		FieldProfile:               DefaultFieldProfile,
+		DeviceMqttPort:             DefaultDeviceMqttPort,
+		DeviceMqttWsPort:           DefaultDeviceMqttWsPort,
 	}
 
 	if err := database.eventSettingsTable.create(&eventSettings); err != nil {

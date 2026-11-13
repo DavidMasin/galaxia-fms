@@ -106,6 +106,14 @@ func (plc *FakePlc) GetCoilNames() []string {
 	return []string{}
 }
 
+func (plc *FakePlc) GetInputs() []bool {
+	return []bool{}
+}
+
+func (plc *FakePlc) GetCoils() []bool {
+	return []bool{}
+}
+
 func (plc *FakePlc) SetCoilOverride(index int, state bool) {
 	// Not needed for testing, just to satisfy the interface.
 }

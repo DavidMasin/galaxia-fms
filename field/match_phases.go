@@ -3,6 +3,7 @@
 package field
 
 import (
+	"github.com/DavidMasin/galaxia-fms/device"
 	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/partner"
 	"github.com/DavidMasin/galaxia-fms/scoring"
@@ -189,6 +190,7 @@ func (arena *Arena) beginMatch() {
 	arena.MatchState = InMatch
 	arena.matchAborted = false
 	arena.Bus.Publish("match.started", map[string]any{"time": arena.MatchStartTime.UTC()})
+	arena.recordDeviceEvent(device.EventMatchStart)
 	arena.enterPhase(0)
 }
 
@@ -207,6 +209,7 @@ func (arena *Arena) advancePhases(matchTimeSec float64) bool {
 		}
 
 		arena.runTriggers(scoring.TriggerEvent{PhaseEnd: phase.ID})
+		arena.recordDeviceEvent("phase." + phase.ID + ".end")
 		changed = true
 		if arena.PhaseIndex+1 < len(arena.Game.Match.Phases) {
 			arena.enterPhase(arena.PhaseIndex + 1)
@@ -222,6 +225,7 @@ func (arena *Arena) enterPhase(phaseIndex int) {
 	arena.PhaseIndex = phaseIndex
 	arena.cuesFired = make(map[*gamedef.Cue]bool)
 	phase := arena.Game.Match.Phases[phaseIndex]
+	arena.recordDeviceEvent("phase." + phase.ID + ".start")
 	arena.fireCues(phase, 0)
 	arena.runTriggers(scoring.TriggerEvent{PhaseStart: phase.ID})
 	arena.Bus.Publish(
@@ -262,6 +266,7 @@ func (arena *Arena) fireCues(phase *gamedef.Phase, phaseTimeSec float64) {
 		}
 		if cue.ID != "" {
 			arena.runTriggers(scoring.TriggerEvent{Cue: cue.ID})
+			arena.recordDeviceEvent("cue." + cue.ID)
 		}
 		arena.Bus.Publish("match.cue", map[string]any{"cue": cue.ID, "sound": cue.Sound, "phase": phase.ID})
 		if cue.ID == companionEndgameCueId {
@@ -321,9 +326,10 @@ func (arena *Arena) endMatch(aborted bool) {
 	// A timer nobody stopped would otherwise never count the time it ran.
 	arena.stopRunningTimers()
 
-	eventType := "match.ended"
+	eventType, deviceEvent := "match.ended", device.EventMatchEnd
 	if aborted {
-		eventType = "match.aborted"
+		eventType, deviceEvent = "match.aborted", device.EventMatchAbort
 	}
 	arena.Bus.Publish(eventType, map[string]any{"matchTime": arena.matchEndTimeSec})
+	arena.recordDeviceEvent(deviceEvent)
 }

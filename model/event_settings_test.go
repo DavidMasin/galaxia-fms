@@ -32,6 +32,9 @@ func TestEventSettingsReadWrite(t *testing.T) {
 			CompanionPort:              0,
 			GameId:                     "rebuilt-style",
 			GameParams:                 map[string]float64{},
+			FieldProfile:               "default",
+			DeviceMqttPort:             1883,
+			DeviceMqttWsPort:           8083,
 		},
 		*eventSettings,
 	)

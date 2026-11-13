@@ -35,6 +35,8 @@ type Plc interface {
 	GetInputNames() []string
 	GetRegisterNames() []string
 	GetCoilNames() []string
+	GetInputs() []bool
+	GetCoils() []bool
 	SetCoilOverride(index int, state bool)
 	ClearCoilOverride(index int)
 }
@@ -298,6 +300,19 @@ func (plc *ModbusPlc) GetCoilNames() []string {
 		coilNames[i] = coil(i).String()
 	}
 	return coilNames
+}
+
+// Returns the state of every discrete input, in the order of GetInputNames.
+func (plc *ModbusPlc) GetInputs() []bool {
+	inputs := plc.inputs
+	return inputs[:]
+}
+
+// Returns the state the arena drives every coil to, in the order of GetCoilNames. Overrides made for field testing
+// are left out: they live in a map that the web goroutines change, and this is read from the arena loop.
+func (plc *ModbusPlc) GetCoils() []bool {
+	coils := plc.coils
+	return coils[:]
 }
 
 func (plc *ModbusPlc) SetCoilOverride(index int, state bool) {

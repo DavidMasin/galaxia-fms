@@ -169,6 +169,10 @@ func (arena *Arena) refreshGame() error {
 	changedGame := arena.Game == nil || arena.Game.Hash != selected.Hash
 	arena.Game = selected
 	arena.gameParams = params
+	if changedGame {
+		// Device bindings are kept per game, and are checked against the game they bind to.
+		arena.Devices.SetGame(selected, fieldStationIdList())
+	}
 
 	// The raw score state has the shape of the game, so the loaded match starts over with the new one. Nothing is
 	// lost: in PreMatch nothing has been scored yet. Browsers are told about the game first, so that they know what

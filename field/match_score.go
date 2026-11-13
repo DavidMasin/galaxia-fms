@@ -5,6 +5,7 @@ package field
 
 import (
 	"fmt"
+	"github.com/DavidMasin/galaxia-fms/device"
 	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/scoring"
@@ -413,6 +414,8 @@ func (arena *Arena) PublishMatchCommitted(match *model.Match, result *scoring.Re
 	eventType := "match.committed"
 	if edited {
 		eventType = "match.result_edited"
+	} else {
+		arena.recordDeviceEvent(device.EventScorePosted)
 	}
 	arena.Bus.Publish(eventType, map[string]any{"id": match.Id, "winner": result.Winner, "scores": scores})
 }

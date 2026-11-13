@@ -8,6 +8,7 @@ package field
 import (
 	"fmt"
 	"github.com/DavidMasin/galaxia-fms/bus"
+	"github.com/DavidMasin/galaxia-fms/device"
 	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/games"
 	"github.com/DavidMasin/galaxia-fms/model"
@@ -123,6 +124,15 @@ type Arena struct {
 	breakNextMatchName                string
 	preloadedTeams                    *[6]*model.Team
 	DriverStationUdpSocket            *net.UDPConn
+	Devices                           *device.Manager               // Field devices: registry, bindings, safety.
+	DeviceMqtt                        *device.MqttTransport         // The broker devices connect to.
+	DeviceVirtual                     *device.VirtualTransport      // Devices that live inside the FMS.
+	deviceTicks                       int                           // Passes of the loop since outputs were evaluated.
+	deviceEvents                      []string                      // Match events for the next output evaluation.
+	deviceEventsMutex                 sync.Mutex                    // Guards deviceEvents.
+	fieldActionHandlers               map[string]FieldActionHandler // Guarded by fieldActionMutex.
+	fieldActionQueue                  chan device.FieldAction       // Guarded by fieldActionMutex.
+	fieldActionMutex                  sync.Mutex
 }
 
 // stationStatus is what the event bus is told about a station; an event is published when any of it changes.
@@ -182,6 +192,11 @@ func NewArena(dbPath string) (*Arena, error) {
 	var err error
 	arena.Database, err = model.OpenDatabase(dbPath)
 	if err != nil {
+		return nil, err
+	}
+	arena.fieldActionHandlers = make(map[string]FieldActionHandler)
+	if err = arena.newDevices(); err != nil {
+		arena.Database.Close()
 		return nil, err
 	}
 	err = arena.LoadSettings()
@@ -266,6 +281,7 @@ func (arena *Arena) LoadSettings() error {
 		sccDownCommands,
 	)
 	arena.Plc.SetAddress(settings.PlcAddress)
+	arena.applyDeviceSettings()
 	arena.TbaClient = partner.NewTbaClient(settings.TbaEventCode, settings.TbaSecretId, settings.TbaSecret)
 	arena.NexusClient = partner.NewNexusClient(settings.TbaEventCode, settings.NexusAutoQueueKey)
 	arena.BlackmagicClient = partner.NewBlackmagicClient(settings.BlackmagicAddresses)
@@ -797,6 +813,10 @@ func (arena *Arena) Update() {
 		arena.ArenaStatusNotifier.Notify()
 	}
 
+	// Field devices: their timers and the field actions they asked for, before the stops so that a device stop is
+	// handled in the same cycle.
+	arena.updateDevices()
+
 	// Handle field sensors/lights/actuators.
 	arena.handlePlcInputOutput()
 
@@ -806,6 +826,9 @@ func (arena *Arena) Update() {
 	// Let the game's clock-dependent values catch up, after the PLC so that a field e-stop abort is reflected in the
 	// same cycle.
 	arena.updateLiveValues()
+
+	// Device outputs read the live values just computed.
+	arena.updateDeviceOutputs()
 
 	arena.publishStationStatuses()
 
@@ -908,6 +931,11 @@ func (arena *Arena) Run() {
 	go arena.accessPoint.Run()
 	go arena.Plc.Run()
 	go arena.watchGames()
+
+	// A transport that cannot start (a port in use) is reported on the Devices page; the field runs without it.
+	if err := arena.Devices.Start(); err != nil {
+		log.Printf("%v", err)
+	}
 
 	for {
 		loopStartTime := time.Now()
@@ -1175,6 +1203,9 @@ func (arena *Arena) getStartMatchConditions() []string {
 		}
 	}
 
+	// Field devices: a stop device that is offline or faulted, a required device that is offline, a field stop.
+	conditions = append(conditions, arena.Devices.StartConditions()...)
+
 	return conditions
 }
 
@@ -1304,14 +1335,26 @@ func (arena *Arena) logExpressionError(expression *gamedef.Expr, what string, er
 	}
 }
 
-// Updates the score given new input information from the field PLC, and actuates PLC outputs accordingly.
+// Updates the score given new input information from the field PLC, and actuates PLC outputs accordingly. The stops
+// of field devices are handled here too: a station is stopped if the PLC or a device stops it, and either's field
+// stop aborts the match.
 func (arena *Arena) handlePlcInputOutput() {
+	deviceStops := arena.Devices.Stops()
 	if !arena.Plc.IsEnabled() {
+		// Without a PLC the stations are left alone, as in Cheesy Arena, except those a device can stop.
+		if deviceStops.FieldStop && !arena.matchAborted {
+			arena.AbortMatch()
+		}
+		for stationId, stop := range deviceStops.Stations {
+			if _, ok := arena.AllianceStations[stationId]; ok {
+				arena.handleTeamStop(stationId, stop.EStop, stop.AStop)
+			}
+		}
 		return
 	}
 
 	// Handle PLC functions that are always active.
-	if arena.Plc.GetFieldEStop() && !arena.matchAborted {
+	if (arena.Plc.GetFieldEStop() || deviceStops.FieldStop) && !arena.matchAborted {
 		arena.AbortMatch()
 	}
 	redEStops, blueEStops := arena.Plc.GetTeamEStops()
@@ -1322,7 +1365,10 @@ func (arena *Arena) handlePlcInputOutput() {
 	ethernets := [fieldAllianceCount][3]bool{redEthernets, blueEthernets}
 	for allianceIndex, stationIds := range fieldStationIds {
 		for i, stationId := range stationIds {
-			arena.handleTeamStop(stationId, eStops[allianceIndex][i], aStops[allianceIndex][i])
+			deviceStop := deviceStops.Stations[stationId]
+			arena.handleTeamStop(
+				stationId, eStops[allianceIndex][i] || deviceStop.EStop, aStops[allianceIndex][i] || deviceStop.AStop,
+			)
 			arena.AllianceStations[stationId].Ethernet = ethernets[allianceIndex][i]
 		}
 	}

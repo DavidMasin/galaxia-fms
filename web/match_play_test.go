@@ -5,6 +5,7 @@ package web
 
 import (
 	"bytes"
+	"github.com/DavidMasin/galaxia-fms/device"
 	"github.com/DavidMasin/galaxia-fms/field"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/scoring"
@@ -801,4 +802,135 @@ func readWebsocketTypeEventually(
 	maxMessages int,
 ) any {
 	return readWebsocketTypes(t, ws, maxMessages, expectedMessageType)[expectedMessageType]
+}
+
+// waitForMatchPlay polls a condition that a field action, carried out on the arena's worker, makes true.
+func waitForMatchPlay(t *testing.T, condition func() bool, what string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !condition() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// A device bound to commit and next_match does what the Commit & Post button and loading the next match do.
+func TestMatchPlayDeviceFieldActions(t *testing.T) {
+	web := setupTestWeb(t)
+	require.Nil(t, web.RegisterFieldActionHandlers())
+	startTestDevices(t, web)
+	_, err := web.arena.Devices.CreateDevice("table", "Scoring table")
+	require.Nil(t, err)
+	table, err := web.arena.DeviceVirtual.Connect(&device.Manifest{Proto: 1, ID: "table", Channels: []*device.Channel{
+		{ID: "commit", Dir: device.DirIn, Type: device.TypeDigital},
+		{ID: "next", Dir: device.DirIn, Type: device.TypeDigital},
+	}})
+	require.Nil(t, err)
+	set, err := device.ParseBindings([]byte(`
+inputs:
+  - { id: commit, device: table, channel: commit, action: { field: commit } }
+  - { id: next, device: table, channel: next, action: { field: next_match } }
+`))
+	require.Nil(t, err)
+	_, err = web.arena.Devices.SaveBindings(set)
+	require.Nil(t, err)
+	press := func(channel string) {
+		require.Nil(t, table.SetInput(channel, 1))
+		require.Nil(t, table.SetInput(channel, 0))
+		web.arena.Update()
+	}
+	refusal := func() string {
+		info, _ := web.arena.Devices.Device("table")
+		if info.Refusal == nil {
+			return ""
+		}
+		return info.Refusal.Binding + ": " + info.Refusal.Reason
+	}
+
+	q1 := model.Match{Type: model.Qualification, TypeOrder: 1, ShortName: "Q1", LongName: "Qualification 1"}
+	q2 := model.Match{Type: model.Qualification, TypeOrder: 2, ShortName: "Q2", LongName: "Qualification 2"}
+	require.Nil(t, web.arena.Database.CreateMatch(&q1))
+	require.Nil(t, web.arena.Database.CreateMatch(&q2))
+	require.Nil(t, web.arena.LoadMatch(&q1))
+	startTestMatch(t, web)
+	endTestMatch(web)
+	require.Equal(t, field.PostMatch, web.arena.MatchState)
+
+	// Loading the next match never throws away a match waiting to be committed.
+	press("next")
+	waitForMatchPlay(t, func() bool {
+		return refusal() == "next: next_match: the match on the field has not been committed; commit it, or "+
+			"discard it on Match Play"
+	}, "the next match to be refused")
+	assert.Equal(t, q1.Id, web.arena.CurrentMatch.Id)
+
+	press("commit")
+	waitForMatchPlay(t, func() bool {
+		match, _ := web.arena.Database.GetMatchById(q1.Id)
+		return match != nil && match.IsComplete() && web.arena.CurrentMatch.Id == q2.Id
+	}, "the commit and the next match")
+	result, err := web.arena.Database.GetMatchResultForMatch(q1.Id)
+	require.Nil(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, field.PreMatch, web.arena.MatchState)
+	assert.Equal(t, q1.Id, web.arena.SavedMatch.Id, "the score is posted")
+
+	// With nothing waiting, the next match is the first unplayed one.
+	press("next")
+	waitForMatchPlay(t, func() bool { return web.arena.CurrentMatch.Id == q2.Id }, "the next match")
+	press("commit")
+	waitForMatchPlay(t, func() bool {
+		return refusal() == "commit: commit: cannot commit match while it is in progress"
+	}, "a commit with nothing to commit to be refused")
+}
+
+// Match Play lists the device faults when there are any, and clears them.
+func TestMatchPlayDeviceFaults(t *testing.T) {
+	web := setupTestWeb(t)
+	startTestDevices(t, web)
+	_, err := web.arena.Devices.CreateDevice("estop", "Red E-stop")
+	require.Nil(t, err)
+	manifest := &device.Manifest{Proto: 1, ID: "estop", Channels: []*device.Channel{
+		{ID: "stop", Dir: device.DirIn, Type: device.TypeDigital, Safety: true},
+	}}
+	box, err := web.arena.DeviceVirtual.Connect(manifest)
+	require.Nil(t, err)
+	box.StartHeartbeat(0)
+	set, err := device.ParseBindings([]byte(`
+inputs:
+  - { id: estop-r1, device: estop, channel: stop, action: { field: estop, station: R1 } }
+`))
+	require.Nil(t, err)
+	_, err = web.arena.Devices.SaveBindings(set)
+	require.Nil(t, err)
+
+	server, wsUrl := web.startTestServer()
+	defer server.Close()
+	conn, _, err := gorillawebsocket.DefaultDialer.Dial(wsUrl+"/match_play/websocket", nil)
+	require.Nil(t, err)
+	defer conn.Close()
+	ws := websocket.NewTestWebsocket(conn)
+	// Without faults, nothing more than before is sent.
+	readWebsocketMultiple(t, ws, 10)
+
+	box.Disconnect()
+	faults := readWebsocketUntil(t, ws, "deviceFaults").([]any)
+	if assert.Equal(t, 1, len(faults)) {
+		fault := faults[0].(map[string]any)
+		assert.Equal(t, "estop", fault["device"])
+		assert.Equal(t, "Red E-stop", fault["deviceName"])
+		assert.Equal(t, "estop-r1", fault["binding"])
+		assert.Equal(t, "it disconnected", fault["reason"])
+	}
+
+	ws.Write("clearDeviceFaults", nil)
+	assert.Contains(t, readWebsocketUntil(t, ws, "error"), "is offline; its fault can be cleared once it is back")
+	box, err = web.arena.DeviceVirtual.Connect(manifest)
+	require.Nil(t, err)
+	box.StartHeartbeat(0)
+	ws.Write("clearDeviceFaults", nil)
+	assert.Empty(t, readWebsocketUntil(t, ws, "deviceFaults"))
+	assert.False(t, web.arena.Devices.Faulted())
 }

@@ -1,0 +1,65 @@
+{{/*
+The Bindings page: says what each device input does to the match and what each output shows, for the active game and
+field profile. Bindings are edited as cards (or as YAML) and checked with the FMS on every change.
+*/}}
+{{define "title"}}Bindings{{end}}
+{{define "body"}}
+<link href="/static/css/devices.css" rel="stylesheet">
+<div id="bindingsPage">
+  <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+    <h3 class="mb-0 me-3">Bindings</h3>
+    <div class="me-auto small">Game <b id="gameName">&hellip;</b> &middot; field profile
+      <b id="profileName">&hellip;</b>
+      <span class="text-secondary">(chosen in <a href="/setup/settings">Settings</a>)</span></div>
+    <span id="saveStatus" class="badge"></span>
+    <button type="button" class="btn btn-outline-secondary btn-sm" id="revertBindings" disabled>Revert</button>
+    <button type="button" class="btn btn-primary" id="saveBindings" disabled>Save</button>
+    <div class="dropdown">
+      <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+        YAML</button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><a class="dropdown-item" href="/setup/bindings/export">Export (download)</a></li>
+        <li><a class="dropdown-item" href="#" id="importBindings">Import from a file&hellip;</a></li>
+      </ul>
+    </div>
+    <input type="file" id="importFile" accept=".yaml,.yml,.json,text/yaml" class="d-none">
+  </div>
+  <div id="feedStatus" class="alert alert-warning">Connecting to the FMS&hellip;</div>
+  <div id="messages"></div>
+  <div id="generalProblems"></div>
+  <ul class="nav nav-tabs mb-3">
+    <li class="nav-item"><a class="nav-link active" href="#" data-tab="cardsTab">Bindings</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" data-tab="yamlTab">YAML</a></li>
+  </ul>
+  <div id="cardsTab">
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <h5 class="mb-0 me-auto">Inputs <span class="small text-secondary">what a sensor or button does</span></h5>
+      <button type="button" class="btn btn-success btn-sm" id="addInput"><i class="bi bi-plus-lg"></i> Add input
+        binding</button>
+    </div>
+    <div id="inputBindings" class="mb-4"></div>
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <h5 class="mb-0 me-auto">Outputs <span class="small text-secondary">what a light, strip or display shows</span>
+      </h5>
+      <button type="button" class="btn btn-success btn-sm" id="addOutput"><i class="bi bi-plus-lg"></i> Add output
+        binding</button>
+    </div>
+    <p class="small text-secondary">LED strips and stack lights that follow the match are easier to set up on the
+      <a href="/setup/lighting">Lighting</a> page; an output is driven by a binding or by the Lighting page, not
+      both.</p>
+    <div id="outputBindings"></div>
+  </div>
+  <div id="yamlTab" class="d-none">
+    <p class="small text-secondary">The same bindings as YAML (see docs/devices.md). Changes here are checked as you
+      type and shown on the Bindings tab.</p>
+    <textarea id="yamlEditor" class="form-control yaml-editor" spellcheck="false" autocomplete="off"
+      autocapitalize="off" wrap="off"></textarea>
+  </div>
+</div>
+{{end}}
+{{define "script"}}
+<script src="/static/js/game_view.js"></script>
+<script src="/static/js/led_patterns.js"></script>
+<script src="/static/js/setup_devices.js"></script>
+<script src="/static/js/setup_bindings.js"></script>
+{{end}}

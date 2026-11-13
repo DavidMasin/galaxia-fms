@@ -286,6 +286,37 @@ func TestSetupSettingsInvalidValues(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "Cannot change playoff type or size after alliance selection")
 }
 
+func TestSetupSettingsDeviceMqttPorts(t *testing.T) {
+	web := setupTestWeb(t)
+
+	// A form without the fields leaves the ports as they are, rather than turning the broker off.
+	recorder := web.postHttpResponse("/setup/settings", "name=Ports Event")
+	assert.Equal(t, 303, recorder.Code)
+	assert.Equal(t, model.DefaultDeviceMqttPort, web.arena.EventSettings.DeviceMqttPort)
+	assert.Equal(t, model.DefaultDeviceMqttWsPort, web.arena.EventSettings.DeviceMqttWsPort)
+
+	recorder = web.postHttpResponse("/setup/settings", "deviceMqttPort=11883&deviceMqttWsPort=0")
+	assert.Equal(t, 303, recorder.Code)
+	assert.Equal(t, 11883, web.arena.EventSettings.DeviceMqttPort)
+	assert.Equal(t, 0, web.arena.EventSettings.DeviceMqttWsPort)
+
+	for _, body := range []string{
+		"deviceMqttPort=70000", "deviceMqttPort=-1", "deviceMqttPort=", "deviceMqttWsPort=abc",
+	} {
+		recorder = web.postHttpResponse("/setup/settings", body)
+		assert.Equal(t, 200, recorder.Code, body)
+		assert.Contains(t, recorder.Body.String(), "must be numbers from 0 (off) to 65535", body)
+	}
+	recorder = web.postHttpResponse("/setup/settings", "deviceMqttPort=9000&deviceMqttWsPort=9000")
+	assert.Contains(t, recorder.Body.String(), "must differ")
+	assert.Equal(t, 11883, web.arena.EventSettings.DeviceMqttPort)
+	assert.Equal(t, 0, web.arena.EventSettings.DeviceMqttWsPort)
+
+	recorder = web.getHttpResponse("/setup/settings")
+	assert.Contains(t, recorder.Body.String(), `name="deviceMqttPort"`)
+	assert.Contains(t, recorder.Body.String(), `value="11883"`)
+}
+
 func TestSetupSettingsClearDb(t *testing.T) {
 	createData := func(web *Web) {
 		assert.Nil(t, web.arena.Database.CreateTeam(&model.Team{Id: 254}))

@@ -267,6 +267,7 @@ func (web *Web) newHandler() http.Handler {
 	mux.HandleFunc("GET /setup/teams/progress", web.teamsUpdateProgressBarHandler)
 	mux.HandleFunc("GET /setup/teams/refresh", web.teamsRefreshHandler)
 	web.addApiRoutes(mux)
+	web.addDeviceRoutes(mux)
 	web.addDeviceTransportRoutes(mux)
 	return mux
 }

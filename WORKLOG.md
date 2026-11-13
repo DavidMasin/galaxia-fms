@@ -303,3 +303,85 @@ Done on files no other job is touching, while the device pages are being built.
   - `rebuilt-style` passes with one warning (some official keys unmapped);
   - `ball-count` publishes scores without a breakdown;
   - `orbital-rush` (three alliances) cannot be published.
+
+## 2026-11-13 19:15 - USB, WebSocket and HTTP devices; connection reports; team QR codes
+
+**Transports** (milestone 5, commit `5d13d8c`). Devices can now also connect three other ways besides MQTT:
+- **WebSocket** at `/api/v1/devices/ws`.
+- **HTTP** with long polling under `/api/v1/devices/{id}/...`.
+- **USB serial**, with ports chosen on the new page `/setup/devices/serial`.
+
+How they behave:
+- All three authenticate, take over and go offline the same way MQTT does.
+- Approving, blocking or deleting a device takes effect on an open connection.
+- A serial port that is unplugged is retried every second, so plugging the board back in reconnects it.
+- The serial library is `go.bug.st/serial` v1.8.0 (BSD-3).
+
+Tests and documentation:
+- Serial is tested with in-memory port pairs; no real board was tried yet.
+- The rules each transport added are now in `docs/devices.md`; the threading is in `docs/architecture.md`.
+
+**Connection reports** (milestone 8, early; committed with the API in `d5557de`). Package `diag` turns a team's
+match log into a report:
+- whether and when the robot lost its connection;
+- battery low points (brownout risk below 7 V) and when they happened;
+- estimated packet loss, from 50 packets a second;
+- round-trip times and radio signal-to-noise;
+- a verdict of good, watch or poor, with findings in plain sentences.
+
+Where it shows:
+- On each match log page, above the charts.
+- At `/api/v1/diagnostics/connection/{match}/{station}` (in `docs/openapi.yaml`).
+- `/reports/connection/team/{team}` always leads to the team's latest match.
+- 3 tests for the analysis; 2 for the routes.
+
+**Team QR codes on the field monitor.** With `?qr=true` (a new display option, also on the Displays page and
+in the Displays menu), each team box shows a QR code in its corner. Scanning it opens the team's latest
+connection report. The address is per team, so the code stays valid as matches go by. Checked in the browser
+with four teams loaded; the team numbers stay readable.
+
+**Offline first:**
+- Chart.js 4.6.1, used by the match log page, is now served from `static/js/lib` instead of a CDN, so the page
+  works on a field network without internet.
+- qrcode-generator 2.0.4 is vendored the same way.
+- Both are MIT licensed.
+
+## 2026-11-13 19:16 - Device pages: Devices, Bindings, Virtual devices, and `device sim`
+
+Built by a helper agent; reviewed and committed by me. The five-minute flow from the plan now works end to end
+in a browser: a virtual counter appears as pending, Approve, a binding saved in a few clicks, and a +1 in
+autonomous makes the score 2 on Match Play.
+
+The pages:
+- **Setup → Devices**:
+  - devices waiting for approval come first, with a big Approve button;
+  - every device's connection, health, live inputs, outputs as they show now, faults and its last refusal;
+  - Add device shows the token once, with a snippet for each SDK;
+  - outputs can be tested by hand unless a binding or the Lighting page drives them.
+- **Setup → Bindings**: cards that read as sentences, or YAML. The FMS checks the set about 300 ms after each
+  change, and a set with errors cannot be saved.
+- **Virtual devices**: seven templates, clickable inputs, live outputs.
+- **`galaxia-fms device sim`**: a device from a terminal, over MQTT.
+- **Match Play**: a "Device faults" panel with a clear button. The `commit` and `next_match` field actions now
+  work; `next_match` is refused while a played match waits to be committed.
+
+My review:
+- Removed a game element name from a comment in `setup_bindings.js`. The rule is that no game is named in
+  browser code.
+- Linked the USB serial page from the Devices page.
+- The agent reported that the SDKs draw pulse and chase differently from the browser. I checked all three SDKs
+  against `led_patterns.js` and the spec: they match, and the note came from an older copy.
+
+**Settings → Field Devices** (new): the two MQTT broker ports can now be set on the Settings page instead of only
+in the database.
+- 0 turns a listener off.
+- Both ports are checked before anything changes.
+- A form without the fields keeps the ports as they are. Without this, an old form or script would save 0 and
+  turn the broker off.
+- 1 new test.
+
+Checks:
+- `go build ./...`, vet and `go test -count=1 ./...` pass in all 18 packages.
+- Each of the three commits was built, vetted and tested on its own, from an export of the index.
+- The OpenAPI consistency test was checked by renaming one route in the spec. It failed both ways: the route
+  missing from the spec, and the spec entry with no route. Restoring the spec made it pass again.

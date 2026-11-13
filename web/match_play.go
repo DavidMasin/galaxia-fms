@@ -7,6 +7,8 @@ package web
 
 import (
 	"fmt"
+	"github.com/DavidMasin/galaxia-fms/bus"
+	"github.com/DavidMasin/galaxia-fms/device"
 	"github.com/DavidMasin/galaxia-fms/field"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/tournament"
@@ -15,9 +17,19 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"reflect"
 	"sort"
+	"sync"
 	"time"
 )
+
+// How often Match Play compares the device faults with what it last showed, besides on every fault event: deleting
+// a faulted device drops its faults without one.
+const matchPlayDeviceFaultsPeriod = 2 * time.Second
+
+// matchFlowMutex serialises committing a match and loading the next one: the Commit & Post button, the Discard
+// Results button and the field devices bound to commit and next_match may all ask at the same moment.
+var matchFlowMutex sync.Mutex
 
 type MatchPlayListItem struct {
 	Id         int
@@ -137,6 +149,9 @@ func (web *Web) matchPlayWebsocketHandler(w http.ResponseWriter, r *http.Request
 		web.arena.ScorePostedNotifier,
 		web.arena.ScoringStatusNotifier,
 	)
+	deviceEvents := web.arena.Bus.Subscribe([]string{"device.fault", "device.fault_cleared"}, 64)
+	defer deviceEvents.Close()
+	go web.sendDeviceFaults(ws, deviceEvents)
 
 	// Loop, waiting for commands and responding to them, until the client closes the connection.
 	for {
@@ -298,13 +313,13 @@ func (web *Web) matchPlayWebsocketHandler(w http.ResponseWriter, r *http.Request
 				continue
 			}
 		case "discardResults":
-			err = web.arena.ResetMatch()
+			err = web.resetAndLoadNextMatch()
 			if err != nil {
 				writeWebsocketError(ws, err.Error())
 				continue
 			}
-			web.applyPendingGameChange()
-			err = web.arena.LoadNextMatch(false)
+		case "clearDeviceFaults":
+			err = web.arena.Devices.ClearAllFaults()
 			if err != nil {
 				writeWebsocketError(ws, err.Error())
 				continue
@@ -383,6 +398,8 @@ func (web *Web) matchPlayWebsocketHandler(w http.ResponseWriter, r *http.Request
 }
 
 func (web *Web) commitPostAndLoadNextMatch() error {
+	matchFlowMutex.Lock()
+	defer matchFlowMutex.Unlock()
 	if web.arena.MatchState != field.PostMatch {
 		return fmt.Errorf("cannot commit match while it is in progress")
 	}
@@ -404,6 +421,86 @@ func (web *Web) commitPostAndLoadNextMatch() error {
 	web.applyPendingGameChange()
 
 	return web.arena.LoadNextMatch(true)
+}
+
+// resetAndLoadNextMatch clears the field and loads the first unplayed match, dropping the results of the match on the
+// field if there are any: what the Discard Results button does.
+func (web *Web) resetAndLoadNextMatch() error {
+	matchFlowMutex.Lock()
+	defer matchFlowMutex.Unlock()
+	if err := web.arena.ResetMatch(); err != nil {
+		return err
+	}
+	web.applyPendingGameChange()
+	return web.arena.LoadNextMatch(false)
+}
+
+// loadNextMatchForDevice carries out the next_match field action: it loads the next match as Discard Results does,
+// but never discards anything, so it is refused while the match on the field waits to be committed.
+func (web *Web) loadNextMatchForDevice() error {
+	if web.arena.MatchState == field.PostMatch {
+		return fmt.Errorf("the match on the field has not been committed; commit it, or discard it on Match Play")
+	}
+	return web.resetAndLoadNextMatch()
+}
+
+// RegisterFieldActionHandlers lets field devices commit the match and load the next one: the commit field action
+// does what the Commit & Post button does, and next_match what loading the next match does. The arena runs them on a
+// worker of its own, never on its loop.
+func (web *Web) RegisterFieldActionHandlers() error {
+	if err := web.arena.SetFieldActionHandler(device.ActionCommit, web.commitPostAndLoadNextMatch); err != nil {
+		return err
+	}
+	return web.arena.SetFieldActionHandler(device.ActionNextMatch, web.loadNextMatchForDevice)
+}
+
+// sendDeviceFaults keeps Match Play's list of device faults up to date: it is sent whenever it changes, and on
+// connecting only if there are faults, since the page starts with none.
+func (web *Web) sendDeviceFaults(ws *websocket.Websocket, events *bus.Subscription) {
+	ticker := time.NewTicker(matchPlayDeviceFaultsPeriod)
+	defer ticker.Stop()
+	shown := []device.Fault{}
+	send := func() bool {
+		faults := web.arena.Devices.Faults()
+		if reflect.DeepEqual(faults, shown) {
+			return true
+		}
+		shown = faults
+		return ws.Write("deviceFaults", web.deviceFaultsMessage(faults)) == nil
+	}
+	if !send() {
+		return
+	}
+	for {
+		select {
+		case _, ok := <-events.C:
+			if !ok || !send() {
+				return
+			}
+		case <-ticker.C:
+			if !send() {
+				return
+			}
+		}
+	}
+}
+
+// matchPlayDeviceFault is one device fault as Match Play shows it.
+type matchPlayDeviceFault struct {
+	device.Fault
+	DeviceName string `json:"deviceName"`
+}
+
+func (web *Web) deviceFaultsMessage(faults []device.Fault) []matchPlayDeviceFault {
+	message := make([]matchPlayDeviceFault, len(faults))
+	for i, fault := range faults {
+		message[i].Fault = fault
+		message[i].DeviceName = fault.Device
+		if info, ok := web.arena.Devices.Device(fault.Device); ok {
+			message[i].DeviceName = info.Name
+		}
+	}
+	return message
 }
 
 // applyPendingGameChange takes into use a game selection that was saved while a match was on the field. It is

@@ -1,0 +1,64 @@
+{{/*
+Virtual devices: devices that live inside the FMS, made from a template or a pasted manifest, for trying bindings
+without hardware. Their inputs are clicked here and their outputs drawn; the FMS keeps them running when the page is
+closed.
+*/}}
+{{define "title"}}Virtual Devices{{end}}
+{{define "body"}}
+<link href="/static/css/devices.css" rel="stylesheet">
+<div id="virtualPage">
+  <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+    <h3 class="me-auto mb-0">Virtual devices</h3>
+    <a class="btn btn-outline-secondary" href="/setup/devices">Devices</a>
+    <a class="btn btn-outline-secondary" href="/setup/bindings">Bindings</a>
+  </div>
+  <div id="feedStatus" class="alert alert-warning">Connecting to the FMS&hellip;</div>
+  <div id="messages"></div>
+  <div class="card card-body bg-body-tertiary mb-3">
+    <p class="mb-2">A virtual device behaves exactly like a board on the field network, but lives inside the FMS: it
+      keeps running when this page is closed, and goes when the FMS stops. Like any new device, it waits for approval
+      before its inputs count.</p>
+    <div class="d-flex flex-wrap gap-2 mb-2" id="templates"></div>
+    <details>
+      <summary class="small">Or paste a manifest (JSON, as in docs/devices.md)</summary>
+      <textarea id="manifestJson" class="form-control font-monospace mt-2" rows="8" spellcheck="false"
+        placeholder='{"proto": 1, "id": "my-sensor", "name": "My sensor",
+  "channels": [{"id": "count", "dir": "in", "type": "counter"}]}'></textarea>
+      <button type="button" class="btn btn-primary btn-sm mt-2" id="createFromJson">Create from the manifest</button>
+    </details>
+  </div>
+  <div id="virtualDevices"></div>
+</div>
+
+<div class="modal fade" id="createModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form class="modal-content" id="createForm">
+      <div class="modal-header">
+        <h4 class="modal-title" id="createTitle">New virtual device</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label" for="createName">Name</label>
+          <input type="text" class="form-control" id="createName">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="createId">Device id</label>
+          <input type="text" class="form-control font-monospace" id="createId" required pattern="[a-z0-9\-]{1,40}">
+        </div>
+        <div class="small text-secondary" id="createChannels"></div>
+        <div id="createError" class="alert alert-danger d-none mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}
+{{define "script"}}
+<script src="/static/js/led_patterns.js"></script>
+<script src="/static/js/setup_devices.js"></script>
+<script src="/static/js/virtual_devices.js"></script>
+{{end}}

@@ -99,6 +99,30 @@ func (web *Web) settingsPostHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	previousAdminPassword := eventSettings.AdminPassword
 
+	// The device broker's ports. A port of 0 turns that listener off, so a form without the fields keeps them as they
+	// are rather than turning the broker off. They are checked here, before the settings start to change.
+	mqttPorts := [2]int{eventSettings.DeviceMqttPort, eventSettings.DeviceMqttWsPort}
+	for i, field := range [2]string{"deviceMqttPort", "deviceMqttWsPort"} {
+		if !r.PostForm.Has(field) {
+			continue
+		}
+		value, err := strconv.Atoi(strings.TrimSpace(r.PostFormValue(field)))
+		if err != nil || value < 0 || value > 65535 {
+			web.renderSettingsWithStatus(
+				w, r, "Device MQTT ports must be numbers from 0 (off) to 65535.", activeSettingsTab, http.StatusOK,
+			)
+			return
+		}
+		mqttPorts[i] = value
+	}
+	if mqttPorts[0] != 0 && mqttPorts[0] == mqttPorts[1] {
+		web.renderSettingsWithStatus(
+			w, r, "The device MQTT port and the MQTT over WebSocket port must differ.", activeSettingsTab,
+			http.StatusOK,
+		)
+		return
+	}
+
 	var playoffType model.PlayoffType
 	numAlliances := 0
 	playoffTypeValue := r.PostFormValue("playoffType")
@@ -183,6 +207,7 @@ func (web *Web) settingsPostHandler(w http.ResponseWriter, r *http.Request) {
 	eventSettings.SCCUpCommands = r.PostFormValue("sccUpCommands")
 	eventSettings.SCCDownCommands = r.PostFormValue("sccDownCommands")
 	eventSettings.PlcAddress = r.PostFormValue("plcAddress")
+	eventSettings.DeviceMqttPort, eventSettings.DeviceMqttWsPort = mqttPorts[0], mqttPorts[1]
 	eventSettings.AdminPassword = r.PostFormValue("adminPassword")
 	eventSettings.TeamSignRed1Id, _ = strconv.Atoi(r.PostFormValue("teamSignRed1Id"))
 	eventSettings.TeamSignRed2Id, _ = strconv.Atoi(r.PostFormValue("teamSignRed2Id"))

@@ -74,8 +74,10 @@ does that by itself within a second or two, and the monitor shows it connect aga
 
 ## 5. Bind it to the score
 
-Open **Setup → Bindings** and add an input binding: device `beam-red-1`, channel `count`, action "score `balls`,
-increment, alliance red", in the autonomous and teleop phases. As YAML (the Bindings page imports and exports it):
+Open **Setup → Bindings** and click **Add input binding**. The new card starts with the newest approved device that
+is online and its first input, and reads "When beam-red-1.count counts, add the count to Balls for Red". Check the
+alliance and the phases (autonomous and teleop), then click **Save**. The FMS checks the set on every change, and a
+set with problems cannot be saved. As YAML (the YAML tab, Export and Import):
 
 ```yaml
 inputs:
@@ -93,6 +95,19 @@ score goes up by 2 in autonomous and by 1 in teleop, as the `ball-count` game sa
 
 The board sends a running total, and the FMS adds the difference, so a dropped message or a Wi-Fi blip loses no
 ball. When the board restarts, it says so by sending a total of 0, and counting carries on from there.
+
+## No hardware yet?
+
+Make the same device inside the FMS: on **Setup → Devices → Virtual devices**, pick the beam-break counter
+template, approve it, and click **+1** instead of passing a ball. Or pretend to be the board from a terminal, with
+any secret as its token:
+
+```sh
+galaxia-fms device sim --broker 10.0.100.5:1883 --token any-secret --manifest manifest.json
+```
+
+and type `in count +1`. `help` lists the other commands. The manifest is the JSON a device sends when it connects
+([devices.md](devices.md#manifest)).
 
 ## If it does not work
 

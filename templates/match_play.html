@@ -46,6 +46,14 @@ UI for controlling match play and viewing team connection and field status.
         <div id="playoffRedAllianceInfo"></div>
       </div>
     </div>
+    <div id="deviceFaults" class="alert alert-danger d-none py-2">
+      <div class="d-flex align-items-center gap-2">
+        <strong class="me-auto">Device faults: their stops are held until cleared.</strong>
+        <a class="btn btn-sm btn-outline-light" href="/setup/devices">Devices page</a>
+        <button type="button" class="btn btn-sm btn-light" onclick="clearDeviceFaults();">Clear device faults</button>
+      </div>
+      <ul id="deviceFaultList" class="mb-0 mt-1 small"></ul>
+    </div>
     <div class="row justify-content-center mt-1">
       <button type="button" id="showOverlay" class="btn btn-info btn-match-play ms-1"
         onclick="showOverlay();" disabled>

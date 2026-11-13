@@ -1,0 +1,140 @@
+{{/*
+The Devices page: approves new devices, adds devices with a token and a snippet for each SDK, shows every channel
+live, tests outputs by hand, and says how the connections are doing. Everything on it arrives over the device feed.
+*/}}
+{{define "title"}}Devices{{end}}
+{{define "body"}}
+<link href="/static/css/devices.css" rel="stylesheet">
+<div id="devicesPage">
+  <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+    <h3 class="me-auto mb-0">Devices</h3>
+    <a class="btn btn-outline-secondary" href="/setup/devices/virtual">Virtual devices</a>
+    <a class="btn btn-outline-secondary" href="/setup/devices/serial">USB serial ports</a>
+    <a class="btn btn-outline-secondary" href="/setup/bindings">Bindings</a>
+    <button type="button" class="btn btn-primary" id="addDevice"><i class="bi bi-plus-lg"></i> Add device</button>
+  </div>
+  <div id="feedStatus" class="alert alert-warning">Connecting to the FMS&hellip;</div>
+  <div id="messages"></div>
+  <div id="faults"></div>
+  <div id="pending"></div>
+  <div class="row">
+    <div class="col-xl-9" id="deviceList"></div>
+    <div class="col-xl-3">
+      <div class="card card-body bg-body-tertiary mb-3" id="transports"></div>
+      <div class="card card-body bg-body-tertiary small">
+        <h6>Adding a device</h6>
+        <ol class="ps-3 mb-0">
+          <li>Flash a board with an example sketch, or click <b>Add device</b> to get a token and a snippet first.</li>
+          <li>It appears at the top, waiting for approval. Click <b>Approve</b>.</li>
+          <li>On the <a href="/setup/bindings">Bindings</a> page, say what its inputs do.</li>
+          <li>Trigger the sensor: its value flashes here, and the score changes in a match.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="addDeviceModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form class="modal-content" id="addDeviceForm">
+      <div class="modal-header">
+        <h4 class="modal-title">Add device</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-secondary">The FMS makes a token for the device. Put it in the firmware, and the device
+          is let in as soon as it connects: no approval needed.</p>
+        <div class="mb-3">
+          <label class="form-label" for="newDeviceName">Name</label>
+          <input type="text" class="form-control" id="newDeviceName" placeholder="Red goal beam break">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="newDeviceId">Device id</label>
+          <input type="text" class="form-control font-monospace" id="newDeviceId" required pattern="[a-z0-9\-]{1,40}"
+            placeholder="red-goal-beam-break">
+          <div class="form-text">Lowercase letters, digits and dashes. The firmware uses the same id.</div>
+        </div>
+        <div id="addDeviceError" class="alert alert-danger d-none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="tokenModal" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title" id="tokenTitle">Token</h4>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning py-2"><b>This token is shown once.</b> Copy it, or a snippet with it, now: the
+          FMS keeps only a fingerprint of it. A lost token is replaced with More &gt; New token.</div>
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <code class="token-box flex-grow-1 p-2 bg-body-tertiary rounded" id="tokenValue"></code>
+          <button type="button" class="btn btn-outline-light" data-copy="#tokenValue">Copy</button>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-sm-8">
+            <label class="form-label small mb-0" for="tokenHost">FMS address, as the device reaches it</label>
+            <input type="text" class="form-control form-control-sm font-monospace" id="tokenHost" list="tokenHosts">
+            <datalist id="tokenHosts"></datalist>
+          </div>
+          <div class="col-sm-4">
+            <label class="form-label small mb-0" for="tokenPort">MQTT port</label>
+            <input type="number" class="form-control form-control-sm" id="tokenPort">
+          </div>
+        </div>
+        <div id="tokenMqttOff" class="alert alert-warning py-1 small d-none">MQTT is turned off in Settings: turn it on
+          before boards can connect.</div>
+        <ul class="nav nav-tabs" role="tablist">
+          <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabArduino"
+              type="button">Arduino (ESP32)</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabMicropython"
+              type="button">MicroPython (Pico W)</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabPython"
+              type="button">Python (Raspberry Pi)</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabCli"
+              type="button">Command line</button></li>
+        </ul>
+        <div class="tab-content border border-top-0 rounded-bottom p-2">
+          <div class="tab-pane show active" id="tabArduino">
+            <pre class="snippet mb-2" id="snippetArduino"></pre>
+            <button type="button" class="btn btn-sm btn-outline-light" data-copy="#snippetArduino">Copy</button>
+            <span class="small text-secondary ms-2">Library: <code>sdk/arduino</code>. Examples in
+              <code>examples/</code>.</span>
+          </div>
+          <div class="tab-pane" id="tabMicropython">
+            <pre class="snippet mb-2" id="snippetMicropython"></pre>
+            <button type="button" class="btn btn-sm btn-outline-light" data-copy="#snippetMicropython">Copy</button>
+            <span class="small text-secondary ms-2">Module: <code>sdk/micropython/galaxia.py</code>, saved on the
+              board as <code>main.py</code>.</span>
+          </div>
+          <div class="tab-pane" id="tabPython">
+            <pre class="snippet mb-2" id="snippetPython"></pre>
+            <button type="button" class="btn btn-sm btn-outline-light" data-copy="#snippetPython">Copy</button>
+            <span class="small text-secondary ms-2">Package: <code>pip install ./sdk/python</code>.</span>
+          </div>
+          <div class="tab-pane" id="tabCli">
+            <pre class="snippet mb-2" id="snippetCli"></pre>
+            <button type="button" class="btn btn-sm btn-outline-light" data-copy="#snippetCli">Copy</button>
+            <span class="small text-secondary ms-2">Pretends to be the device from a terminal; the manifest is a JSON
+              file describing its channels.</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">I have copied it</button>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
+{{define "script"}}
+<script src="/static/js/led_patterns.js"></script>
+<script src="/static/js/setup_devices.js"></script>
+{{end}}

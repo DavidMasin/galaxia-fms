@@ -78,6 +78,19 @@ const discardResults = function () {
   websocket.send("discardResults");
 };
 
+// Sends a websocket message to clear the faults of the field devices that are back and safe.
+const clearDeviceFaults = function () {
+  websocket.send("clearDeviceFaults");
+};
+
+// Handles a websocket message listing the latched device faults, which hold their stops until cleared.
+const handleDeviceFaults = function (faults) {
+  $("#deviceFaults").toggleClass("d-none", faults.length === 0);
+  $("#deviceFaultList").empty().append(faults.map(function (fault) {
+    return $("<li></li>").text(`${fault.deviceName} (${fault.device}), binding ${fault.binding}: ${fault.reason}`);
+  }));
+};
+
 // Switches the audience display to the match intro screen.
 const showOverlay = function () {
   $("input[name=audienceDisplay][value=intro]").prop("checked", true);
@@ -525,6 +538,9 @@ $(function () {
     },
     audienceDisplayMode: function (event) {
       handleAudienceDisplayMode(event.data);
+    },
+    deviceFaults: function (event) {
+      handleDeviceFaults(event.data);
     },
     eventStatus: function (event) {
       handleEventStatus(event.data);

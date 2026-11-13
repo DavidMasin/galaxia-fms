@@ -7,8 +7,9 @@ sensor" tutorial builds on it.
 Status: the specification for milestones 5 (device framework) and 6 (firmware SDKs). It follows the protocol David
 approved in [PLAN.md](PLAN.md) section 7. Additions made while writing it are marked "added". The core of the
 framework is built (package `device`, described in [architecture.md](architecture.md#devices-m5)): the registry,
-the MQTT broker, virtual devices, the PLC as a device, bindings, outputs and safety. Not yet: the WebSocket, HTTP and
-serial transports, the Devices, Bindings and Lighting pages, and the CLI for virtual devices.
+the MQTT broker, the WebSocket, HTTP and USB serial transports, virtual devices, the PLC as a device, bindings,
+outputs and safety; the Devices, Bindings and Virtual devices pages; and the `galaxia-fms device sim` command. Not
+yet: the Lighting page.
 
 ## Overview
 
@@ -37,11 +38,11 @@ All transports carry the same messages into the same device registry.
 | MQTT over WebSocket | `ws://<fms>:8083/mqtt` | Browser-based devices |
 | WebSocket | `ws://<fms>:8080/api/v1/devices/ws` | Scripts that would rather not use MQTT |
 | HTTP | `http://<fms>:8080/api/v1/devices/...` | The simplest clients: inputs only, plus long-polled outputs |
-| USB serial | a port chosen on the Devices page, 115200 baud | Boards with no network |
+| USB serial | a port chosen on `/setup/devices/serial`, 115200 baud | Boards with no network |
 | Virtual | in the FMS | Development and tests, driven from a web page and the command line |
 
-The MQTT broker runs inside the FMS. The ports are settings (`DeviceMqttPort`, `DeviceMqttWsPort`); a port of 0
-turns that listener off (added). MQTT over WebSocket accepts any path; `/mqtt` is the one browser clients use by
+The MQTT broker runs inside the FMS. The ports are settings (`DeviceMqttPort`, `DeviceMqttWsPort`, under Field
+Devices on Setup → Settings); a port of 0 turns that listener off (added). MQTT over WebSocket accepts any path; `/mqtt` is the one browser clients use by
 default (added).
 
 ## MQTT
@@ -234,6 +235,24 @@ the FMS reverses the segment order itself; devices always count from LED 0.
 
 Closing the socket marks the device offline.
 
+Added:
+- The hello must come within 10 seconds. Anything else first closes the socket with code 1002; a binary frame
+  closes it with 1003.
+- A refused device is closed with 1008 and the reason: a bad token, a blocked device, an invalid device id, or a
+  reserved one.
+- `manifest` in the hello is optional. To change the manifest, connect again. When the manifest in the hello is
+  refused, the welcome carries `"error"`, and the refusal shows on the Devices page.
+- Approving, blocking or deleting a connected device, or giving it a new token, closes the socket with 1012; the
+  device should connect again.
+- A newer connection with the same id closes the older one with 1008 ("replaced by a newer connection"), which
+  counts as a dropped connection.
+- The FMS pings every 5 s. A connection that sends nothing, pongs included, for 15 s is closed, and the device goes
+  offline.
+- The FMS sends `{"type":"clock",...}` every second with the `field/clock` payload. On connect it sends the last
+  field state.
+- An `out` with no command fields (`{"type":"out","ch":"strip"}`) clears the output: the device turns it off.
+- A pending device's `in` and `hb` are dropped. Messages are at most 64 KiB.
+
 ## HTTP
 
 For a client that cannot hold a connection open. Every request carries `Authorization: Bearer <token>`.
@@ -246,6 +265,23 @@ For a client that cannot hold a connection open. Every request carries `Authoriz
 
 An HTTP device counts as online for 15 seconds after each request. HTTP devices cannot carry safety channels.
 
+Added:
+- Errors come back as `{"error":"..."}`. The statuses are 401 for a missing or bad token, 400 for an invalid id,
+  and 403 for a reserved id, a blocked device, or a pending device's `in` or `out`.
+- `PUT manifest` answers `{"approved":bool}`. A manifest with a safety channel is refused with 422 and why.
+- `POST in` answers 204. An unreadable input gets 400; one the FMS refuses gets 422 with why.
+- `GET out` answers at once when `since` is missing or differs from the device's current number. Otherwise it
+  waits up to `wait` seconds (default 0, at most 60), and answers 20 ms after a change, so all the changes from one
+  evaluation arrive together.
+- `outputs` holds every output in force; a channel missing from it is off. Sounds sent since `since` appear in
+  `outputs` once. Device commands come as `"commands":[{"do":"identify"}]`.
+- Sequence numbers start from the clock when the FMS starts. A number from an earlier run, or 0 after the device
+  restarts, is answered at once, without old sounds or commands.
+- A waiting request keeps the device online.
+- Approving needs nothing from the device. Blocking or deleting a device ends its waiting requests with 403 and
+  takes it offline at once.
+- Request bodies are at most 64 KiB.
+
 ## USB serial
 
 One JSON object per line, 115200 baud, `\n` line ends.
@@ -257,6 +293,19 @@ One JSON object per line, 115200 baud, `\n` line ends.
 
 A serial device needs no token: being plugged into the FMS computer is the credential. It still has to be
 approved the first time.
+
+Added:
+- Ports are chosen on `/setup/devices/serial` and stored in the setting `DeviceSerialPorts` (none by default). A
+  change applies at once, but not while a match is on the field or uncommitted.
+- A port that cannot be opened, or is lost (unplugged), is tried again every second, so plugging a board back in
+  reconnects it.
+- The FMS opens the port with DTR and RTS on. A device sends its manifest when it starts and whenever the port is
+  opened (DTR rises). Until then everything else on the port is ignored, and the serial page says so.
+- Lines that do not start with `{` are logging and are ignored. `\r\n` is accepted. Lines are at most 64 KiB.
+- An `out` with no command fields clears the output. Field state is not sent over serial.
+- Approving takes effect on the line at once. Blocking takes the device offline. Deleting makes it a new pending
+  device.
+- A manifest with another id on the same port is another device, and the old one goes offline.
 
 ## The PLC
 
@@ -271,6 +320,47 @@ and cannot be edited, blocked or deleted. Its channel ids are the PLC's names in
 `red1_e_stop`). Its inputs may be bound like any device's; its coils cannot. The coils shown are the states the
 arena drives them to; overrides made for field testing are not shown. A stop bound to a PLC input faults if the PLC
 stops answering.
+
+## The device pages
+
+**Setup → Devices** lists the devices waiting for approval first, with a large Approve button, then every device:
+- its connection and health;
+- its channels, with inputs live and outputs as they show now;
+- its faults and its last refusal.
+
+**Add device** creates an approved device and shows its token once, with a snippet for each SDK and the command
+line. An output can be tested by hand from its card unless a binding or the Lighting page drives it, and the page
+says which. While a test lasts, neither can take the channel. A Connections card lists each transport with its
+addresses and how many devices use it, and the PLC.
+
+**Setup → Bindings** edits the binding set of the active game and field profile, as cards that read as sentences or
+as YAML. Every change is checked by the FMS, and a set with errors cannot be saved. The card choices come from the
+game and the devices: the actions a channel type allows, the elements devices may change, the operations an element
+type takes.
+
+**Setup → Devices → Virtual devices** makes devices inside the FMS, from seven templates or a pasted manifest:
+- the templates are a button, a beam-break counter, an E-stop box, an analog sensor, an RFID reader, a 30-pixel strip
+  and a 4-relay stack light;
+- they need approval like any device;
+- they keep running when the page is closed;
+- they announce `sdk: galaxia-virtual`.
+
+A counter's first click sends the total the device holds first, so that it counts.
+
+`galaxia-fms device sim --broker <fms>:1883 --token <secret> --manifest <file>` does the same from a terminal, over
+MQTT. It reads commands from standard input:
+- `in <channel> <value>`, or `+n` for a counter;
+- `hb on|off`;
+- `status`, `help` and `quit`.
+
+The pages' own API is under `/setup/devices`, `/setup/devices/virtual` and `/setup/bindings`, admin only;
+`/api/v1/devices/...` belongs to the devices. Match Play shows a "Device faults" panel while any fault is latched,
+with a button that clears the faults of devices that are back.
+
+Field actions (added):
+- `commit` does what Commit & Post does, including loading the next match.
+- `next_match` loads the first unplayed match. It is refused while a played match waits to be committed.
+- Both run one at a time with the Match Play buttons.
 
 ## Bindings
 

@@ -385,3 +385,58 @@ Checks:
 - Each of the three commits was built, vetted and tested on its own, from an export of the index.
 - The OpenAPI consistency test was checked by renaming one route in the spec. It failed both ways: the route
   missing from the spec, and the spec entry with no route. Restoring the spec made it pass again.
+
+## 2026-11-13 19:26 - The Lighting page (milestone 5): LEDs configured from the browser
+
+The place to configure LEDs that David asked for is done: **Setup → Lighting**. It was built by a helper agent;
+I reviewed it, closed the two gaps it left, and checked it in a browser.
+
+What it does:
+- **Fixtures**: any LED strip, light, relay or dimmer output of an approved device. Each has an optional
+  alliance, a brightness limit, a reversed direction, and segments you make by dragging along a picture of the
+  strip.
+- **Scenes**: a grid of field moments (E-stop, device fault, each cue and phase of the game, score posted, match
+  over, field reset, volunteers, teams ready, awards, idle) by fixture and segment.
+  - Each cell is a look: off, solid, blink, pulse, chase, rainbow or progress.
+  - Colours can be fixed, the LEDs' alliance, or the winner.
+  - A look can have a condition, an expression on the live match.
+  - An empty cell falls through to the next moment down, shown faded.
+- **Live** shows what every fixture shows now. **Preview** shows any moment without touching the field. **Test
+  on the field** shows a moment on the real hardware for 10 seconds. **Identify** blinks one fixture.
+- A new fixture starts with useful scenes:
+  - the alliance colour during the match;
+  - green on field reset and purple for volunteers;
+  - red blinking on E-stop and orange blinking on a fault;
+  - white at idle.
+- Export and import as YAML, per field profile.
+
+The engine (package `lighting`) runs on the arena's output tick at 20 Hz and sends only what changed. It does
+not take channels that bindings drive, and bindings cannot take its channels.
+
+Browser check on a second copy (port 8090, scratch database):
+- I made a virtual 30-LED strip and a stack light and approved both.
+- I added the strip as a fixture with a red and a blue segment, made by dragging.
+- I set a cell to pulse in the winner's colour. A misspelt condition was refused with its error shown in the
+  cell editor.
+- I played a whole test match. "Now" followed it: teams ready (after bypassing every station), autonomous,
+  teleop, the endgame cue for 2 s, teleop, match over, then score posted for 10 s after committing, then idle.
+- During autonomous the virtual strip itself received two segments in the game's alliance colours, so the
+  engine drives the device, not only the page.
+- Test on the field turned the strip red and blinking for 10 seconds.
+- At tablet width the page still works.
+
+What I changed in review:
+- **Choosing the active field profile** (a gap: nothing in the UI could). Settings → Field Devices now has a
+  Field Profile box: type an existing name to switch to it, or a new name to make a new, empty profile. 1 new
+  test. In the browser check, I used it to make and switch to a "tent" profile.
+- **Deleting a field profile** now deletes its lighting too, instead of leaving it orphaned. Test extended.
+- **A clearer error.** A condition using `own` or `opp` on LEDs without an alliance now says to give the fixture
+  or segment an alliance first, instead of only "unknown name". Tested.
+- Removed a game-style id from a code comment.
+- The test copy's device broker had taken ports 1883 and 8083, which would have blocked David's own FMS. I moved
+  it to 18840/18841 with the new Settings fields. The broker moved without a restart, and 1883 and 8083 are free.
+
+Known limits, written in `docs/devices.md`:
+- Theme colours are not offered yet; they come with milestone 9.
+- With `reverse` set, chase and rainbow still run in the device's own direction.
+- The countdown moments arrive with the countdown.

@@ -94,9 +94,15 @@ func TestFieldProfiles(t *testing.T) {
 	)
 	settings.FieldProfile = DefaultFieldProfile
 	assert.Nil(t, db.UpdateEventSettings(settings))
+	assert.Nil(t, db.CreateLightingFixture(&LightingFixture{ProfileId: tent.Id, Name: "Strip"}))
+	assert.Nil(t, db.SaveLightingScenes(&LightingScenes{GameId: "ball-count", ProfileId: tent.Id}))
 	assert.Nil(t, db.DeleteFieldProfile(tent.Id))
 	bindingSet, _ = db.GetBindingSet("ball-count", "school gym")
 	assert.Nil(t, bindingSet)
+	fixtures, _ := db.GetLightingFixtures(tent.Id)
+	assert.Empty(t, fixtures, "its lighting goes with it too")
+	scenes, _ := db.GetAllLightingScenes(tent.Id)
+	assert.Empty(t, scenes)
 	profiles, _ = db.GetAllFieldProfiles()
 	assert.Equal(t, []FieldProfile{{Id: 1, Name: DefaultFieldProfile}}, profiles)
 }

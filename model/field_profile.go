@@ -128,6 +128,9 @@ func (database *Database) DeleteFieldProfile(id int) error {
 			}
 		}
 	}
+	if err = database.DeleteLightingOfProfile(profile.Id); err != nil {
+		return err
+	}
 	return database.fieldProfileTable.delete(id)
 }
 

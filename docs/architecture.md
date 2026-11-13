@@ -546,3 +546,19 @@ opens a port; `LoadSettings` applies the profile and restarts the broker if its 
   in `device/serial_transport*.go`; without cgo on macOS it lists port names only.
 - Tests speak MQTT through `device/mqtttest`, a minimal MQTT 3.1.1 client, rather than a client library, so that
   `go.mod` gains only the broker.
+
+### Lighting
+
+Package `lighting` drives the fixtures set on the Lighting page ([devices.md](devices.md#the-lighting-page)).
+- **Wiring.** `Arena.Lighting` (`field/arena_lighting.go`) hooks `OnOutputTick`. The arena supplies `FieldInfo`
+  (field stop, teams ready, awards) on its goroutine, and the winner comes from the bus's `match.committed`.
+- **Compiling.** Configurations compile once per change of game, profile, configuration or manifest, in a
+  background reload. The tick holds the outputs as they are until the reload is done.
+- **Locks.** `storeMu` (database writes and reloads, never taken by the tick), then `Engine.mu`. The manager is
+  never called with `mu` held. The tick does no I/O; expressions run through `Snapshot.Eval`, guarded by
+  `recover`.
+- **Storage.** `model.LightingFixture` and `model.LightingScenes`, keyed by profile id. Deleting a profile
+  deletes its lighting.
+- **Expressions** see what bindings see, through `device.OutputRoots` and `Manager.OutputExtraRoots`.
+- **The page's feed** is a WebSocket: the engine pushes what every fixture shows when it changes, and the browser
+  animates it with `LedPatterns` on the server's clock.

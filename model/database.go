@@ -22,27 +22,29 @@ const backupsDir = "db/backups"
 var BaseDir = "." // Mutable for testing
 
 type Database struct {
-	Path                string
-	bolt                *bbolt.DB
-	allianceTable       *table[Alliance]
-	awardTable          *table[Award]
-	bindingSetTable     *table[BindingSet]
-	deviceTable         *table[Device]
-	eventSettingsTable  *table[EventSettings]
-	fieldProfileTable   *table[FieldProfile]
-	gameSnapshotTable   *table[GameSnapshot]
-	judgingSlotTable    *table[JudgingSlot]
-	lowerThirdTable     *table[LowerThird]
-	matchTable          *table[Match]
-	matchResultTable    *table[MatchResult]
-	rankingTable        *table[Ranking]
-	scheduleBlockTable  *table[ScheduleBlock]
-	scheduledBreakTable *table[ScheduledBreak]
-	sponsorSlideTable   *table[SponsorSlide]
-	teamTable           *table[Team]
-	userSessionTable    *table[UserSession]
-	snapshotMutex       sync.Mutex
-	snapshotGames       map[string]*gamedef.Game // Parsed game snapshots by hash.
+	Path                 string
+	bolt                 *bbolt.DB
+	allianceTable        *table[Alliance]
+	awardTable           *table[Award]
+	bindingSetTable      *table[BindingSet]
+	deviceTable          *table[Device]
+	eventSettingsTable   *table[EventSettings]
+	fieldProfileTable    *table[FieldProfile]
+	gameSnapshotTable    *table[GameSnapshot]
+	judgingSlotTable     *table[JudgingSlot]
+	lightingFixtureTable *table[LightingFixture]
+	lightingScenesTable  *table[LightingScenes]
+	lowerThirdTable      *table[LowerThird]
+	matchTable           *table[Match]
+	matchResultTable     *table[MatchResult]
+	rankingTable         *table[Ranking]
+	scheduleBlockTable   *table[ScheduleBlock]
+	scheduledBreakTable  *table[ScheduledBreak]
+	sponsorSlideTable    *table[SponsorSlide]
+	teamTable            *table[Team]
+	userSessionTable     *table[UserSession]
+	snapshotMutex        sync.Mutex
+	snapshotGames        map[string]*gamedef.Game // Parsed game snapshots by hash.
 }
 
 // Opens the Bolt database at the given path, creating it if it doesn't exist.
@@ -77,6 +79,12 @@ func OpenDatabase(filename string) (*Database, error) {
 		return nil, err
 	}
 	if database.judgingSlotTable, err = newTable[JudgingSlot](&database); err != nil {
+		return nil, err
+	}
+	if database.lightingFixtureTable, err = newTable[LightingFixture](&database); err != nil {
+		return nil, err
+	}
+	if database.lightingScenesTable, err = newTable[LightingScenes](&database); err != nil {
 		return nil, err
 	}
 	if database.lowerThirdTable, err = newTable[LowerThird](&database); err != nil {

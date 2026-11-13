@@ -269,6 +269,7 @@ func (web *Web) newHandler() http.Handler {
 	web.addApiRoutes(mux)
 	web.addDeviceRoutes(mux)
 	web.addDeviceTransportRoutes(mux)
+	web.addLightingRoutes(mux)
 	return mux
 }
 

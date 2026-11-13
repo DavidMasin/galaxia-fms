@@ -393,8 +393,25 @@ UI for configuring event settings.
             <fieldset class="mb-4">
               <legend>Field Devices</legend>
               <p>
+                Devices, bindings, lighting and USB serial ports are set up under Setup &rarr; Devices, Bindings and
+                Lighting. They are kept per field profile: a named physical setup, such as "tent" or "school gym".
+              </p>
+              <div class="row mb-3">
+                <label class="col-lg-6 control-label">Field Profile</label>
+                <div class="col-lg-6">
+                  <input type="text" class="form-control" name="fieldProfile" value="{{.FieldProfile}}"
+                    list="fieldProfileList" required>
+                  <datalist id="fieldProfileList">
+                    {{range .FieldProfiles}}<option value="{{.Name}}">{{end}}
+                  </datalist>
+                  <div class="form-text">
+                    Profiles: {{range $i, $profile := .FieldProfiles}}{{if $i}}, {{end}}{{$profile.Name}}{{end}}.
+                    Type a new name to make a new profile; its bindings and lighting start empty.
+                  </div>
+                </div>
+              </div>
+              <p>
                 Ports of the built-in MQTT broker that sensors, buttons and lights connect to. 0 turns a listener off.
-                Devices, bindings and USB serial ports are set up under Setup &rarr; Devices.
               </p>
               <div class="row mb-3">
                 <label class="col-lg-6 control-label">MQTT Port</label>

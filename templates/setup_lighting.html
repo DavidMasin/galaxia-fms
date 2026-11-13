@@ -1,0 +1,227 @@
+{{/*
+The Lighting page: the fixtures of a field profile, the scene grid of the active game, a live view of every fixture,
+Test and Identify, and export and import. Everything is built in the browser from /setup/lighting/data and the feed.
+*/}}
+{{define "title"}}Lighting{{end}}
+{{define "body"}}
+<link href="/static/css/setup_lighting.css" rel="stylesheet">
+<div class="lighting">
+  <div class="lighting-header">
+    <h3 class="mb-0 me-auto">Lighting</h3>
+    <label class="mb-0 text-secondary" for="profileSelect">Field profile</label>
+    <select id="profileSelect" class="form-select form-select-sm"
+      title="The field profile whose lighting is shown"></select>
+    <span id="gameName" class="badge text-bg-secondary" title="The active game: the scenes are kept per game"></span>
+    <div class="btn-group">
+      <a id="exportButton" class="btn btn-outline-secondary btn-sm" href="#" download><i class="bi bi-download"></i>
+        Export</a>
+      <button id="importButton" type="button" class="btn btn-outline-secondary btn-sm"><i class="bi bi-upload"></i>
+        Import</button>
+    </div>
+  </div>
+  <div id="loadError" class="alert alert-danger d-none"></div>
+  <div id="profileNotice" class="alert alert-info d-none"></div>
+  <div id="importResult" class="d-none"></div>
+
+  <section class="card lighting-card">
+    <div class="card-header">
+      <h5>Field</h5>
+      <div class="btn-group" role="group" aria-label="What the strips show">
+        <input type="radio" class="btn-check" name="viewMode" id="viewLive" value="live" checked>
+        <label class="btn btn-outline-secondary btn-sm" for="viewLive" title="What the hardware shows now">Live</label>
+        <input type="radio" class="btn-check" name="viewMode" id="viewPreview" value="preview">
+        <label class="btn btn-outline-secondary btn-sm" for="viewPreview"
+          title="What the hardware would show at a moment">Preview</label>
+      </div>
+      <select id="previewMoment" class="form-select form-select-sm w-auto d-none"
+        aria-label="Moment to preview"></select>
+      <span id="momentBadge" class="moment-badge"><span class="dot"></span><span id="momentText">Loading</span></span>
+      <div class="ms-auto d-flex flex-wrap align-items-center gap-2">
+        <select id="testMoment" class="form-select form-select-sm w-auto" aria-label="Moment to test"></select>
+        <button id="testButton" type="button" class="btn btn-warning btn-sm"
+          title="Show this moment on the real hardware for 10 seconds"><i class="bi bi-broadcast"></i> Test on the
+          field</button>
+        <button id="cancelTest" type="button" class="btn btn-outline-warning btn-sm d-none">
+          <i class="bi bi-stop-fill"></i> Stop test <span id="testCountdown"></span></button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div id="strips" class="strips"></div>
+      <div id="stripsEmpty" class="text-secondary d-none">No fixtures yet: add one below.</div>
+      <div id="stripsInactive" class="text-secondary d-none"></div>
+    </div>
+  </section>
+
+  <section class="card lighting-card">
+    <div class="card-header">
+      <h5>Fixtures</h5>
+      <span class="text-secondary small me-auto">The outputs that show lighting in this profile.</span>
+      <button id="addFixture" type="button" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> Add
+        fixture</button>
+    </div>
+    <div class="card-body">
+      <div id="fixtureList" class="fixture-list"></div>
+      <div id="fixturesEmpty" class="text-secondary d-none">Pick one of the devices' LED strips, lights or relays to
+        get started. A new fixture starts with the alliance colour during the match, green on field reset, purple
+        for volunteers, red blinking on E-stop, orange blinking on a fault and white at idle.</div>
+    </div>
+  </section>
+
+  <section class="card lighting-card">
+    <div class="card-header">
+      <h5>Scenes</h5>
+      <span class="text-secondary small">Highest priority at the top. Click a cell to set its look; an empty cell falls
+        through to the next moment down, shown faded.</span>
+    </div>
+    <div class="card-body p-0">
+      <div class="scene-scroll"><table id="sceneGrid" class="scene-grid"></table></div>
+    </div>
+  </section>
+
+  <section id="problemsCard" class="card lighting-card d-none">
+    <div class="card-header"><h5>Problems</h5></div>
+    <div class="card-body"><ul id="problems" class="problem-list"></ul></div>
+  </section>
+</div>
+
+<div id="fixtureModal" class="modal fade" tabindex="-1" aria-labelledby="fixtureTitle">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-md-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="fixtureTitle">Add fixture</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-8">
+            <label class="form-label" for="fixtureChannel">Output</label>
+            <select id="fixtureChannel" class="form-select"></select>
+            <div id="fixtureChannelHelp" class="form-text"></div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="fixtureId">Id</label>
+            <input id="fixtureId" class="form-control font-monospace" autocomplete="off" autocapitalize="off"
+              spellcheck="false" maxlength="40">
+            <div class="form-text">Lowercase letters, digits, - and _.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="fixtureName">Name</label>
+            <input id="fixtureName" class="form-control" autocomplete="off">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="fixtureAlliance">Alliance</label>
+            <select id="fixtureAlliance" class="form-select"></select>
+            <div class="form-text">What the colour "Alliance" means on it, and <code>own</code> in expressions.</div>
+          </div>
+          <div class="col-md-6 not-relay">
+            <label class="form-label" for="fixtureBrightness">Brightness limit <span id="fixtureBrightnessValue"
+                class="text-secondary"></span></label>
+            <input id="fixtureBrightness" type="range" class="form-range" min="0" max="100" step="5">
+          </div>
+          <div class="col-md-6 strip-only">
+            <div class="form-check form-switch mt-md-4">
+              <input id="fixtureReverse" class="form-check-input" type="checkbox">
+              <label class="form-check-label" for="fixtureReverse">Reversed: the device's first LED is at the far
+                end</label>
+            </div>
+          </div>
+        </div>
+        <div class="strip-only mt-4">
+          <div class="d-flex align-items-center">
+            <h6 class="me-auto mb-0">Segments <span id="segmentPixels" class="text-secondary fw-normal"></span></h6>
+            <button id="addSegment" type="button" class="btn btn-outline-secondary btn-sm"><i class="bi bi-plus-lg"></i>
+              Segment</button>
+          </div>
+          <div class="form-text">Drag along the strip to make a segment, drag a segment to move it and its ends to
+            resize it, or type below. Counted from the fixture's first LED, on the left.</div>
+          <div id="segmentStrip" class="segment-strip"><canvas class="led-marks"></canvas></div>
+          <div class="segment-scale"><span>0</span><span id="segmentScaleEnd"></span></div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle segment-table mb-0">
+              <thead><tr><th>Id</th><th>Name</th><th>Start</th><th>Count</th><th>Alliance</th><th></th></tr></thead>
+              <tbody id="segmentRows"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="fixtureErrors" class="mt-3"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="deleteFixture" type="button" class="btn btn-outline-danger me-auto">Delete</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button id="saveFixture" type="button" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="cellModal" class="modal fade" tabindex="-1" aria-labelledby="cellTitle">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-md-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="cellTitle"></h5>
+          <div id="cellSubtitle" class="form-text mt-0"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <canvas id="cellPreview" class="cell-preview"></canvas>
+        <div class="form-label mt-3">Pattern</div>
+        <div id="cellPatterns" class="pattern-buttons"></div>
+        <div id="cellColors" class="row g-3 mt-1">
+          <div class="col-md-6" id="colorA"></div>
+          <div class="col-md-6" id="colorB"></div>
+        </div>
+        <div class="row g-3 mt-1">
+          <div class="col-md-6" id="cellPeriodGroup">
+            <label class="form-label" for="cellPeriod">Period
+              <span id="cellPeriodValue" class="text-secondary"></span></label>
+            <div class="d-flex align-items-center gap-2">
+              <input id="cellPeriod" type="range" class="form-range" min="100" max="5000" step="50">
+              <button id="cellPeriodDefault" type="button" class="btn btn-outline-secondary btn-sm">Default</button>
+            </div>
+          </div>
+          <div class="col-md-6" id="cellBrightnessGroup">
+            <label class="form-label" for="cellBrightness">Brightness <span id="cellBrightnessValue"
+                class="text-secondary"></span></label>
+            <input id="cellBrightness" type="range" class="form-range" min="0" max="100" step="5">
+          </div>
+        </div>
+        <div id="cellFillGroup" class="mt-3">
+          <label class="form-label" for="cellV">Fill, from 0 to 1</label>
+          <input id="cellV" class="form-control font-monospace" autocomplete="off" autocapitalize="off"
+            spellcheck="false" placeholder="0.5, or an expression">
+          <div class="d-flex flex-wrap gap-2 mt-2" id="cellFillPresets"></div>
+        </div>
+        <div class="mt-3">
+          <label class="form-label" for="cellWhen">Only while <span class="text-secondary">(optional)</span></label>
+          <input id="cellWhen" class="form-control font-monospace" autocomplete="off" autocapitalize="off"
+            spellcheck="false" placeholder="for example: own.score > opp.score">
+          <div class="form-text">An expression on the live match. While it is false the cell falls through to the next
+            moment down. Test and Preview take it as true.</div>
+        </div>
+        <div id="cellErrors" class="mt-3"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="clearCell" type="button" class="btn btn-outline-danger me-auto">Clear cell</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button id="saveCell" type="button" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<input id="importFile" type="file" accept=".yaml,.yml,text/yaml,application/yaml" class="d-none">
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+  <div id="toast" class="toast" role="status" aria-live="polite">
+    <div class="d-flex">
+      <div id="toastBody" class="toast-body"></div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+</div>
+{{end}}
+{{define "script"}}
+<script src="/static/js/led_patterns.js"></script>
+<script src="/static/js/setup_lighting.js"></script>
+{{end}}

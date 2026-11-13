@@ -317,6 +317,36 @@ func TestSetupSettingsDeviceMqttPorts(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), `value="11883"`)
 }
 
+func TestSetupSettingsFieldProfile(t *testing.T) {
+	web := setupTestWeb(t)
+	assert.Equal(t, model.DefaultFieldProfile, web.arena.EventSettings.FieldProfile)
+
+	// A new name makes a new profile and takes it into use.
+	recorder := web.postHttpResponse("/setup/settings", "fieldProfile= tent ")
+	assert.Equal(t, 303, recorder.Code)
+	assert.Equal(t, "tent", web.arena.EventSettings.FieldProfile)
+	assert.Equal(t, "tent", web.arena.Devices.Profile())
+	profiles, _ := web.arena.Database.GetAllFieldProfiles()
+	assert.Equal(t, []string{"default", "tent"}, []string{profiles[0].Name, profiles[1].Name})
+
+	// An existing name switches back without making another; a form without the field keeps the choice.
+	recorder = web.postHttpResponse("/setup/settings", "fieldProfile=default")
+	assert.Equal(t, 303, recorder.Code)
+	assert.Equal(t, model.DefaultFieldProfile, web.arena.EventSettings.FieldProfile)
+	recorder = web.postHttpResponse("/setup/settings", "name=No Profile Field")
+	assert.Equal(t, 303, recorder.Code)
+	assert.Equal(t, model.DefaultFieldProfile, web.arena.EventSettings.FieldProfile)
+	profiles, _ = web.arena.Database.GetAllFieldProfiles()
+	assert.Len(t, profiles, 2)
+
+	recorder = web.postHttpResponse("/setup/settings", "fieldProfile=%20%20")
+	assert.Contains(t, recorder.Body.String(), "The field profile needs a name.")
+	assert.Equal(t, model.DefaultFieldProfile, web.arena.EventSettings.FieldProfile)
+
+	recorder = web.getHttpResponse("/setup/settings")
+	assert.Contains(t, recorder.Body.String(), `<option value="tent">`)
+}
+
 func TestSetupSettingsClearDb(t *testing.T) {
 	createData := func(web *Web) {
 		assert.Nil(t, web.arena.Database.CreateTeam(&model.Team{Id: 254}))

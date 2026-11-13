@@ -8,8 +8,8 @@ Status: the specification for milestones 5 (device framework) and 6 (firmware SD
 approved in [PLAN.md](PLAN.md) section 7. Additions made while writing it are marked "added". The core of the
 framework is built (package `device`, described in [architecture.md](architecture.md#devices-m5)): the registry,
 the MQTT broker, the WebSocket, HTTP and USB serial transports, virtual devices, the PLC as a device, bindings,
-outputs and safety; the Devices, Bindings and Virtual devices pages; and the `galaxia-fms device sim` command. Not
-yet: the Lighting page.
+outputs and safety; the Devices, Bindings, Virtual devices and Lighting pages; and the `galaxia-fms device sim`
+command.
 
 ## Overview
 
@@ -555,6 +555,48 @@ LEDs and stack lights are configured on Setup → Lighting, without writing bind
   flashes one fixture.
 - A new fixture gets a starting set of scenes: alliance colour during the match, green on field reset, purple for
   volunteers, red blinking on E-stop, orange blinking on a fault, white at idle.
+
+Added:
+- **Targets and fall-through.**
+  - A cell's target is a fixture (the whole strip) or `<fixture>/<segment>`.
+  - For each run of LEDs the FMS goes down the moments that apply now and takes the first look that applies:
+    the segment's own, else the whole fixture's at that moment.
+  - A cell whose `when` is false, or whose expression fails, falls through. `idle` always applies.
+  - Ids are lowercase letters, digits, `-` and `_`, at most 40.
+- **Moments in detail.**
+  - `estop` includes the PLC's and devices' field stops.
+  - `fault` is any latched device fault.
+  - Of several cues, the most recent comes first.
+  - `match_end` lasts until a score is posted after the match.
+  - `teams_ready` applies only before a match, when every station the game uses is ready.
+- **Colours.**
+  - The choices are `#rrggbb`, `alliance`, `winner` and `off`, with at most two per look.
+  - `alliance` is the alliance of the LEDs the look is drawn on: the segment's, else the fixture's. It is white
+    where there is none.
+  - `winner` is white after a tie, or before any match is posted.
+  - Theme colours are not available yet.
+- **Fixture kinds.**
+  - Strips take every pattern.
+  - `digital` and `relay` take `off`, `solid` and `blink`; `pwm` also takes `progress`. These show no colours,
+    and they blink the way output bindings do.
+  - A pwm level is the brightness × the fixture's limit (× the fill).
+- **Brightness** is the look's `br` times the fixture's limit.
+  - With segments, the command carries the brightest piece's brightness and dims the others through their
+    colours. A rainbow cannot be dimmed that way.
+- **Pieces.**
+  - A whole-fixture look split around a segment's own look is sent as pieces.
+  - A progress bar still fills as one bar, while chase and rainbow run within each piece.
+  - With `reverse`, pieces are mirrored and a progress bar fills from the fixture's first LED.
+  - Fills are a whole number of LEDs.
+- **Test and Identify.** Test shows one moment over idle for 10 seconds, taking every condition as true.
+  Identify sends `identify` and blinks the fixture white for 3 seconds.
+- **Starting scenes** are given once per fixture and game; a cleared cell stays clear. Imported fixtures get
+  none.
+- **Channel claims.** The page refuses a fixture on a channel a binding drives. A fixture whose channel something
+  else drives is shown as not driven, and is retried every 5 seconds.
+- **Profiles.** Lighting is kept by the profile's id, so renaming a profile keeps it. The active profile is
+  chosen on Setup → Settings, under Field Devices. Export and import carry one profile's fixtures and its scenes
+  for the active game.
 
 ## Safety
 

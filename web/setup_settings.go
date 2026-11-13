@@ -122,6 +122,16 @@ func (web *Web) settingsPostHandler(w http.ResponseWriter, r *http.Request) {
 		)
 		return
 	}
+	// The field profile: the physical setup whose device bindings and lighting apply. A new name makes a new, empty
+	// profile, which is created only once every other setting has been checked.
+	fieldProfile := eventSettings.FieldProfile
+	if r.PostForm.Has("fieldProfile") {
+		fieldProfile = strings.TrimSpace(r.PostFormValue("fieldProfile"))
+		if fieldProfile == "" {
+			web.renderSettingsWithStatus(w, r, "The field profile needs a name.", activeSettingsTab, http.StatusOK)
+			return
+		}
+	}
 
 	var playoffType model.PlayoffType
 	numAlliances := 0
@@ -208,6 +218,20 @@ func (web *Web) settingsPostHandler(w http.ResponseWriter, r *http.Request) {
 	eventSettings.SCCDownCommands = r.PostFormValue("sccDownCommands")
 	eventSettings.PlcAddress = r.PostFormValue("plcAddress")
 	eventSettings.DeviceMqttPort, eventSettings.DeviceMqttWsPort = mqttPorts[0], mqttPorts[1]
+	if fieldProfile != eventSettings.FieldProfile {
+		profile, err := web.arena.Database.GetFieldProfileByName(fieldProfile)
+		if err != nil {
+			handleWebErr(w, err)
+			return
+		}
+		if profile == nil {
+			if err = web.arena.Database.CreateFieldProfile(&model.FieldProfile{Name: fieldProfile}); err != nil {
+				web.renderSettingsWithStatus(w, r, err.Error(), activeSettingsTab, http.StatusOK)
+				return
+			}
+		}
+		eventSettings.FieldProfile = fieldProfile
+	}
 	eventSettings.AdminPassword = r.PostFormValue("adminPassword")
 	eventSettings.TeamSignRed1Id, _ = strconv.Atoi(r.PostFormValue("teamSignRed1Id"))
 	eventSettings.TeamSignRed2Id, _ = strconv.Atoi(r.PostFormValue("teamSignRed2Id"))
@@ -710,6 +734,11 @@ func (web *Web) renderSettingsWithStatus(
 		handleWebErr(w, err)
 		return
 	}
+	fieldProfiles, err := web.arena.Database.GetAllFieldProfiles()
+	if err != nil {
+		handleWebErr(w, err)
+		return
+	}
 	data := struct {
 		*model.EventSettings
 		ErrorMessage      string
@@ -719,9 +748,11 @@ func (web *Web) renderSettingsWithStatus(
 		ActiveGameId      string // The game the arena is playing, which lags the selection while a match is on.
 		ActiveGameName    string
 		MatchInProgress   bool
+		FieldProfiles     []model.FieldProfile
 	}{
 		web.arena.EventSettings, errorMessage, activeSettingsTab, web.arena.NexusClient.BaseUrl,
 		web.buildSettingsGames(), web.arena.Game.ID, web.arena.Game.Name, !settingsSaveAllowed(web.arena.MatchState),
+		fieldProfiles,
 	}
 	if statusCode != http.StatusOK {
 		w.WriteHeader(statusCode)

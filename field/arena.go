@@ -80,6 +80,7 @@ type Arena struct {
 	TeamSigns        *TeamSigns
 	ScoringPanelRegistry
 	ArenaNotifiers
+	arenaLighting
 	MatchState
 	lastMatchState                    MatchState
 	PhaseIndex                        int // Index into Game.Match.Phases while InMatch; -1 otherwise.
@@ -199,6 +200,7 @@ func NewArena(dbPath string) (*Arena, error) {
 		arena.Database.Close()
 		return nil, err
 	}
+	arena.newLighting()
 	err = arena.LoadSettings()
 	if err != nil {
 		// Without a game to play there is no arena; do not leave the database locked behind it.

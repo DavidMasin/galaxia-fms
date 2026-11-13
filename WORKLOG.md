@@ -226,3 +226,46 @@ the definitions and the other details the core settled, so physical strips, prev
 - the WebSocket, HTTP and USB serial transports.
 
 Each page got its own route file and its menu entry beforehand, so the three cannot overwrite each other.
+
+## 2026-11-13 18:55 - Firmware SDKs landed (milestone 6); API started (milestone 4)
+
+**Landed, commit `85549ef`: SDKs, examples and tutorial**
+- `sdk/arduino`: ESP32 over Wi-Fi or Ethernet, built on arduino-mqtt 2.5.3, ArduinoJson 7.4.3 and Adafruit
+  NeoPixel 1.15.5 (versions checked against the PlatformIO registry).
+- `sdk/micropython`: Pico W and Pico 2 W, on mqtt_as 0.8.5 and MicroPython 1.29.
+- `sdk/python`: the `galaxia-device` package, on paho-mqtt 2.2.
+- Nine examples with wiring diagrams, parts lists and the binding to make: beam-break counter, arcade button,
+  limit switch, stack light, LED strip, E-stop box, match timer, load cell, RFID reader.
+- `docs/tutorial-first-sensor.md`.
+
+What the SDK work reported checking:
+- Python SDK: 85 tests; MicroPython: 15 tests under CPython with hardware stand-ins.
+- Arduino library: 151 native checks.
+- LED drawing matches `static/js/led_patterns.js` on all 87 shared reference cases.
+- All 12 sketches build for esp32dev with strict warnings.
+
+I checked that the folders contain only sources (no build output, 94 files, under 700 KB).
+
+The new SDK and example code is MIT licensed, so teams can reuse it in their own robots and fixtures. The FMS
+itself stays under Team 254's licence.
+
+**Not verified:** nothing has run on a real ESP32 or Pico yet, or against the FMS's own broker. That is the first
+thing to try with hardware.
+
+**Protocol gaps the SDK work had to decide on**, to settle in the spec:
+- whether the `seq` counter is per device or per channel;
+- which clock `ts` is in;
+- the unit of `up` (taken as seconds);
+- what happens when several commands carry future `at` times.
+
+**Started milestone 4, the API (on my own files, while the device pages are being built)**
+- Read API under `/api/v1`: time, health, the active game, the current match (with clock and live score),
+  matches with results, one match with its full audit log, rankings with the game's columns, teams, alliances.
+- Team Wi-Fi keys and FTA notes are deliberately left out of the public teams list.
+- The event stream: `/api/v1/events` to poll, `/api/v1/events/stream` for Server-Sent Events (resumes after a
+  reconnect), and `/api/v1/events/ws`. A `stream.gap` notice says when events were lost, so a client knows to
+  reload rather than silently miss something.
+- `docs/openapi.yaml` (OpenAPI 3.1) describes every v1 route. A test fails if a route is undescribed or the
+  description lists one that does not exist.
+- 9 new tests pass. Not committed yet: they hook into the same route registration as the device pages, which are
+  still being written.

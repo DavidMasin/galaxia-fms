@@ -123,6 +123,23 @@ Added:
   remaining times alone do not count as a change. When the broker (re)starts it publishes every output in force and
   the last field state again.
 
+The fields the payloads above leave open (added; this is what the FMS and all three SDKs do):
+- **`seq` in `in`** is one counter per device, across all its input channels, counting from 1 when the device
+  starts. Heartbeats have their own counter.
+  - The FMS keeps the last `seq` with the input's value, in the `device.input` event and on the Devices page's
+    data, so a gap shows that messages were lost.
+  - It never reorders or drops a message because of its `seq`. Counters are safe to repeat, because a counter
+    sends its running total.
+- **`ts` in `in`** is when the device read the value, in field-clock UTC milliseconds (the device's estimate from
+  `field/clock`). It is optional and, for now, informational: the FMS applies an input when it arrives.
+- **`up` in `status`** is the device's uptime in seconds.
+- **Several commands with future `at` times** on one channel queue in time order. A new command replaces every
+  pending command due at or after its own time.
+  - So a command for now cancels everything pending, such as a cancelled countdown.
+  - Commands sent ahead for successive moments are all kept.
+  - The SDKs keep a limited number per channel and drop the oldest beyond it: 8 on Arduino and MicroPython, 32 in
+    the Python SDK.
+
 ### Manifest
 
 ```json

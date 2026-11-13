@@ -37,6 +37,36 @@ jobs:
       - name: Test
         run: go test ./...
 
+  sdk:
+    name: Device SDKs and examples
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+      - name: Install Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install tools
+        run: python -m pip install platformio paho-mqtt pytest gpiozero
+      - name: Python SDK tests
+        run: python -m pytest sdk/python
+      - name: MicroPython SDK tests (under CPython, with stand-ins for the hardware)
+        run: python -m pytest sdk/micropython/tests
+      - name: Arduino library tests on the runner
+        # The same ArduinoJson the library's examples build with (sdk/arduino/library.json).
+        run: |
+          git clone --quiet --depth 1 --branch v7.4.3 https://github.com/bblanchon/ArduinoJson.git \
+            "$RUNNER_TEMP/ArduinoJson"
+          python sdk/arduino/test/native/run_native_tests.py --arduinojson "$RUNNER_TEMP/ArduinoJson/src"
+      - name: Cache PlatformIO
+        uses: actions/cache@v6
+        with:
+          path: ~/.platformio
+          key: platformio-${{ hashFiles('examples/build_all.py', 'examples/*/platformio.ini', 'sdk/arduino/library.json') }}
+      - name: Build every example for the ESP32, with strict warnings
+        run: python examples/build_all.py --strict --workspace "$RUNNER_TEMP/galaxia-build"
+
   cross-compile:
     name: Cross-compile ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest

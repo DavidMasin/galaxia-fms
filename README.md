@@ -16,7 +16,18 @@ for each finished milestone is in [docs/milestones/](docs/milestones/), and a ru
 
 Matches, scoring panels, the referee panel, match review, rankings and every display run from a game definition
 file. Three example games ship in [games/](games/); [docs/game-definition.md](docs/game-definition.md) explains how
-to write your own. Field electronics (sensors, buttons, LED strips) are the next milestone.
+to write your own.
+
+Field electronics are plug-and-play:
+- Sensors, buttons, E-stops, stack lights and LED strips connect over Wi-Fi (MQTT, WebSocket or HTTP) or USB.
+- They are approved on Setup → Devices, bound to the match on Setup → Bindings, and lit on Setup → Lighting.
+- SDKs for the ESP32, the Pico W and Python, with nine example projects, are in [sdk/](sdk/) and
+  [examples/](examples/).
+- [docs/tutorial-first-sensor.md](docs/tutorial-first-sensor.md) walks through the first sensor, and
+  [docs/devices.md](docs/devices.md) is the full reference.
+
+A read API, an event stream and data exports are under `/api/v1`, described in
+[docs/openapi.yaml](docs/openapi.yaml).
 
 ## Building and running
 
@@ -36,7 +47,8 @@ Startup options:
 | `-db` | `./event.db` | The event database file |
 
 A second copy can run beside the first for testing, for example
-`./galaxia-fms -port 8090 -server-ip 127.0.0.2 -db test.db`.
+`./galaxia-fms -port 8090 -server-ip 127.0.0.2 -db test.db`. Give it its own device ports too (Setup → Settings →
+Field Devices), since both copies would otherwise want MQTT ports 1883 and 8083.
 
 Choose the game under Setup → Settings and edit games under Setup → Games. To check game files from a terminal:
 `./galaxia-fms game validate games` and `./galaxia-fms game test games`.

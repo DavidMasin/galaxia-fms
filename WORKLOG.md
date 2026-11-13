@@ -440,3 +440,37 @@ Known limits, written in `docs/devices.md`:
 - Theme colours are not offered yet; they come with milestone 9.
 - With `reverse` set, chase and rainbow still run in the device's own direction.
 - The countdown moments arrive with the countdown.
+
+## 2026-11-13 19:35 - Milestones 5 and 6 finished: acceptance checks, reports, SDK CI job
+
+**The third acceptance check of milestone 5, in a browser.** I made a virtual E-stop box, approved it and bound it
+to station R1, then started a match. Switching its heartbeat off during autonomous:
+- E-stopped R1;
+- made Match Play list "no heartbeat for 1.0 seconds" within 2.5 s;
+- turned the lighting to its E-stop scene.
+
+With the heartbeat back on, "Clear device faults" cleared it. All three of the plan's checks for milestone 5 have
+now passed in a browser.
+
+**Protocol details settled in `docs/devices.md`:**
+- `seq` is one counter per device, across all its input channels.
+- `ts` is in field-clock milliseconds and is informational.
+- `up` is in seconds.
+- Several future `at` times queue in order, and a new command replaces those due at or after it.
+
+This is what the FMS and the SDKs already do. The one difference between the SDKs, 32 queued commands in Python
+against 8 elsewhere, is documented.
+
+**CI** gains a job for the SDKs:
+- the Python, MicroPython and Arduino test suites;
+- a strict ESP32 build of every example;
+- the action versions checked against GitHub: setup-python v7, cache v6, ArduinoJson tag v7.4.3.
+
+It cannot run until the account's billing lock is cleared. Locally, all three suites pass again: 85, 15 and 151
+checks.
+
+**Reports:** [docs/milestones/05-devices.md](docs/milestones/05-devices.md) and
+[docs/milestones/06-sdks.md](docs/milestones/06-sdks.md). The README now describes the device features.
+
+**Next:** milestone 4's remaining pieces (users and roles, API tokens, webhooks), then the countdown on the field
+(milestone 9).

@@ -43,6 +43,8 @@ type Database struct {
 	sponsorSlideTable    *table[SponsorSlide]
 	teamTable            *table[Team]
 	userSessionTable     *table[UserSession]
+	webhookTable         *table[Webhook]
+	webhookDeliveryTable *table[WebhookDelivery]
 	snapshotMutex        sync.Mutex
 	snapshotGames        map[string]*gamedef.Game // Parsed game snapshots by hash.
 }
@@ -112,6 +114,12 @@ func OpenDatabase(filename string) (*Database, error) {
 		return nil, err
 	}
 	if database.userSessionTable, err = newTable[UserSession](&database); err != nil {
+		return nil, err
+	}
+	if database.webhookTable, err = newTable[Webhook](&database); err != nil {
+		return nil, err
+	}
+	if database.webhookDeliveryTable, err = newTable[WebhookDelivery](&database); err != nil {
 		return nil, err
 	}
 

@@ -741,3 +741,16 @@ David's was running or touched):
 `go test ./...` (19 packages pass), `galaxia-fms game validate games`, `galaxia-fms game test games`, and the race
 detector as above: once over everything, four times over the six packages changed, twice more over everything on
 the final code.
+
+## 2026-11-21 23:16 - CI for the arena lock: every job passed, the race job on all packages
+
+Commit `58265d7`, run 44950045156. All seven jobs passed. I read the race job's log as well as its result: it ran
+`go test -race ./...` on Linux, all 19 packages with tests passed, and the log has no data race report. This is
+the first run in which the detector is required for `field`, `web`, `websocket` and `network`.
+
+Proposed as a separate task, not started: making the device manager and the lighting engine follow a restored
+database (see the previous entry, "Found and not fixed").
+
+Nothing of mine is left running: the test copy is stopped and its ports are free.
+
+**Next:** the countdown on the field (milestone 9), which David put after this.

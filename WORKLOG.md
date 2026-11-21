@@ -592,3 +592,28 @@ Commits `8ed3390` (the webhook dispatcher) and `52bd768` (logins, pages, checked
 yet stated plainly (it reads, and manages games and webhooks; it does not run a match).
 
 **Next:** milestone 9's countdown on the field, or milestone 7's practice modes.
+
+## 2026-11-21 21:45 - Correction: CI has been running since 13 November
+
+**What I got wrong.** Several entries and reports above say GitHub Actions cannot run because of a billing lock on
+the account. That was true until 2026-11-13 at 17:30 Israel time, when David cleared the lock. I never checked
+again, so the entry of 2026-11-13 19:35 and the reports for milestones 4 and 6 repeated it after it had stopped
+being true. I found out today by listing the runs of this repository rather than assuming.
+
+**What is actually true**
+- The first successful run was for commit `a764ddb` on 2026-11-13. Every push since has passed.
+- That includes the SDK job from its first run (commit `2674d16`): the Python, MicroPython and Arduino test
+  suites and a strict ESP32 build of every example, on Linux. So milestone 6's check, "every example builds in
+  CI", was met on 13 November.
+- Today's commits `8ed3390` and `52bd768` passed: formatting, vet, build, every test and four cross-compiles.
+  For `99b4b47`, build and tests have passed and the SDK job was still running when I wrote this.
+- One trap: `gh run list` in this folder shows the upstream Cheesy Arena repository's runs unless it is told
+  `--repo DavidMasin/galaxia-fms`.
+
+**Corrected:** the reports for milestones 4 and 6. Milestones 1 and 2, which were right when written, have a dated
+note. This log is left as it was written, with this entry beside it.
+
+**New: a race detector job in CI.** The detector needs a C compiler, which this laptop lacks, so the threading of
+the device framework, the lighting engine, the webhook dispatcher and the journal has only been reasoned about.
+The Linux runner has one. The job runs `go test -race ./...` on its own, so the plain test job stays as fast as
+it was. Its first result goes in the next entry.

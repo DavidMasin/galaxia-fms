@@ -84,6 +84,8 @@ The plan's two checks for this milestone:
 Also:
 
 - `go test ./...` passes in all 19 packages; formatting and vet are clean.
+- **CI** passed on Linux for these commits: formatting, vet, build, every test, the four cross-compiles, and
+  the SDK job.
 - **In a browser**, on a second copy with its own port and database:
   - The first admin user turned logins on. A scorer reached the scoring panel after logging in and got "Not
     allowed" on Settings.
@@ -110,6 +112,5 @@ Also:
   - login sessions do not expire by themselves;
   - pages are rendered without automatic HTML escaping, so the new pages escape what people type by hand.
 - **Displays have no token option yet.** They are always open.
-- **CI has not run** these tests: GitHub Actions is still locked on the account by the billing issue.
-- **The race detector** needs cgo, which this laptop lacks, so the threading was reasoned about rather than
-  checked.
+- **The race detector** needs cgo, which this laptop lacks. A CI job now runs it on Linux; its first results
+  are in [WORKLOG.md](../../WORKLOG.md).

@@ -67,7 +67,8 @@ To see the validator at work, misspell a name inside any expression in a copy of
   must use everything except the Blue Alliance mapping.
 - I confirmed the tools report failures: a deliberately wrong expectation and a deliberately broken game are
   both caught.
-- Not verified: anything on Linux, because CI cannot run (see [milestone 1](01-fork-setup.md)).
+- Not verified at the time: anything on Linux, because CI could not run (see [milestone 1](01-fork-setup.md)).
+  CI has run on Linux on every push since 2026-11-13.
 
 ## Differences from the approved draft
 

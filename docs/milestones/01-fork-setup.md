@@ -37,6 +37,8 @@ point.
 "The job was not started because your account is locked due to a billing issue." This needs fixing in GitHub's
 billing settings. Until then nothing is verified on Linux.
 
+Update: David cleared the lock on 2026-11-13, and CI has run on every push since.
+
 **Local test results on the development laptop are partial.** Windows Smart App Control blocks some compiled
 test binaries. On unmodified upstream code:
 

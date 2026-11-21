@@ -37,6 +37,21 @@ jobs:
       - name: Test
         run: go test ./...
 
+  race:
+    name: Race detector
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+      - name: Install Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Test with the race detector
+        # A job of its own: the detector needs a C compiler, which the development laptop lacks, and it makes
+        # tests several times slower, which the plain test job should not pay for.
+        run: go test -race ./...
+
   sdk:
     name: Device SDKs and examples
     runs-on: ubuntu-latest

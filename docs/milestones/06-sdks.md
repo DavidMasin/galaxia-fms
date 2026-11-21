@@ -32,15 +32,18 @@ itself stays under Team 254's licence.
 - **LED drawing** matches `static/js/led_patterns.js` on all 87 shared reference cases in every SDK.
 - **Example builds.** All 12 sketches (the examples plus the library's own) build for the ESP32 with strict
   warnings, using `examples/build_all.py --strict`.
-- **CI.** The CI workflow now has a job that runs all three SDK test suites and builds every example. It has not
-  run yet, because GitHub Actions is locked on this account by a billing issue that only David can clear.
+- **CI.** The CI workflow has a job that runs all three SDK test suites and builds every example for the ESP32
+  with strict warnings, on Linux. It has passed on every push since it was added on 2026-11-13, which is the
+  plan's check for this milestone: every example builds in CI.
+
+  Corrected on 2026-11-21: this report first said the job had not run because of the billing lock on the
+  account. The lock had already been cleared that afternoon, and I had not checked again.
 
 ## Known limits
 
 - **Not tried on hardware.** Nothing has run on a real ESP32 or Pico, or against the FMS's own broker over a real
   network. That is the first thing to do with a board in hand. Until then, the hardware side is checked only by
   the stand-ins and the builds above.
-- **CI has never run** the new job (see above).
 - **Protocol details settled after the SDKs were written.** `seq`, `ts`, `up` and several future `at` times are
   now written into the spec. The text describes what all three SDKs already do, except for one difference that
   is documented rather than changed: the Python SDK keeps 32 pending commands per channel, while Arduino and

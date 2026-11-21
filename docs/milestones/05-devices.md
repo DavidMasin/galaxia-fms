@@ -89,7 +89,7 @@ go build
 - **Hardware.** No real board has connected to the FMS's broker yet. A real serial port has not been opened
   either: the serial tests use in-memory port pairs.
 - **The race detector** needs cgo, which this laptop lacks, so the threading was reasoned about rather than
-  checked. CI runs on Linux, where it could be added.
+  checked when this was written. A CI job runs it on Linux since 2026-11-21.
 - **Lighting.**
   - Theme colours are not offered yet; they come with milestone 9.
   - With `reverse` set, chase and rainbow still run in the device's own direction.

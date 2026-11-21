@@ -29,6 +29,8 @@ type Web struct {
 	// Set when the game selection was changed while a match was on the field. The settings are reloaded, which
 	// is what takes the selection into use, once that match has been reset.
 	gameChangePending atomic.Bool
+	// Slows password guessing on the login page.
+	logins loginThrottle
 }
 
 func NewWeb(arena *field.Arena) *Web {

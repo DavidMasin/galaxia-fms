@@ -438,6 +438,37 @@ object per line:
   with the next event. The field runs either way.
 - **Reading.** `GET /api/v1/journal` lists the days and `GET /api/v1/journal/{day}` downloads one.
 
+## Known data races
+
+Found on 2026-11-21 by the first run of `go test -race` in CI. The development laptop cannot run the detector.
+
+**Clean under the detector:** `bus` (with the journal), `device`, `lighting`, `webhook`, `model`, `scoring`,
+`rules`, `gamedef` and the other packages not named below. CI requires these to stay clean.
+
+**Not clean: `field`, `web`, `websocket` and `network`.** 47 reports, 37 distinct pairs of places. All are of two
+kinds, both inherited from Cheesy Arena:
+
+1. **The arena's state has no single owner.** The arena loop reads and writes `MatchState`, `AllianceStations`,
+   `CurrentMatch`, the display modes and the driver station connections on its goroutine. Web and websocket
+   handlers, the field-action worker and the driver station listeners change the same fields from theirs, with
+   no lock. Only the live score has one (`scoreMutex`). Examples the detector caught:
+   - `Arena.LoadMatch` and `assignTeam` (called from Match Play's websocket) against the loop publishing station
+     statuses and drawing the team signs;
+   - `Arena.StartMatch` and `ResetMatch` against the phase clock in `match_phases.go`;
+   - `SetAudienceDisplayMode` called from two requests at once;
+   - a driver station connecting on one goroutine while another, closing, clears the same station
+     (`driver_station_connection.go`);
+   - `websocket.Notifier` sending to a listener's channel while that listener closes it.
+2. **Tests that share variables with their own mock servers** without a lock: `network/switch_test.go`,
+   `network/sccswitch_test.go`, `field/driver_station_connection_test.go`, and web tests that read arena fields
+   while a test server handles a websocket message.
+
+On x86 these have not been seen to misbehave, which is why upstream runs this way. But they are undefined
+behaviour in Go, and the fields involved include the ones that enable and stop robots. The fix is to give the
+arena one owner: every change from outside goes through a queue the loop drains, or through one arena lock.
+The plan called this the arena command queue (milestone 3); it was not built. Until it is, CI runs the detector
+on these four packages and reports what it finds without failing.
+
 ## The API, logins and roles (M4)
 
 **The API.** Version 1 lives under `/api/v1` and is described in [openapi.yaml](openapi.yaml), also served as
@@ -488,6 +519,11 @@ it is false every check passes, as in Cheesy Arena.
 - The settings' admin password still logs in as `admin`, a name no user may take.
 - A session stores the username; the role is looked up on every request, so a changed role or a deleted user
   takes effect at once.
+
+**Guessing passwords** (`web/login_throttle.go`). After ten failed logins from one address within a minute, the
+login page answers 429 to that address until the minute has passed. The address is the connection's own; headers
+that claim another are not believed. User passwords are also slow to check by design; the settings' admin
+password is compared directly, so this limit is what slows guessing it.
 
 **Not locking everyone out.** `checkAdminRemains` refuses any change that would leave logins on with no admin:
 making a first user that is not an admin, demoting or deleting the last admin, or clearing the admin password

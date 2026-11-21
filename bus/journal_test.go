@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -108,17 +109,35 @@ func TestJournalWritesEveryEvent(t *testing.T) {
 	}
 }
 
+// testClock is a clock a test moves by hand while the journal's goroutine reads it.
+type testClock struct {
+	mu   sync.Mutex
+	time time.Time
+}
+
+func (clock *testClock) now() time.Time {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	return clock.time
+}
+
+func (clock *testClock) advance(duration time.Duration) {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	clock.time = clock.time.Add(duration)
+}
+
 func TestJournalHasAFilePerDay(t *testing.T) {
 	b := New(100)
-	clock := time.Date(2026, 11, 20, 23, 59, 58, 0, time.Local)
-	b.now = func() time.Time { return clock }
+	clock := &testClock{time: time.Date(2026, 11, 20, 23, 59, 58, 0, time.Local)}
+	b.now = clock.now
 	dir := t.TempDir()
 	journal := NewJournal(b, dir, 0)
-	journal.now = func() time.Time { return clock }
+	journal.now = clock.now
 	require.NoError(t, journal.Start())
 
 	b.Publish("match.started", nil)
-	clock = clock.Add(5 * time.Second)
+	clock.advance(5 * time.Second)
 	b.Publish("match.phase_changed", nil)
 	b.Publish("match.ended", nil)
 	journal.Stop()

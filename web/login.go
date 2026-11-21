@@ -23,11 +23,19 @@ func (web *Web) loginHandler(w http.ResponseWriter, r *http.Request) {
 
 // Processes the login request.
 func (web *Web) loginPostHandler(w http.ResponseWriter, r *http.Request) {
+	address := clientAddress(r)
+	if web.logins.blocked(address, time.Now()) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		web.renderLogin(w, r, "Too many failed logins from this address. Wait a minute, then try again.")
+		return
+	}
 	username, err := web.checkAuthPassword(r.PostFormValue("username"), r.PostFormValue("password"))
 	if err != nil {
+		web.logins.failed(address, time.Now())
 		web.renderLogin(w, r, err.Error())
 		return
 	}
+	web.logins.succeeded(address)
 
 	session := model.UserSession{Token: uuid.New().String(), Username: username, CreatedAt: time.Now()}
 	if err := web.arena.Database.CreateUserSession(&session); err != nil {

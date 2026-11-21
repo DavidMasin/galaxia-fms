@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"github.com/DavidMasin/galaxia-fms/model"
 	gorillawebsocket "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
@@ -272,6 +273,59 @@ func TestLoginAndLogout(t *testing.T) {
 	assert.Contains(t, recorder.Header().Get("Set-Cookie"), "Max-Age=0")
 	assert.Equal(t, 307, web.request("GET", adminPage, "", session).Code)
 	assert.Equal(t, 303, web.getHttpResponse("/logout").Code)
+}
+
+func TestLoginThrottle(t *testing.T) {
+	web := setupTestWeb(t)
+	web.arena.EventSettings.AdminPassword = "the admin password"
+	login := func(address, password string) int {
+		recorder := httptest.NewRecorder()
+		request, _ := http.NewRequest("POST", "/login", strings.NewReader("username=admin&password="+password))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.RemoteAddr = address
+		web.newHandler().ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+
+	// Ten wrong guesses from one address, whatever port each comes from, and the eleventh try is turned away even
+	// with the right password. Another address is not affected.
+	for i := 0; i < loginFailureLimit; i++ {
+		assert.Equal(t, 200, login(fmt.Sprintf("10.0.100.77:%d", 50000+i), "wrong"))
+	}
+	assert.Equal(t, 429, login("10.0.100.77:50999", "wrong"))
+	assert.Equal(t, 429, login("10.0.100.77:51000", "the+admin+password"))
+	assert.Equal(t, 303, login("10.0.100.78:50000", "the+admin+password"))
+
+	// A header claiming another address does not get around it.
+	recorder := httptest.NewRecorder()
+	request, _ := http.NewRequest("POST", "/login", strings.NewReader("username=admin&password=the+admin+password"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("X-Forwarded-For", "10.0.100.99")
+	request.RemoteAddr = "10.0.100.77:51001"
+	web.newHandler().ServeHTTP(recorder, request)
+	assert.Equal(t, 429, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "Too many failed logins from this address.")
+
+	// The wait ends a minute after the failures, and a login that works wipes the slate.
+	var throttle loginThrottle
+	start := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < loginFailureLimit; i++ {
+		assert.False(t, throttle.blocked("a", start))
+		throttle.failed("a", start.Add(time.Duration(i)*time.Second))
+	}
+	assert.True(t, throttle.blocked("a", start.Add(30*time.Second)))
+	assert.False(t, throttle.blocked("b", start.Add(30*time.Second)))
+	assert.True(t, throttle.blocked("a", start.Add(59*time.Second)))
+	// The first failure has aged out, so one more try is allowed.
+	assert.False(t, throttle.blocked("a", start.Add(60*time.Second)))
+	throttle.failed("a", start.Add(60*time.Second))
+	assert.True(t, throttle.blocked("a", start.Add(60*time.Second)))
+	throttle.succeeded("a")
+	assert.False(t, throttle.blocked("a", start.Add(60*time.Second)))
+	// Addresses that stopped trying are forgotten.
+	throttle.failed("c", start)
+	assert.False(t, throttle.blocked("c", start.Add(2*time.Minute)))
+	assert.Empty(t, throttle.failures)
 }
 
 func TestAdminPasswordLoginEndsWithThePassword(t *testing.T) {

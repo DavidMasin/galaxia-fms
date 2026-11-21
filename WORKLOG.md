@@ -617,3 +617,38 @@ note. This log is left as it was written, with this entry beside it.
 the device framework, the lighting engine, the webhook dispatcher and the journal has only been reasoned about.
 The Linux runner has one. The job runs `go test -race ./...` on its own, so the plain test job stays as fast as
 it was. Its first result goes in the next entry.
+
+## 2026-11-21 21:50 - The race detector's first run, and a brake on password guessing
+
+**CI results.** The runs for `99b4b47` and `c897c54` finished: formatting, vet, build, every test, four
+cross-compiles and the SDK job all passed on Linux. The new race detector job failed, which is what it was added
+to find out.
+
+**What the race detector found: 47 reports, 37 distinct pairs of places, in four packages.**
+- **Clean:** everything built in milestones 4, 5 and 6 that runs on several goroutines: the device framework, the
+  lighting engine, the webhook dispatcher, the event bus and its journal, and storage.
+- **Not clean:** `field`, `web`, `websocket` and `network`, all inherited from Cheesy Arena. Two kinds:
+  1. The arena's state has no single owner. Its loop and the web handlers, the driver station listeners and the
+     field-action worker all read and write the match state, the stations and the display modes with no lock.
+     Only the live score has one.
+  2. Some upstream tests share variables with their own mock servers.
+- Why it matters: these have not been seen to misbehave, which is why upstream runs this way. But they are
+  undefined behaviour in Go, and the fields involved include the ones that enable and stop robots.
+- The plan had an "arena command queue" in milestone 3 for exactly this. It was never built, and no report said
+  so. That is a gap in my milestone 3 report.
+- Written up in `docs/architecture.md` under "Known data races".
+
+**CI is now honest about it rather than red.** The race job has two steps:
+- required: every package except those four, so new packages are covered without being listed;
+- reported but not required: the four inherited packages, until the arena has one owner.
+
+**A brake on password guessing.** The login page had none, and the settings' admin password is compared
+instantly. After ten failed logins from one address within a minute, that address now gets 429 until the minute
+passes. A header claiming another address is not believed. Tested, including the wait ending and a successful
+login wiping the slate.
+
+**One race of my own, fixed before CI saw it:** a journal test moved a shared clock variable while the journal's
+goroutine read it. The test's clock now has a lock.
+
+**Next, my recommendation:** give the arena one owner (the command queue) before building more on top of it. It
+touches every web handler that changes a match, so it is a milestone-sized change.

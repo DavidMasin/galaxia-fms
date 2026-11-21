@@ -112,5 +112,7 @@ Also:
   - login sessions do not expire by themselves;
   - pages are rendered without automatic HTML escaping, so the new pages escape what people type by hand.
 - **Displays have no token option yet.** They are always open.
-- **The race detector** needs cgo, which this laptop lacks. A CI job now runs it on Linux; its first results
-  are in [WORKLOG.md](../../WORKLOG.md).
+- **Data races.** A CI job now runs the race detector on Linux, which this laptop cannot. Everything built
+  for this milestone and for milestones 5 and 6 is clean. The arena, the web handlers and two smaller
+  packages inherited from Cheesy Arena are not: see
+  [architecture.md](../architecture.md#known-data-races). Fixing that is its own piece of work.

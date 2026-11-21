@@ -67,6 +67,10 @@ go build
 
 ## Known limits
 
+- **The arena command queue was not built** (added to this report on 2026-11-21; it should have been listed here
+  from the start). The plan put it in this milestone: one owner for the arena's state, so that web handlers do
+  not change it under the arena loop. The arena still works the way Cheesy Arena does, and the race detector
+  confirms the consequence: see [architecture.md](../architecture.md#known-data-races).
 - Only games with two alliances of up to three robots can be played on the field. Three- and four-alliance games
   work in the editor sandbox. Generic alliances and stations come after the device work.
 - Results stored by earlier builds, or by Cheesy Arena, are not converted. A fresh event database is needed.

@@ -652,3 +652,20 @@ goroutine read it. The test's clock now has a lock.
 
 **Next, my recommendation:** give the arena one owner (the command queue) before building more on top of it. It
 touches every web handler that changes a match, so it is a milestone-sized change.
+
+## 2026-11-21 21:57 - CI green with the reworked race job; the arena fix sized
+
+**CI for `dca2f6e`: every job passed.** I read the race job's log rather than trust its green tick, because a
+step that is allowed to fail shows as passed either way:
+- the required step passed for all 15 packages with tests outside the four inherited ones;
+- the reporting step still found the inherited races: 41 reports in 29 pairs this run, against 47 in 37 on the
+  first. The count varies from run to run, as races do.
+
+**How big the arena fix is.** Web handlers call 40 different arena methods from 85 places, and read arena fields
+directly in a few hundred more (settings, the game, the current match). The contained way to give the arena one
+owner is one arena lock, taken by each pass of the loop and by each of those entry points, rather than a queue.
+The tests that poke arena fields while a test server runs would need the same lock.
+
+**Milestone 3's report** now says the command queue was not built. It should have said so from the start.
+
+**Stopped here.** The test copy and both receivers are stopped; nothing of mine is left listening.

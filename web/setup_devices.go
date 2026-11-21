@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -113,8 +114,14 @@ func (web *Web) devicesPageState(requestHost string) devicesPageState {
 }
 
 func (web *Web) devicesPageMqtt(requestHost string) devicesPageMqtt {
+	// The operating system is asked for this computer's addresses, when they have to be asked for again, without
+	// the arena's lock.
+	var addresses []string
+	web.arena.Unlocked(func() {
+		addresses = localIpv4Addresses()
+	})
 	mqtt := devicesPageMqtt{
-		Hosts: deviceHostCandidates(requestHost, localIpv4Addresses()),
+		Hosts: deviceHostCandidates(requestHost, addresses),
 		Port:  web.arena.EventSettings.DeviceMqttPort, WsPort: web.arena.EventSettings.DeviceMqttWsPort,
 	}
 	// A running broker says which ports it really has.
@@ -167,8 +174,30 @@ func deviceHostCandidates(requestHost string, local []string) []string {
 	return hosts
 }
 
-// localIpv4Addresses returns this computer's IPv4 addresses, without loopback and link-local ones.
+// How long the list of this computer's addresses is kept before the operating system is asked again.
+const localAddressesMaxAge = 10 * time.Second
+
+// localAddresses remembers what the operating system last said. Asking takes tens of milliseconds on Windows, and
+// the device pages ask, with the arena's lock held, every time they refresh.
+var localAddresses struct {
+	sync.Mutex
+	listed    time.Time
+	addresses []string
+}
+
+// localIpv4Addresses returns this computer's IPv4 addresses, without loopback and link-local ones, as they were at
+// most localAddressesMaxAge ago.
 func localIpv4Addresses() []string {
+	localAddresses.Lock()
+	defer localAddresses.Unlock()
+	if localAddresses.listed.IsZero() || time.Since(localAddresses.listed) > localAddressesMaxAge {
+		localAddresses.addresses = listLocalIpv4Addresses()
+		localAddresses.listed = time.Now()
+	}
+	return append([]string(nil), localAddresses.addresses...)
+}
+
+func listLocalIpv4Addresses() []string {
 	var addresses []string
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -225,9 +254,14 @@ func (web *Web) devicesPageWebsocketHandler(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+// feedDevicesPage runs on a goroutine of its own, without the arena's lock.
 func (web *Web) feedDevicesPage(ws *websocket.Websocket, events *bus.Subscription, requestHost string) {
 	sendState := func() bool {
-		return ws.Write("devices", web.devicesPageState(requestHost)) == nil
+		var state devicesPageState
+		web.arena.Do(func() {
+			state = web.devicesPageState(requestHost)
+		})
+		return ws.Write("devices", state) == nil
 	}
 	if !sendState() {
 		return

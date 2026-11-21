@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -17,8 +18,13 @@ func TestWebsocket(t *testing.T) {
 	// Set up some fake notifiers.
 	notifier1 := NewNotifier("messageType1", func() any { return "test message" })
 	notifier2 := NewNotifier("messageType2", nil)
+	// The third notifier describes a value that changes. The lock that guards the value is the notifier's producer
+	// lock: the server reads the value under it for each client that connects, and the test holds it to change the
+	// value and notify.
+	var valueMutex sync.Mutex
 	changingValue := 123.45
 	notifier3 := NewNotifier("messageType3", func() any { return changingValue })
+	notifier3.SetProducerLocker(&valueMutex)
 
 	// Start up a fake server with a trivial websocket handler.
 	testWebsocketHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -76,9 +82,11 @@ func TestWebsocket(t *testing.T) {
 	assertMessage(t, ws, "messageType1", "test message")
 	notifier3.Notify()
 	assertMessage(t, ws, "messageType3", changingValue)
+	valueMutex.Lock()
 	changingValue = 254.254
 	notifier3.Notify()
-	assertMessage(t, ws, "messageType3", changingValue)
+	valueMutex.Unlock()
+	assertMessage(t, ws, "messageType3", 254.254)
 	notifier1.NotifyWithMessage("test message 2")
 	assertMessage(t, ws, "messageType1", "test message 2")
 	notifier3.NotifyWithMessage("test message 3")
@@ -92,19 +100,39 @@ func TestWebsocket(t *testing.T) {
 	ws.Write("sendError", nil)
 	assertMessage(t, ws, "error", "error message")
 
+	// While held, messages are kept back in order, and released together.
+	ws.Hold()
+	assert.Nil(t, ws.Write("messageType5", "held 1"))
+	assert.Nil(t, ws.Write("messageType5", map[string]int{"held": 2}))
+	assert.Equal(t, 2, len(ws.pending))
+	assert.NotNil(t, ws.Write("messageType5", make(chan int)), "what cannot be written as JSON is refused at once")
+	assert.Nil(t, ws.Release())
+	assert.Equal(t, 0, len(ws.pending))
+	assertMessage(t, ws, "messageType5", "held 1")
+	assertMessage(t, ws, "messageType5", map[string]any{"held": 2.0})
+	assert.Nil(t, ws.Release(), "releasing with nothing held is harmless")
+	ws.Write("messageType4", "sent at once again")
+	assertMessage(t, ws, "messageType4", "sent at once again")
+
 	// Ensure the read times out if there is nothing to read.
 	_, _, err = ws.ReadWithTimeout(time.Millisecond)
 	if assert.NotNil(t, err) {
 		assert.Contains(t, err.Error(), "timed out")
 	}
 
-	// Test that closing the connection eliminates the listeners once another message is sent.
+	// Test that closing the connection eliminates the listeners: the server's side notices when it next reads or
+	// writes, and then stops listening to every notifier.
 	assert.Nil(t, ws.Close())
-	time.Sleep(time.Millisecond)
-	notifier1.Notify()
-	time.Sleep(time.Millisecond)
-	notifier1.Notify()
-	assert.Equal(t, 0, len(notifier1.listeners))
+	assert.Eventually(t, func() bool {
+		notifier1.Notify()
+		return listenerCount(notifier1) == 0 && listenerCount(notifier2) == 0 && listenerCount(notifier3) == 0
+	}, 5*time.Second, 5*time.Millisecond)
+}
+
+func listenerCount(notifier *Notifier) int {
+	notifier.mutex.Lock()
+	defer notifier.mutex.Unlock()
+	return len(notifier.listeners)
 }
 
 func assertMessage(t *testing.T, ws *Websocket, expectedMessageType string, expectedMessageBody any) {

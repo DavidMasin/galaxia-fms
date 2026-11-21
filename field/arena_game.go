@@ -217,7 +217,9 @@ func (arena *Arena) applyPendingGame() {
 func (arena *Arena) watchGames() {
 	for {
 		time.Sleep(gamesPollPeriodSec * time.Second)
-		arena.ReloadGames()
+		arena.Do(func() {
+			arena.ReloadGames()
+		})
 	}
 }
 

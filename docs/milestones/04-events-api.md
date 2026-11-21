@@ -114,5 +114,5 @@ Also:
 - **Displays have no token option yet.** They are always open.
 - **Data races.** A CI job now runs the race detector on Linux, which this laptop cannot. Everything built
   for this milestone and for milestones 5 and 6 is clean. The arena, the web handlers and two smaller
-  packages inherited from Cheesy Arena are not: see
-  [architecture.md](../architecture.md#known-data-races). Fixing that is its own piece of work.
+  packages inherited from Cheesy Arena were not. **Fixed on 2026-11-21**: every package is clean and CI requires
+  it; see [architecture.md](../architecture.md#the-arenas-lock).

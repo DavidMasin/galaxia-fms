@@ -68,18 +68,36 @@ var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,40}$`)
 
 // CreateUser stores a new user with the given password.
 func (database *Database) CreateUser(username, password string, role Role) (*User, error) {
-	if err := database.checkUsername(username, 0); err != nil {
+	if err := database.CheckNewUser(username, role); err != nil {
 		return nil, err
-	}
-	if !role.Valid() {
-		return nil, fmt.Errorf("%q is not a role", role)
 	}
 	hash, err := HashPassword(password)
 	if err != nil {
 		return nil, err
 	}
+	return database.CreateUserWithHash(username, hash, role)
+}
+
+// CheckNewUser says why a user with the given login and role could not be created, if it could not.
+func (database *Database) CheckNewUser(username string, role Role) error {
+	if err := database.checkUsername(username, 0); err != nil {
+		return err
+	}
+	if !role.Valid() {
+		return fmt.Errorf("%q is not a role", role)
+	}
+	return nil
+}
+
+// CreateUserWithHash stores a new user whose password has already been hashed with HashPassword. It is for callers
+// that must not be held up by the hashing, which is slow on purpose: they check with CheckNewUser, hash, and call
+// this.
+func (database *Database) CreateUserWithHash(username, hash string, role Role) (*User, error) {
+	if err := database.CheckNewUser(username, role); err != nil {
+		return nil, err
+	}
 	user := User{Username: username, PasswordHash: hash, Role: role, CreatedAt: time.Now()}
-	if err = database.userTable.create(&user); err != nil {
+	if err := database.userTable.create(&user); err != nil {
 		return nil, err
 	}
 	return &user, nil

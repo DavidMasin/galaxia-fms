@@ -66,44 +66,46 @@ func (web *Web) displaysWebsocketHandler(w http.ResponseWriter, r *http.Request)
 			return
 		}
 
-		switch messageType {
-		case "configureDisplay":
-			var request struct {
-				field.DisplayConfiguration `mapstructure:",squash"`
-				RequestId                  string
-			}
-			err = mapstructure.Decode(data, &request)
-			var revision uint64
-			if err == nil {
-				revision, err = web.arena.UpdateDisplay(request.DisplayConfiguration)
-			}
-			if request.RequestId != "" {
-				result := struct {
-					Id        string
-					RequestId string
-					Revision  uint64
-					Error     string
-				}{Id: request.Id, RequestId: request.RequestId, Revision: revision}
-				if err != nil {
-					result.Error = err.Error()
+		web.withArena(ws, func() {
+			switch messageType {
+			case "configureDisplay":
+				var request struct {
+					field.DisplayConfiguration `mapstructure:",squash"`
+					RequestId                  string
 				}
-				if err = ws.Write("displayConfigurationSaved", result); err != nil {
+				err = mapstructure.Decode(data, &request)
+				var revision uint64
+				if err == nil {
+					revision, err = web.arena.UpdateDisplay(request.DisplayConfiguration)
+				}
+				if request.RequestId != "" {
+					result := struct {
+						Id        string
+						RequestId string
+						Revision  uint64
+						Error     string
+					}{Id: request.Id, RequestId: request.RequestId, Revision: revision}
+					if err != nil {
+						result.Error = err.Error()
+					}
+					if err = ws.Write("displayConfigurationSaved", result); err != nil {
+						return
+					}
+				} else if err != nil {
+					writeWebsocketError(ws, err.Error())
+				}
+			case "reloadDisplay":
+				displayId, ok := data.(string)
+				if !ok {
+					writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
 					return
 				}
-			} else if err != nil {
-				writeWebsocketError(ws, err.Error())
+				web.arena.ReloadDisplaysNotifier.NotifyWithMessage(displayId)
+			case "reloadAllDisplays":
+				web.arena.ReloadDisplaysNotifier.Notify()
+			default:
+				writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
 			}
-		case "reloadDisplay":
-			displayId, ok := data.(string)
-			if !ok {
-				writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
-				continue
-			}
-			web.arena.ReloadDisplaysNotifier.NotifyWithMessage(displayId)
-		case "reloadAllDisplays":
-			web.arena.ReloadDisplaysNotifier.Notify()
-		default:
-			writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
-		}
+		})
 	}
 }

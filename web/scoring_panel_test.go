@@ -17,9 +17,7 @@ import (
 
 // liveState returns the raw score state of the match on the field.
 func liveState(t *testing.T, web *Web) *scoring.State {
-	matchResult, err := web.arena.BuildMatchResult()
-	assert.Nil(t, err)
-	return matchResult.State
+	return mustBuildMatchResult(t, web).State
 }
 
 // scoreData builds the data of a "score" command.
@@ -95,14 +93,23 @@ func TestScoringPanelWebsocket(t *testing.T) {
 	assert.Nil(t, err)
 	defer redConn.Close()
 	redWs := websocket.NewTestWebsocket(redConn)
-	assert.Equal(t, 1, web.arena.ScoringPanelRegistry.GetNumPanels("red_near"))
+	// A panel is registered just after its connection is made, so the count follows the dial by a moment.
+	panelsConnected := func(position string, count int) {
+		assert.Eventually(
+			t,
+			func() bool { return web.arena.ScoringPanelRegistry.GetNumPanels(position) == count },
+			time.Second,
+			5*time.Millisecond,
+		)
+	}
+	panelsConnected("red_near", 1)
 	assert.Equal(t, 0, web.arena.ScoringPanelRegistry.GetNumPanels("blue_near"))
 	blueConn, _, err := gorillawebsocket.DefaultDialer.Dial(wsUrl+"/panels/scoring/blue_near/websocket", nil)
 	assert.Nil(t, err)
 	defer blueConn.Close()
 	blueWs := websocket.NewTestWebsocket(blueConn)
+	panelsConnected("blue_near", 1)
 	assert.Equal(t, 1, web.arena.ScoringPanelRegistry.GetNumPanels("red_near"))
-	assert.Equal(t, 1, web.arena.ScoringPanelRegistry.GetNumPanels("blue_near"))
 
 	// Should get a few status updates right after connection, the game before anything that is made of it.
 	for _, ws := range []*websocket.Websocket{redWs, blueWs} {
@@ -203,9 +210,10 @@ func TestScoringPanelWebsocket(t *testing.T) {
 
 	// Once its phase is well over, an element that only accepts that phase is closed to the scorers, while the
 	// others stay open. A scorer cannot name another phase to get around that.
-	web.arena.MatchStartTime = time.Now().Add(-40 * time.Second)
-	web.arena.Update()
-	assert.Equal(t, "shift1", web.arena.CurrentPhase().ID)
+	setTestMatchTime(web, 40)
+	web.arena.Do(func() {
+		assert.Equal(t, "shift1", web.arena.CurrentPhase().ID)
+	})
 	redWs.Write("score", scoreData("red", 2, "auto_tower", "set", "level1", "auto"))
 	assert.Contains(t, readWebsocketUntil(t, redWs, "error"), "does not accept changes during the shift1 phase")
 	redWs.Write("score", scoreData("red", 1, "endgame_tower", "set", "level2", ""))
@@ -232,7 +240,9 @@ func TestScoringPanelWebsocket(t *testing.T) {
 	// After the match everything can be put right, including what was closed. A counter is kept per phase, so the
 	// scorer has to say which phase a correction belongs to.
 	endTestMatch(web)
-	assert.Equal(t, field.PostMatch, web.arena.MatchState)
+	web.arena.Do(func() {
+		assert.Equal(t, field.PostMatch, web.arena.MatchState)
+	})
 	redWs.Write("score", scoreData("red", 2, "auto_tower", "set", "level1", ""))
 	redWs.Write("score", scoreData("red", 0, "fuel", "increment", 2, ""))
 	assert.Contains(t, readWebsocketUntil(t, redWs, "error"), "say which phase this change is credited to")
@@ -295,8 +305,10 @@ func TestScoringPanelWebsocket(t *testing.T) {
 	assert.Equal(t, 1, web.arena.ScoringPanelRegistry.GetNumPanels("red_far"))
 
 	// Load another match to reset the results.
-	web.arena.ResetMatch()
-	web.arena.LoadTestMatch()
+	web.arena.Do(func() {
+		web.arena.ResetMatch()
+		web.arena.LoadTestMatch()
+	})
 	readWebsocketUntil(t, redWs, "matchLoad")
 	assert.Equal(t, 0, web.arena.ScoringPanelRegistry.GetNumScoreCommitted("red_near"))
 	assert.Equal(t, 0, web.arena.ScoringPanelRegistry.GetNumScoreCommitted("blue_near"))
@@ -325,9 +337,10 @@ func TestScoringPanelWebsocketBallCount(t *testing.T) {
 		ws.Write("score", scoreData("blue", 0, "balls", "increment", nil, ""))
 		readWebsocketUntil(t, ws, "scoreChange")
 	}
-	web.arena.MatchStartTime = time.Now().Add(-30 * time.Second)
-	web.arena.Update()
-	assert.Equal(t, "teleop", web.arena.CurrentPhase().ID)
+	setTestMatchTime(web, 30)
+	web.arena.Do(func() {
+		assert.Equal(t, "teleop", web.arena.CurrentPhase().ID)
+	})
 	ws.Write("score", scoreData("blue", 0, "balls", "increment", 5, ""))
 	readWebsocketUntil(t, ws, "scoreChange")
 	assert.Equal(t, map[string]int{"auto": 3, "teleop": 5}, liveState(t, web).Alliances["blue"].Elements["balls"].Counts)
@@ -338,7 +351,11 @@ func TestScoringPanelWebsocketBallCount(t *testing.T) {
 
 // mustBuildMatchResult returns the result of the match on the field as it stands.
 func mustBuildMatchResult(t *testing.T, web *Web) *model.MatchResult {
-	matchResult, err := web.arena.BuildMatchResult()
-	assert.Nil(t, err)
+	var matchResult *model.MatchResult
+	web.arena.Do(func() {
+		var err error
+		matchResult, err = web.arena.BuildMatchResult()
+		assert.Nil(t, err)
+	})
 	return matchResult
 }

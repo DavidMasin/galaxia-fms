@@ -155,6 +155,19 @@ func (arena *Arena) configureNotifiers() {
 	arena.ScoreChangeNotifier = websocket.NewNotifier("scoreChange", nil)
 	arena.ScorePostedNotifier = websocket.NewNotifier("scorePosted", arena.GenerateScorePostedMessage)
 	arena.ScoringStatusNotifier = websocket.NewNotifier("scoringStatus", arena.generateScoringStatusMessage)
+
+	// The messages describe the arena's state, so they are made with the arena's lock held: by whoever notifies,
+	// who has it, and by the notifier itself for a client that has just connected. The display registry has a lock
+	// of its own, and so does its notifier.
+	for _, notifier := range []*websocket.Notifier{
+		arena.AllianceSelectionNotifier, arena.AllianceStationDisplayModeNotifier, arena.ArenaStatusNotifier,
+		arena.AudienceDisplayModeNotifier, arena.EventStatusNotifier, arena.GameNotifier, arena.LowerThirdNotifier,
+		arena.MatchLoadNotifier, arena.MatchTimeNotifier, arena.RealtimeScoreNotifier, arena.ScorePostedNotifier,
+		arena.ScoringStatusNotifier,
+	} {
+		notifier.SetProducerLocker(arena)
+	}
+	arena.DisplayConfigurationNotifier.SetProducerLocker(&displayRegistryMutex)
 }
 
 func (arena *Arena) generateAllianceSelectionMessage() any {
@@ -197,10 +210,10 @@ func (arena *Arena) generateArenaStatusMessage() any {
 		arena.MatchState,
 		len(startMatchConditions) == 0,
 		startMatchConditions,
-		arena.accessPoint.Status,
-		arena.networkSwitch.Status,
-		arena.redSCC.Status,
-		arena.blueSCC.Status,
+		arena.accessPoint.GetStatus(),
+		arena.networkSwitch.GetStatus(),
+		arena.redSCC.GetStatus(),
+		arena.blueSCC.GetStatus(),
 		arena.Plc.IsHealthy(),
 		arena.Plc.GetFieldEStop(),
 		arena.Plc.IsFtaReady(),

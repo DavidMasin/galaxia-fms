@@ -19,17 +19,12 @@ import (
 	"net/http"
 	"reflect"
 	"sort"
-	"sync"
 	"time"
 )
 
 // How often Match Play compares the device faults with what it last showed, besides on every fault event: deleting
 // a faulted device drops its faults without one.
 const matchPlayDeviceFaultsPeriod = 2 * time.Second
-
-// matchFlowMutex serialises committing a match and loading the next one: the Commit & Post button, the Discard
-// Results button and the field devices bound to commit and next_match may all ask at the same moment.
-var matchFlowMutex sync.Mutex
 
 type MatchPlayListItem struct {
 	Id         int
@@ -165,241 +160,262 @@ func (web *Web) matchPlayWebsocketHandler(w http.ResponseWriter, r *http.Request
 			return
 		}
 
-		switch messageType {
-		case "loadMatch":
-			args := struct {
-				MatchId int
-			}{}
-			err = mapstructure.Decode(data, &args)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-			err = web.arena.ResetMatch()
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-			web.applyPendingGameChange()
-			if args.MatchId == 0 {
-				err = web.arena.LoadTestMatch()
-			} else {
+		web.withArena(ws, func() {
+			switch messageType {
+			case "loadMatch":
+				args := struct {
+					MatchId int
+				}{}
+				err = mapstructure.Decode(data, &args)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+				err = web.arena.ResetMatch()
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+				web.applyPendingGameChange()
+				if args.MatchId == 0 {
+					err = web.arena.LoadTestMatch()
+				} else {
+					match, err := web.arena.Database.GetMatchById(args.MatchId)
+					if err != nil {
+						writeWebsocketError(ws, err.Error())
+						return
+					}
+					if match == nil {
+						writeWebsocketError(ws, fmt.Sprintf("invalid match ID %d", args.MatchId))
+						return
+					}
+					err = web.arena.LoadMatch(match)
+				}
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "showResult":
+				args := struct {
+					MatchId int
+				}{}
+				err = mapstructure.Decode(data, &args)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+				if args.MatchId == 0 {
+					// Load an empty match to effectively clear the buffer. Like any result, an empty one needs the game it
+					// belongs to stored in order to be computed.
+					if err = web.arena.Database.SaveGameSnapshot(web.arena.Game); err != nil {
+						writeWebsocketError(ws, err.Error())
+						return
+					}
+					web.arena.SavedMatch = &model.Match{}
+					web.arena.SavedMatchResult = model.NewMatchResult(web.arena.Game)
+					web.arena.SavedRankings = []model.Ranking{}
+					web.arena.ScorePostedNotifier.Notify()
+					return
+				}
 				match, err := web.arena.Database.GetMatchById(args.MatchId)
 				if err != nil {
 					writeWebsocketError(ws, err.Error())
-					continue
+					return
 				}
 				if match == nil {
 					writeWebsocketError(ws, fmt.Sprintf("invalid match ID %d", args.MatchId))
-					continue
+					return
 				}
-				err = web.arena.LoadMatch(match)
-			}
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "showResult":
-			args := struct {
-				MatchId int
-			}{}
-			err = mapstructure.Decode(data, &args)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-			if args.MatchId == 0 {
-				// Load an empty match to effectively clear the buffer. Like any result, an empty one needs the game it
-				// belongs to stored in order to be computed.
-				if err = web.arena.Database.SaveGameSnapshot(web.arena.Game); err != nil {
-					writeWebsocketError(ws, err.Error())
-					continue
-				}
-				web.arena.SavedMatch = &model.Match{}
-				web.arena.SavedMatchResult = model.NewMatchResult(web.arena.Game)
-				web.arena.SavedRankings = []model.Ranking{}
-				web.arena.ScorePostedNotifier.Notify()
-				continue
-			}
-			match, err := web.arena.Database.GetMatchById(args.MatchId)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-			if match == nil {
-				writeWebsocketError(ws, fmt.Sprintf("invalid match ID %d", args.MatchId))
-				continue
-			}
-			matchResult, err := web.arena.Database.GetMatchResultForMatch(match.Id)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-			if matchResult == nil {
-				writeWebsocketError(ws, fmt.Sprintf("No result found for match ID %d.", args.MatchId))
-				continue
-			}
-			if match.ShouldUpdateRankings() {
-				web.arena.SavedRankings, err = web.arena.Database.GetAllRankings()
+				matchResult, err := web.arena.Database.GetMatchResultForMatch(match.Id)
 				if err != nil {
 					writeWebsocketError(ws, err.Error())
-					continue
+					return
 				}
-			} else {
-				web.arena.SavedRankings = []model.Ranking{}
-			}
-			web.arena.SavedMatch = match
-			web.arena.SavedMatchResult = matchResult
-			web.arena.ScorePostedNotifier.Notify()
-		case "substituteTeams":
-			args := struct {
-				Red1  int
-				Red2  int
-				Red3  int
-				Blue1 int
-				Blue2 int
-				Blue3 int
-			}{}
-			err = mapstructure.Decode(data, &args)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-			err = web.arena.SubstituteTeams(args.Red1, args.Red2, args.Red3, args.Blue1, args.Blue2, args.Blue3)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "toggleBypass":
-			station, ok := data.(string)
-			if !ok {
-				writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
-				continue
-			}
-			err = web.arena.ToggleBypass(station)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "startMatch":
-			args := struct {
-				MuteMatchSounds bool
-			}{}
-			err = mapstructure.Decode(data, &args)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-			web.arena.MuteMatchSounds = args.MuteMatchSounds
-			err = web.arena.StartMatch()
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "abortMatch":
-			err = web.arena.AbortMatch()
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "signalVolunteers":
-			web.arena.SignalVolunteers()
-		case "signalReset":
-			web.arena.SignalReset()
-		case "commitAndPost":
-			err = web.commitPostAndLoadNextMatch()
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "discardResults":
-			err = web.resetAndLoadNextMatch()
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "clearDeviceFaults":
-			err = web.arena.Devices.ClearAllFaults()
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "setAudienceDisplay":
-			mode, ok := data.(string)
-			if !ok {
-				writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
-				continue
-			}
-			web.arena.SetAudienceDisplayMode(mode)
-		case "setAllianceStationDisplay":
-			mode, ok := data.(string)
-			if !ok {
-				writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
-				continue
-			}
-			web.arena.SetAllianceStationDisplayMode(mode)
-		case "startTimeout":
-			var timeoutSettings struct {
-				Description   string
-				NextMatchName string
-				DurationSec   float64
-			}
-			durationSec, ok := data.(float64)
-			if ok {
-				timeoutSettings.Description = defaultTimeoutDescription
-				timeoutSettings.DurationSec = durationSec
-			} else {
-				err = mapstructure.Decode(data, &timeoutSettings)
-				if err != nil || timeoutSettings.DurationSec == 0 {
+				if matchResult == nil {
+					writeWebsocketError(ws, fmt.Sprintf("No result found for match ID %d.", args.MatchId))
+					return
+				}
+				if match.ShouldUpdateRankings() {
+					web.arena.SavedRankings, err = web.arena.Database.GetAllRankings()
+					if err != nil {
+						writeWebsocketError(ws, err.Error())
+						return
+					}
+				} else {
+					web.arena.SavedRankings = []model.Ranking{}
+				}
+				web.arena.SavedMatch = match
+				web.arena.SavedMatchResult = matchResult
+				web.arena.ScorePostedNotifier.Notify()
+			case "substituteTeams":
+				args := struct {
+					Red1  int
+					Red2  int
+					Red3  int
+					Blue1 int
+					Blue2 int
+					Blue3 int
+				}{}
+				err = mapstructure.Decode(data, &args)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+				err = web.arena.SubstituteTeams(args.Red1, args.Red2, args.Red3, args.Blue1, args.Blue2, args.Blue3)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "toggleBypass":
+				station, ok := data.(string)
+				if !ok {
 					writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
-					continue
+					return
+				}
+				err = web.arena.ToggleBypass(station)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "startMatch":
+				args := struct {
+					MuteMatchSounds bool
+				}{}
+				err = mapstructure.Decode(data, &args)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+				web.arena.MuteMatchSounds = args.MuteMatchSounds
+				err = web.arena.StartMatch()
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "abortMatch":
+				err = web.arena.AbortMatch()
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "signalVolunteers":
+				web.arena.SignalVolunteers()
+			case "signalReset":
+				web.arena.SignalReset()
+			case "commitAndPost":
+				err = web.commitPostAndLoadNextMatch()
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "discardResults":
+				err = web.resetAndLoadNextMatch()
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "clearDeviceFaults":
+				err = web.arena.Devices.ClearAllFaults()
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "setAudienceDisplay":
+				mode, ok := data.(string)
+				if !ok {
+					writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
+					return
+				}
+				web.arena.SetAudienceDisplayMode(mode)
+			case "setAllianceStationDisplay":
+				mode, ok := data.(string)
+				if !ok {
+					writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
+					return
+				}
+				web.arena.SetAllianceStationDisplayMode(mode)
+			case "startTimeout":
+				var timeoutSettings struct {
+					Description   string
+					NextMatchName string
+					DurationSec   float64
+				}
+				durationSec, ok := data.(float64)
+				if ok {
+					timeoutSettings.Description = defaultTimeoutDescription
+					timeoutSettings.DurationSec = durationSec
+				} else {
+					err = mapstructure.Decode(data, &timeoutSettings)
+					if err != nil || timeoutSettings.DurationSec == 0 {
+						writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
+						return
+					}
+					if timeoutSettings.Description == "" {
+						timeoutSettings.Description = defaultTimeoutDescription
+					}
+				}
+				err = web.arena.StartAdHocTimeout(
+					timeoutSettings.Description, timeoutSettings.NextMatchName, int(timeoutSettings.DurationSec),
+				)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "setTimeoutDisplay":
+				var timeoutSettings struct {
+					Description   string
+					NextMatchName string
+				}
+				err = mapstructure.Decode(data, &timeoutSettings)
+				if err != nil {
+					ws.WriteError(fmt.Sprintf("Failed to parse '%s' message.", messageType))
+					return
 				}
 				if timeoutSettings.Description == "" {
 					timeoutSettings.Description = defaultTimeoutDescription
 				}
+				web.arena.SetTimeoutDisplay(timeoutSettings.Description, timeoutSettings.NextMatchName)
+			case "setTestMatchName":
+				if web.arena.CurrentMatch.Type != model.Test {
+					// Don't allow changing the name of a non-test match.
+					return
+				}
+				name, ok := data.(string)
+				if !ok {
+					writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
+					return
+				}
+				web.arena.CurrentMatch.LongName = name
+				web.arena.MatchLoadNotifier.Notify()
+			default:
+				writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
 			}
-			err = web.arena.StartAdHocTimeout(
-				timeoutSettings.Description, timeoutSettings.NextMatchName, int(timeoutSettings.DurationSec),
-			)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "setTimeoutDisplay":
-			var timeoutSettings struct {
-				Description   string
-				NextMatchName string
-			}
-			err = mapstructure.Decode(data, &timeoutSettings)
-			if err != nil {
-				ws.WriteError(fmt.Sprintf("Failed to parse '%s' message.", messageType))
-				continue
-			}
-			if timeoutSettings.Description == "" {
-				timeoutSettings.Description = defaultTimeoutDescription
-			}
-			web.arena.SetTimeoutDisplay(timeoutSettings.Description, timeoutSettings.NextMatchName)
-		case "setTestMatchName":
-			if web.arena.CurrentMatch.Type != model.Test {
-				// Don't allow changing the name of a non-test match.
-				continue
-			}
-			name, ok := data.(string)
-			if !ok {
-				writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
-				continue
-			}
-			web.arena.CurrentMatch.LongName = name
-			web.arena.MatchLoadNotifier.Notify()
-		default:
-			writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
-		}
+		})
 	}
 }
 
+// beginMatchFlow is called before committing a match or loading the next one, and refuses if either is under way:
+// the Commit & Post button, the Discard Results button and the field devices bound to commit and next_match may all
+// ask at the same moment. The arena's lock is not enough to keep them apart, because both steps let go of it while
+// they wait, for the backup to be written and for Nexus to answer. The second to ask is refused rather than made to
+// wait: it holds the arena's lock, which the first needs to finish.
+func (web *Web) beginMatchFlow() error {
+	if web.matchFlowBusy {
+		return fmt.Errorf("a match is being committed or loaded right now; try again in a moment")
+	}
+	web.matchFlowBusy = true
+	return nil
+}
+
+func (web *Web) endMatchFlow() {
+	web.matchFlowBusy = false
+}
+
 func (web *Web) commitPostAndLoadNextMatch() error {
-	matchFlowMutex.Lock()
-	defer matchFlowMutex.Unlock()
+	if err := web.beginMatchFlow(); err != nil {
+		return err
+	}
+	defer web.endMatchFlow()
 	if web.arena.MatchState != field.PostMatch {
 		return fmt.Errorf("cannot commit match while it is in progress")
 	}
@@ -411,7 +427,7 @@ func (web *Web) commitPostAndLoadNextMatch() error {
 
 	web.arena.SetAudienceDisplayMode("score")
 	if web.arena.EventSettings.AutoAudienceDisplayEnabled {
-		go web.arena.AutomateAudienceDisplay(web.arena.CurrentMatch)
+		go web.arena.AutomateAudienceDisplay(web.arena.CurrentMatch.LongName)
 	}
 
 	err = web.arena.ResetMatch()
@@ -426,8 +442,10 @@ func (web *Web) commitPostAndLoadNextMatch() error {
 // resetAndLoadNextMatch clears the field and loads the first unplayed match, dropping the results of the match on the
 // field if there are any: what the Discard Results button does.
 func (web *Web) resetAndLoadNextMatch() error {
-	matchFlowMutex.Lock()
-	defer matchFlowMutex.Unlock()
+	if err := web.beginMatchFlow(); err != nil {
+		return err
+	}
+	defer web.endMatchFlow()
 	if err := web.arena.ResetMatch(); err != nil {
 		return err
 	}
@@ -613,13 +631,16 @@ func (web *Web) commitMatchScore(match *model.Match, matchResult *model.MatchRes
 		}
 
 		if web.arena.EventSettings.TbaPublishingEnabled {
-			// Publish asynchronously to The Blue Alliance.
+			// Publish asynchronously to The Blue Alliance. The goroutine is handed what it needs: the arena is not
+			// its to read.
+			tbaClient, database, game := web.arena.TbaClient, web.arena.Database, web.arena.Game
+			publishRankings := match.ShouldUpdateRankings()
 			go func() {
-				if err := web.arena.TbaClient.PublishMatches(web.arena.Database); err != nil {
+				if err := tbaClient.PublishMatches(database); err != nil {
 					log.Printf("Failed to publish matches: %s", err.Error())
 				}
-				if match.ShouldUpdateRankings() {
-					if err := web.arena.TbaClient.PublishRankings(web.arena.Database, web.arena.Game); err != nil {
+				if publishRankings {
+					if err := tbaClient.PublishRankings(database, game); err != nil {
 						log.Printf("Failed to publish rankings: %s", err.Error())
 					}
 				}
@@ -628,16 +649,15 @@ func (web *Web) commitMatchScore(match *model.Match, matchResult *model.MatchRes
 
 		if web.arena.EventSettings.NexusAutoQueueEnabled && !isMatchReviewEdit {
 			// Trigger Nexus AutoQueue asynchronously, ignoring errors.
+			nexusClient := web.arena.NexusClient
+			longName, typeOrder, status := match.LongName, match.TypeOrder, match.Status
 			go func() {
-				web.arena.NexusClient.AutoQueue(match.LongName, match.TypeOrder, match.Status)
+				nexusClient.AutoQueue(longName, typeOrder, status)
 			}()
 		}
 
 		// Back up the database, but don't error out if it fails.
-		err = web.arena.Database.Backup(
-			web.arena.EventSettings.Name, fmt.Sprintf("post_%s_match_%s", match.Type, match.ShortName),
-		)
-		if err != nil {
+		if err = web.backupDatabase(fmt.Sprintf("post_%s_match_%s", match.Type, match.ShortName)); err != nil {
 			log.Println(err)
 		}
 	}

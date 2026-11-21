@@ -108,8 +108,16 @@ func (web *Web) checkAuthPassword(username, password string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if user != nil && model.CheckPassword(user.PasswordHash, password) {
-		return user.Username, nil
+	if user != nil {
+		// Checking a password takes a noticeable time, which is what makes guessing slow. The arena is not kept
+		// waiting for it.
+		var matches bool
+		web.arena.Unlocked(func() {
+			matches = model.CheckPassword(user.PasswordHash, password)
+		})
+		if matches {
+			return user.Username, nil
+		}
 	}
 	return "", fmt.Errorf("Invalid login credentials.")
 }

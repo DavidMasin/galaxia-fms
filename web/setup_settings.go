@@ -10,6 +10,7 @@ import (
 	"github.com/DavidMasin/galaxia-fms/field"
 	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/model"
+	"github.com/DavidMasin/galaxia-fms/partner"
 	"io"
 	"log"
 	"maps"
@@ -473,27 +474,46 @@ func (web *Web) saveDbHandler(w http.ResponseWriter, r *http.Request) {
 	)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 
-	if err := web.arena.Database.WriteBackup(w); err != nil {
+	// The copy is taken and sent without the arena's lock; the database gives a consistent one by itself.
+	database := web.arena.Database
+	w = streamResponse(w)
+	if err := database.WriteBackup(w); err != nil {
 		handleWebErr(w, err)
 		return
 	}
 }
 
-// Accepts an event database file as an upload and loads it.
+// Accepts an event database file as an upload and loads it. The upload can be larger than a handler is given in
+// memory, so this handler is registered without the arena's lock: it reads and checks the file first, and takes the
+// lock to put it in place.
 func (web *Web) restoreDbHandler(w http.ResponseWriter, r *http.Request) {
-	if !web.userIsAdmin(w, r) {
+	var databaseDir string
+	if !web.lockedPart(w, func(w http.ResponseWriter) bool {
+		if !web.userIsAdmin(w, r) {
+			return false
+		}
+		databaseDir = filepath.Dir(web.arena.Database.Path)
+		return true
+	}) {
 		return
+	}
+	// What is wrong with the upload is told on the settings page, which is rendered from the arena.
+	refuse := func(message string) {
+		web.lockedPart(w, func(w http.ResponseWriter) bool {
+			web.renderSettings(w, r, message)
+			return false
+		})
 	}
 
 	file, _, err := r.FormFile("databaseFile")
 	if err != nil {
-		web.renderSettings(w, r, "No database backup file was specified.")
+		refuse("No database backup file was specified.")
 		return
 	}
 	defer file.Close()
 
 	// Write the file to a temporary location on disk and verify that it can be opened as a database.
-	tempFile, err := os.CreateTemp(filepath.Dir(web.arena.Database.Path), "uploaded-db-")
+	tempFile, err := os.CreateTemp(databaseDir, "uploaded-db-")
 	if err != nil {
 		handleWebErr(w, err)
 		return
@@ -509,6 +529,7 @@ func (web *Web) restoreDbHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 	_, err = io.Copy(tempFile, file)
 	if err != nil {
+		tempFile.Close()
 		handleWebErr(w, err)
 		return
 	}
@@ -518,9 +539,7 @@ func (web *Web) restoreDbHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	tempDb, err := model.OpenDatabase(tempFilePath)
 	if err != nil {
-		web.renderSettings(
-			w, r, "Could not read uploaded database backup file. Please verify that it a valid database file.",
-		)
+		refuse("Could not read uploaded database backup file. Please verify that it a valid database file.")
 		return
 	}
 	if err = tempDb.Close(); err != nil {
@@ -528,33 +547,41 @@ func (web *Web) restoreDbHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	web.lockedPart(w, func(w http.ResponseWriter) bool {
+		tempFilePath = web.replaceDatabase(w, r, tempFilePath)
+		return false
+	})
+}
+
+// replaceDatabase puts the database file at tempFilePath in place of the event's, which is backed up first, and
+// answers the request. It returns the path of the temporary file if it is still there to be removed.
+func (web *Web) replaceDatabase(w http.ResponseWriter, r *http.Request, tempFilePath string) string {
 	// Back up the current database.
-	err = web.arena.Database.Backup(web.arena.EventSettings.Name, "pre_restore")
+	err := web.backupDatabase("pre_restore")
 	if err != nil {
 		handleWebErr(w, err)
-		return
+		return tempFilePath
 	}
 
 	// Replace the current database with the new one.
 	if err = web.arena.Database.Close(); err != nil {
 		handleWebErr(w, err)
-		return
+		return tempFilePath
 	}
 	err = os.Remove(web.arena.Database.Path)
 	if err != nil {
 		handleWebErr(w, err)
-		return
+		return tempFilePath
 	}
 	err = os.Rename(tempFilePath, web.arena.Database.Path)
 	if err != nil {
 		handleWebErr(w, err)
-		return
+		return tempFilePath
 	}
-	tempFilePath = ""
 	web.arena.Database, err = model.OpenDatabase(web.arena.Database.Path)
 	if err != nil {
 		handleWebErr(w, err)
-		return
+		return ""
 	}
 	// A restored database may select a game that cannot be used here. The arena then keeps the game it has and has
 	// applied every other setting, so that is reported on the page rather than treated as a failed restore.
@@ -562,10 +589,11 @@ func (web *Web) restoreDbHandler(w http.ResponseWriter, r *http.Request) {
 	err = web.arena.LoadSettings()
 	if err != nil {
 		web.renderSettings(w, r, "The database was restored, but: "+err.Error())
-		return
+		return ""
 	}
 
 	http.Redirect(w, r, "/setup/settings", 303)
+	return ""
 }
 
 // Deletes all match data including and beyond the given tournament stage.
@@ -582,7 +610,7 @@ func (web *Web) clearDbHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Back up the database.
-	err = web.arena.Database.Backup(web.arena.EventSettings.Name, "pre_clear")
+	err = web.backupDatabase("pre_clear")
 	if err != nil {
 		handleWebErr(w, err)
 		return
@@ -626,7 +654,9 @@ func (web *Web) settingsPublishAlliancesHandler(w http.ResponseWriter, r *http.R
 	}
 
 	if web.arena.EventSettings.TbaPublishingEnabled {
-		err := web.arena.TbaClient.PublishAlliances(web.arena.Database)
+		err := web.withTba(func(client *partner.TbaClient, database *model.Database) error {
+			return client.PublishAlliances(database)
+		})
 		if err != nil {
 			web.renderSettingsWithStatus(
 				w, r, "Failed to publish alliances: "+err.Error(), "publishing", http.StatusInternalServerError,
@@ -648,7 +678,9 @@ func (web *Web) settingsPublishAwardsHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	if web.arena.EventSettings.TbaPublishingEnabled {
-		err := web.arena.TbaClient.PublishAwards(web.arena.Database)
+		err := web.withTba(func(client *partner.TbaClient, database *model.Database) error {
+			return client.PublishAwards(database)
+		})
 		if err != nil {
 			web.renderSettingsWithStatus(
 				w, r, "Failed to publish awards: "+err.Error(), "publishing", http.StatusInternalServerError,
@@ -670,14 +702,18 @@ func (web *Web) settingsPublishMatchesHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	if web.arena.EventSettings.TbaPublishingEnabled {
-		err := web.arena.TbaClient.DeletePublishedMatches()
+		err := web.withTba(func(client *partner.TbaClient, database *model.Database) error {
+			return client.DeletePublishedMatches()
+		})
 		if err != nil {
 			web.renderSettingsWithStatus(
 				w, r, "Failed to delete published matches: "+err.Error(), "publishing", http.StatusInternalServerError,
 			)
 			return
 		}
-		err = web.arena.TbaClient.PublishMatches(web.arena.Database)
+		err = web.withTba(func(client *partner.TbaClient, database *model.Database) error {
+			return client.PublishMatches(database)
+		})
 		if err != nil {
 			web.renderSettingsWithStatus(
 				w, r, "Failed to publish matches: "+err.Error(), "publishing", http.StatusInternalServerError,
@@ -699,7 +735,10 @@ func (web *Web) settingsPublishRankingsHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	if web.arena.EventSettings.TbaPublishingEnabled {
-		err := web.arena.TbaClient.PublishRankings(web.arena.Database, web.arena.Game)
+		game := web.arena.Game
+		err := web.withTba(func(client *partner.TbaClient, database *model.Database) error {
+			return client.PublishRankings(database, game)
+		})
 		if err != nil {
 			web.renderSettingsWithStatus(
 				w, r, "Failed to publish rankings: "+err.Error(), "publishing", http.StatusInternalServerError,
@@ -721,7 +760,9 @@ func (web *Web) settingsPublishTeamsHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	if web.arena.EventSettings.TbaPublishingEnabled {
-		err := web.arena.TbaClient.PublishTeams(web.arena.Database)
+		err := web.withTba(func(client *partner.TbaClient, database *model.Database) error {
+			return client.PublishTeams(database)
+		})
 		if err != nil {
 			web.renderSettingsWithStatus(
 				w, r, "Failed to publish teams: "+err.Error(), "publishing", http.StatusInternalServerError,

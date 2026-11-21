@@ -31,6 +31,8 @@ type Web struct {
 	gameChangePending atomic.Bool
 	// Slows password guessing on the login page.
 	logins loginThrottle
+	// Set while a match is being committed or the next one loaded; see beginMatchFlow. Guarded by the arena's lock.
+	matchFlowBusy bool
 }
 
 func NewWeb(arena *field.Arena) *Web {
@@ -147,7 +149,7 @@ func (web *Web) newHandler() http.Handler {
 
 // newRoutes registers every route of the server.
 func (web *Web) newRoutes() *routeMux {
-	mux := newRouteMux()
+	mux := newRouteMux(web.lockedHandler)
 	mux.HandleFunc("GET /", web.indexHandler)
 	mux.HandleFunc("GET /alliance_selection", web.allianceSelectionGetHandler)
 	mux.HandleFunc("POST /alliance_selection", web.allianceSelectionPostHandler)
@@ -240,7 +242,7 @@ func (web *Web) newRoutes() *routeMux {
 	mux.HandleFunc("GET /setup/breaks", web.breaksGetHandler)
 	mux.HandleFunc("POST /setup/breaks", web.breaksPostHandler)
 	mux.HandleFunc("POST /setup/db/clear/{type}", web.clearDbHandler)
-	mux.HandleFunc("POST /setup/db/restore", web.restoreDbHandler)
+	mux.HandleUnlocked("POST /setup/db/restore", web.restoreDbHandler)
 	mux.HandleFunc("GET /setup/db/save", web.saveDbHandler)
 	mux.HandleFunc("GET /setup/displays", web.displaysGetHandler)
 	mux.HandleFunc("GET /setup/displays/websocket", web.displaysWebsocketHandler)

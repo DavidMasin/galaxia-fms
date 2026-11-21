@@ -6,6 +6,7 @@
 package websocket
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/gorilla/websocket"
 	"io"
@@ -24,6 +25,9 @@ const pingInterval = time.Second * 10
 type Websocket struct {
 	conn       *websocket.Conn
 	writeMutex *sync.Mutex
+	// While held, messages are kept here instead of being sent. Guarded by writeMutex.
+	held    bool
+	pending []Message
 }
 
 type Message struct {
@@ -39,11 +43,11 @@ func NewWebsocket(w http.ResponseWriter, r *http.Request) (*Websocket, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Websocket{conn, new(sync.Mutex)}, nil
+	return &Websocket{conn: conn, writeMutex: new(sync.Mutex)}, nil
 }
 
 func NewTestWebsocket(conn *websocket.Conn) *Websocket {
-	return &Websocket{conn, new(sync.Mutex)}
+	return &Websocket{conn: conn, writeMutex: new(sync.Mutex)}
 }
 
 func (ws *Websocket) Close() error {
@@ -89,9 +93,42 @@ func (ws *Websocket) ReadWithTimeout(timeout time.Duration) (string, any, error)
 	}
 }
 
+// Hold makes Write keep messages instead of sending them, until Release. Code that answers a client while it holds a
+// lock others wait for uses this, so that a client that is slow to read cannot keep the lock held: the answers go
+// out once the lock is released. Messages from notifiers are kept back in the same way, in order.
+func (ws *Websocket) Hold() {
+	ws.writeMutex.Lock()
+	defer ws.writeMutex.Unlock()
+	ws.held = true
+}
+
+// Release sends the messages kept since Hold, in order, and lets Write send again.
+func (ws *Websocket) Release() error {
+	ws.writeMutex.Lock()
+	defer ws.writeMutex.Unlock()
+	ws.held = false
+	pending := ws.pending
+	ws.pending = nil
+	for _, message := range pending {
+		if err := ws.conn.WriteJSON(message); err != nil {
+			return fmt.Errorf("Websocket write error: %v", err)
+		}
+	}
+	return nil
+}
+
 func (ws *Websocket) Write(messageType string, data any) error {
 	ws.writeMutex.Lock()
 	defer ws.writeMutex.Unlock()
+	if ws.held {
+		// Written out now rather than when it is sent: by then the caller may no longer own what data refers to.
+		encoded, err := json.Marshal(data)
+		if err != nil {
+			return fmt.Errorf("Websocket write error: %v", err)
+		}
+		ws.pending = append(ws.pending, Message{messageType, json.RawMessage(encoded)})
+		return nil
+	}
 	err := ws.conn.WriteJSON(Message{messageType, data})
 	if err != nil {
 		// Include the caller of this method in the error message.
@@ -102,8 +139,14 @@ func (ws *Websocket) Write(messageType string, data any) error {
 	return nil
 }
 
+// Writes the notifier's current message. The message is produced under the notifier's producer lock if it has one,
+// so this must not be called by code that already holds that lock.
 func (ws *Websocket) WriteNotifier(notifier *Notifier) error {
-	return ws.Write(notifier.messageType, notifier.getMessageBody())
+	messageBody, err := notifier.snapshot()
+	if err != nil {
+		return fmt.Errorf("Websocket write error: %v", err)
+	}
+	return ws.Write(notifier.messageType, messageBody)
 }
 
 func (ws *Websocket) WriteError(errorMessage string) error {
@@ -116,7 +159,7 @@ func (ws *Websocket) HandleNotifiers(notifiers ...*Notifier) {
 	listeners := make([]reflect.SelectCase, len(notifiers))
 	for i, notifier := range notifiers {
 		listener := notifier.listen()
-		defer close(listener)
+		defer notifier.unlisten(listener)
 		listeners[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(listener)}
 
 		// Send each notifier's respective data immediately upon connection to bootstrap the client state.

@@ -154,7 +154,9 @@ func (web *Web) refereePanelWebsocketHandler(w http.ResponseWriter, r *http.Requ
 	defer closeWebsocket(ws)
 
 	// Tell the panel what has been scored so far, so that it can offer to undo it.
-	web.writeScoreChangeHistory(ws)
+	web.withArena(ws, func() {
+		web.writeScoreChangeHistory(ws)
+	})
 
 	// Subscribe the websocket to the notifiers whose messages will be passed on to the client, in a separate goroutine.
 	go ws.HandleNotifiers(
@@ -180,87 +182,89 @@ func (web *Web) refereePanelWebsocketHandler(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		switch messageType {
-		case "score", "undo":
-			if err = web.handleScoreCommand(messageType, data, refereeSource); err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "foul":
-			args := struct {
-				Alliance string
-				Robot    int
-				Type     string
-				Rule     string
-				Remove   int
-				Update   int
-			}{}
-			err = mapstructure.Decode(data, &args)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-			switch {
-			case args.Remove != 0:
-				err = web.removeFoul(args.Alliance, args.Remove)
-			case args.Update != 0:
-				err = web.updateFoul(args.Alliance, args.Update, args.Type, args.Rule, args.Robot)
-			default:
-				err = web.addFoul(args.Alliance, args.Type, args.Rule, args.Robot, "")
-			}
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "card":
-			args := struct {
-				Alliance string
-				Robot    int
-				Card     string
-			}{}
-			err = mapstructure.Decode(data, &args)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-			if err = web.giveCard(args.Alliance, args.Robot, args.Card); err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "toggleBypass":
-			station, ok := data.(string)
-			if !ok {
-				writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
-				continue
-			}
-			err = web.arena.ToggleBypass(station)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "signalVolunteers":
-			web.arena.SignalVolunteers()
-		case "signalReset":
-			web.arena.SignalReset()
-		case "commitAndPost":
-			if web.arena.MatchState != field.PostMatch {
-				// Don't allow committing the fouls until the match is over.
-				continue
-			}
-			for _, alliance := range web.arena.Game.Alliances.List {
-				if err = web.arena.SetFoulsCommitted(alliance.ID, true); err != nil {
-					log.Println(err)
+		web.withArena(ws, func() {
+			switch messageType {
+			case "score", "undo":
+				if err = web.handleScoreCommand(messageType, data, refereeSource); err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
 				}
-			}
+			case "foul":
+				args := struct {
+					Alliance string
+					Robot    int
+					Type     string
+					Rule     string
+					Remove   int
+					Update   int
+				}{}
+				err = mapstructure.Decode(data, &args)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+				switch {
+				case args.Remove != 0:
+					err = web.removeFoul(args.Alliance, args.Remove)
+				case args.Update != 0:
+					err = web.updateFoul(args.Alliance, args.Update, args.Type, args.Rule, args.Robot)
+				default:
+					err = web.addFoul(args.Alliance, args.Type, args.Rule, args.Robot, "")
+				}
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "card":
+				args := struct {
+					Alliance string
+					Robot    int
+					Card     string
+				}{}
+				err = mapstructure.Decode(data, &args)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+				if err = web.giveCard(args.Alliance, args.Robot, args.Card); err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "toggleBypass":
+				station, ok := data.(string)
+				if !ok {
+					writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
+					return
+				}
+				err = web.arena.ToggleBypass(station)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "signalVolunteers":
+				web.arena.SignalVolunteers()
+			case "signalReset":
+				web.arena.SignalReset()
+			case "commitAndPost":
+				if web.arena.MatchState != field.PostMatch {
+					// Don't allow committing the fouls until the match is over.
+					return
+				}
+				for _, alliance := range web.arena.Game.Alliances.List {
+					if err = web.arena.SetFoulsCommitted(alliance.ID, true); err != nil {
+						log.Println(err)
+					}
+				}
 
-			err = web.commitPostAndLoadNextMatch()
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
+				err = web.commitPostAndLoadNextMatch()
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			default:
+				writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
 			}
-		default:
-			writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
-		}
+		})
 	}
 }
 

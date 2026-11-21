@@ -16,8 +16,8 @@ import (
 	"time"
 )
 
-// Scorer applies a change to the live score. The arena is the scorer; ApplyScoreChange must be safe to call from
-// any goroutine.
+// Scorer applies a change to the live score. The arena is the scorer. Without DeferScoring, ApplyScoreChange is
+// called on whatever goroutine caused the change and must be safe to call from any of them.
 type Scorer interface {
 	ApplyScoreChange(change scoring.Change) (scoring.Change, error)
 }
@@ -28,6 +28,12 @@ type Options struct {
 	Bus      *bus.Bus         // Where device events are published. May be nil.
 	Scorer   Scorer           // Where score actions go. May be nil, in which case they are refused.
 	Now      func() time.Time // The clock; time.Now if nil. Tests replace it.
+	// DeferScoring keeps score changes until ApplyScoreChanges is called, instead of handing each one to the scorer
+	// on the goroutine that caused it. The arena sets it and applies them from its loop. Input reaches the manager
+	// from callers that hold the arena's lock (the loop running the debounce timers, a web handler pressing a
+	// virtual button) and from callers that do not (the transports), and the scorer cannot tell which is calling:
+	// taking the lock would freeze the first kind, and not taking it would race with the second.
+	DeferScoring bool
 }
 
 // MatchInfo is what input processing needs to know about the match. The arena sets it on every pass of its loop.
@@ -52,6 +58,12 @@ type Manager struct {
 	scorer  Scorer
 	now     func() time.Time
 	storeMu sync.Mutex
+
+	// Score changes waiting for ApplyScoreChanges, when scoring is deferred. scoreMu guards only the queue; it is
+	// never held together with mu, nor while the scorer is called.
+	deferScoring bool
+	scoreMu      sync.Mutex
+	scoreQueue   []pendingChange
 
 	mu            sync.Mutex
 	devices       map[string]*device
@@ -174,7 +186,8 @@ type deferredWork struct {
 func NewManager(options Options) (*Manager, error) {
 	m := &Manager{
 		db: options.Database, bus: options.Bus, scorer: options.Scorer, now: options.Now,
-		devices: make(map[string]*device), faults: make(map[string]*Fault), claims: make(map[ChannelRef]string),
+		deferScoring: options.DeferScoring,
+		devices:      make(map[string]*device), faults: make(map[string]*Fault), claims: make(map[ChannelRef]string),
 		refusalTimes: make(map[string]time.Time), errorsLogged: make(map[string]bool),
 		startErrors: make(map[string]string), profile: model.DefaultFieldProfile, source: &BindingSet{},
 	}
@@ -250,8 +263,16 @@ func (m *Manager) run(work deferredWork) {
 			m.bus.Publish(event.kind, event.data)
 		}
 	}
-	for _, change := range work.changes {
-		m.applyChange(change)
+	if m.deferScoring {
+		if len(work.changes) > 0 {
+			m.scoreMu.Lock()
+			m.scoreQueue = append(m.scoreQueue, work.changes...)
+			m.scoreMu.Unlock()
+		}
+	} else {
+		for _, change := range work.changes {
+			m.applyChange(change)
+		}
 	}
 	saved := make(map[string]bool)
 	for _, id := range work.saves {
@@ -281,6 +302,18 @@ func (m *Manager) broadcast(f func(Transport)) {
 			f(transport)
 		}
 	})
+}
+
+// ApplyScoreChanges hands the scorer the score changes that have collected since the last call, in the order
+// they were caused. It does something only when scoring is deferred; the arena calls it on every pass of its loop.
+func (m *Manager) ApplyScoreChanges() {
+	m.scoreMu.Lock()
+	changes := m.scoreQueue
+	m.scoreQueue = nil
+	m.scoreMu.Unlock()
+	for _, change := range changes {
+		m.applyChange(change)
+	}
 }
 
 // applyChange hands a score change to the arena and records a refusal on the device.

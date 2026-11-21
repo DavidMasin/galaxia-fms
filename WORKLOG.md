@@ -669,3 +669,75 @@ The tests that poke arena fields while a test server runs would need the same lo
 **Milestone 3's report** now says the command queue was not built. It should have said so from the start.
 
 **Stopped here.** The test copy and both receivers are stopped; nothing of mine is left listening.
+
+## 2026-11-21 23:06 - The arena has one owner: every package is free of data races
+
+David chose to fix the arena's data races before the countdown. Done with one arena lock, as sized in the last
+entry. The race detector, run four times over, reports nothing in any package. Written up in
+`docs/architecture.md` under "The arena's lock".
+
+**The rule.** Whoever touches the arena's state holds `Arena.Lock`: each pass of the loop, each web handler, the
+driver station listeners, the timers. Nothing waits on a browser, the network or a long computation while holding
+it; code that must wait lets go with `Arena.Unlocked` and checks again afterwards.
+
+**What was built, layer by layer.**
+- `websocket`: a notifier's message is encoded when it is sent, by the sender, so listeners get bytes rather than
+  pointers into the arena. A websocket can hold back its writes (`Hold`, `Release`) so that nothing is written to
+  a slow browser under the lock. Closing a listener and sending to it can no longer collide.
+- `plc`, `network`: the PLC, the access point and the switches each have a lock for their status; their network
+  traffic happens outside it.
+- `field`: the lock itself (`field/arena_lock.go`); the driver station listeners, the periodic tasks, delayed
+  work, the game file watcher, the field-action worker and the audience display automation take it; the bus and
+  the webhook dispatcher read copies that `Unlock` keeps current.
+- `web`: the router runs every handler with the lock held. The request body is read first and the answer is sent
+  after the lock is released. A websocket handler lets go when it takes the connection over, then locks per
+  message. Streams (events, journal, database download) let go once they have what they need. Five routes are
+  unlocked on purpose: the four device transport endpoints and the database restore, whose upload can be large.
+- Waiting moved off the lock: The Blue Alliance, Nexus, password hashing and checking, schedule generation,
+  writing a PDF out, database backups, asking Windows for its addresses.
+
+**Faults found on the way.**
+- Mine, in the uncommitted first half of this work: a debounced device input is committed by the device
+  manager's timers, which the arena loop runs. The manager then called back into the arena, which would have
+  tried to take the lock the loop already held and frozen the field. Device score changes are now queued by the
+  manager and applied by the loop on its next pass (10 ms at most). Tested in both packages.
+- Inherited: the SCC switch client wrote SSH output from two goroutines into one buffer; two driver station
+  goroutines could overwrite each other's station; The Blue Alliance client's event name cache was written from
+  several requests at once; the field testing page built a PLC message without the PLC's lock.
+- Committing a match and loading the next one let go of the lock in the middle (backup, Nexus). A second commit
+  or load in that gap is now refused with a message instead of running inside the first. `LoadMatch` asks Nexus
+  before it changes anything, so the field is never half loaded while Nexus answers.
+
+**Found and not fixed.** After restoring a database, the device manager and the lighting engine keep using the
+old one: the restored event's devices, bindings and lighting are not loaded, and saving them fails, until the FMS
+is restarted. This is from milestones 5 and 6, not from this work. It is in the limits in `architecture.md`.
+
+**New in the log.** `Warning: the arena was held for N ms by GET /page` names whatever keeps the lock longer than
+50 ms. The older "Arena loop iteration took a long time" now measures the loop's own work only.
+
+**Tests.** New: the router wrapper (lock held during a handler, released on a panic, on streaming and on a
+websocket upgrade; a body over 10 MB refused), the match flow guard, deferred device scoring, a debounced input
+scored from the loop. The shared web test helpers take the lock; five tests that read the arena while their
+server ran now take their turn.
+
+**The race detector runs on this laptop now.** It needs a C toolchain, and Zig serves: `pip install ziglang` in a
+virtual environment, then
+`CGO_ENABLED=1 CC="<venv>/Scripts/python.exe -m ziglang cc" go test -race -ldflags '-extldflags "-lapi-ms-win-core-synch-l1-2-0 -Wl,--no-dynamicbase"' ./...`.
+The first flag supplies `WaitOnAddress`; the second turns off address randomisation, which the detector's runtime
+needs on Windows.
+
+**Checked in a browser** on the test copy (port 8090, its own database, broker ports 18840 and 18841; nothing of
+David's was running or touched):
+- a full match with the ball-count game: bypassed all stations, started, scored from the red scoring panel in
+  autonomous and teleop, undid one change, committed after the end. Final Score came up and the next match loaded;
+- 78 page and API requests during a running match: all answered, most in under 10 ms, the clock kept running, and
+  the log had no warning of either kind;
+- a virtual counter and a debounced virtual plate bound to the score: both scored in a running match;
+- the audience display followed the match (TELEOP 1:57, blue 6).
+
+**CI.** The race job is one step again: `go test -race ./...`, required for every package.
+
+**Commands run.** `go build`, `go vet` (three analyzers off as before), `go run cmd/gofmt -l .` (clean),
+`go test ./...` (19 packages pass), `galaxia-fms game validate games`, `galaxia-fms game test games`, and the race
+detector as above: once over everything, four times over the six packages changed, twice more over everything on
+the final code.

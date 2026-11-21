@@ -9,10 +9,12 @@ import (
 
 // addDeviceTransportRoutes registers the WebSocket and HTTP device transports, and the serial port page.
 func (web *Web) addDeviceTransportRoutes(mux *routeMux) {
-	mux.HandleFunc("GET /api/v1/devices/ws", web.deviceWebsocketHandler)
-	mux.HandleFunc("PUT /api/v1/devices/{id}/manifest", web.deviceHttpManifestHandler)
-	mux.HandleFunc("POST /api/v1/devices/{id}/in/{ch}", web.deviceHttpInputHandler)
-	mux.HandleFunc("GET /api/v1/devices/{id}/out", web.deviceHttpOutputsHandler)
+	// The device transports answer their devices themselves, through the device manager, which has its own lock;
+	// nothing in them touches the arena, so they run without its lock.
+	mux.HandleUnlocked("GET /api/v1/devices/ws", web.deviceWebsocketHandler)
+	mux.HandleUnlocked("PUT /api/v1/devices/{id}/manifest", web.deviceHttpManifestHandler)
+	mux.HandleUnlocked("POST /api/v1/devices/{id}/in/{ch}", web.deviceHttpInputHandler)
+	mux.HandleUnlocked("GET /api/v1/devices/{id}/out", web.deviceHttpOutputsHandler)
 	mux.HandleFunc("GET /setup/devices/serial", web.serialSetupGetHandler)
 	mux.HandleFunc("GET /setup/devices/serial/ports", web.serialPortsGetHandler)
 	mux.HandleFunc("POST /setup/devices/serial/ports", web.serialPortsPostHandler)

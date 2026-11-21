@@ -136,7 +136,11 @@ inputs:
 
 	require.Nil(t, client.Publish(topic("in/count"), []byte(`{"v":3,"seq":7}`), false))
 	require.Nil(t, client.Ping(deviceWait))
+	// The manager keeps the change for the arena, which applies it on the next pass of its loop.
 	result, _, _ := arena.ScoreSnapshot()
+	assert.Equal(t, 0.0, result.Alliances["red"].Score)
+	arena.Update()
+	result, _, _ = arena.ScoreSnapshot()
 	assert.Equal(t, 3.0, result.Alliances["red"].Score)
 	assert.Equal(t, 0.0, result.Alliances["blue"].Score)
 	arena.scoreMutex.Lock()
@@ -146,6 +150,48 @@ inputs:
 		assert.Equal(t, scoring.Source{Kind: "device", ID: "beam-red-1", Name: "Red goal · Balls"}, changes[0].Source)
 		assert.Equal(t, "teleop", changes[0].Phase)
 	}
+}
+
+// A debounced input is committed by the device manager's timers, which the arena loop runs while it holds the
+// arena's lock. The score change must come back to the arena without the manager calling into it there: with the
+// lock held, that would stop the loop for good.
+func TestDeviceDebouncedInputScoresFromTheLoop(t *testing.T) {
+	arena := setupTestArena(t)
+	selectGame(t, arena, "ball-count", nil)
+	startDevices(t, arena, false)
+	plate, err := arena.DeviceVirtual.Connect(&device.Manifest{Proto: 1, ID: "plate", Channels: []*device.Channel{
+		{ID: "pressed", Dir: device.DirIn, Type: device.TypeDigital},
+	}})
+	require.Nil(t, err)
+	require.Nil(t, arena.Devices.Approve("plate"))
+	bindDevices(t, arena, `
+inputs:
+  - { id: plate, device: plate, channel: pressed, debounce_ms: 20,
+      action: { score: balls, op: increment, alliance: blue } }
+`)
+	bypassAll(arena)
+	require.Nil(t, arena.StartMatch())
+	arena.Update()
+	runMatchTo(arena, 20)
+
+	require.Nil(t, plate.SetInput("pressed", 1))
+	arena.Update()
+	result, _, _ := arena.ScoreSnapshot()
+	assert.Equal(t, 0.0, result.Alliances["blue"].Score, "the level has not held for the debounce time yet")
+
+	time.Sleep(40 * time.Millisecond)
+	passed := make(chan struct{})
+	go func() {
+		arena.Update()
+		close(passed)
+	}()
+	select {
+	case <-passed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the arena loop did not come back from a pass that committed a debounced input")
+	}
+	result, _, _ = arena.ScoreSnapshot()
+	assert.Equal(t, 1.0, result.Alliances["blue"].Score)
 }
 
 // A virtual E-stop box whose safety channel is bound to R1 stops sending heartbeats in a match: R1 is E-stopped, a

@@ -21,15 +21,17 @@ const (
 )
 
 // FieldActionHandler carries out a field action that needs more than the arena: committing and posting the score,
-// or loading the next match. The web layer registers them at startup with SetFieldActionHandler. A handler returns
-// an error to refuse, which shows on the device that asked.
+// or loading the next match. The web layer registers them at startup with SetFieldActionHandler. A handler is called
+// with the arena's lock held, and returns an error to refuse, which shows on the device that asked.
 type FieldActionHandler func() error
 
 // newDevices builds the device manager with its virtual and MQTT transports. The transports start in Run, so a test
 // arena never opens a port.
 func (arena *Arena) newDevices() error {
 	var err error
-	arena.Devices, err = device.NewManager(device.Options{Database: arena.Database, Bus: arena.Bus, Scorer: arena})
+	arena.Devices, err = device.NewManager(
+		device.Options{Database: arena.Database, Bus: arena.Bus, Scorer: arena, DeferScoring: true},
+	)
 	if err != nil {
 		return err
 	}
@@ -88,11 +90,13 @@ func (arena *Arena) deviceMatchInfo() device.MatchInfo {
 }
 
 // updateDevices runs the device side of one pass of the arena loop, before the stops are handled: the manager learns
-// where the match is and runs its timers (debounce, the heartbeat watchdog), and the field actions devices asked for
-// are carried out here, on the arena goroutine.
+// where the match is and runs its timers (debounce, the heartbeat watchdog), and what devices asked for is carried out
+// here, on the arena goroutine: the score changes of their inputs, which the manager keeps until now so that it never
+// calls back into the arena from another goroutine or from under the arena's lock, and their field actions.
 func (arena *Arena) updateDevices() {
 	arena.Devices.SetMatch(arena.deviceMatchInfo())
 	arena.Devices.Tick(time.Now())
+	arena.Devices.ApplyScoreChanges()
 	for _, action := range arena.Devices.TakeFieldActions() {
 		var err error
 		switch action.Action {
@@ -228,7 +232,11 @@ func (arena *Arena) runFieldActionHandlers(queue chan device.FieldAction) {
 		if handler == nil {
 			err = fmt.Errorf("nothing has been set up to carry out %s", action.Action)
 		} else {
-			err = handler()
+			// A handler does what a button on a page does, and like the page's handler it runs with the arena's
+			// lock held, letting go of it itself around whatever it has to wait for.
+			arena.Do(func() {
+				err = handler()
+			})
 		}
 		arena.Devices.ReportFieldAction(action, err)
 	}

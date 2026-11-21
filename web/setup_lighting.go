@@ -354,6 +354,7 @@ func (web *Web) lightingWebsocketHandler(w http.ResponseWriter, r *http.Request)
 			}
 			return
 		}
+		// Nothing here touches the arena: the feed asks the engine, which has a lock of its own.
 		switch messageType {
 		case "preview":
 			moment, _ := data.(string)

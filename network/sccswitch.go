@@ -32,7 +32,28 @@ type SCCSwitch struct {
 	configTimeoutDuration  time.Duration
 	upCommands             []string
 	downCommands           []string
-	Status                 string
+	// Read with GetStatus by code that runs while a configuration is under way, which holds mutex throughout.
+	Status      string
+	statusMutex sync.Mutex
+}
+
+// A buffer that several goroutines can write to. The SSH session copies the switch's output and its errors on two
+// goroutines, and both go into one of these.
+type lockedBuffer struct {
+	mutex  sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (locked *lockedBuffer) Write(data []byte) (int, error) {
+	locked.mutex.Lock()
+	defer locked.mutex.Unlock()
+	return locked.buffer.Write(data)
+}
+
+func (locked *lockedBuffer) String() string {
+	locked.mutex.Lock()
+	defer locked.mutex.Unlock()
+	return locked.buffer.String()
 }
 
 func NewSCCSwitch(address, username, password string, upCommands, downCommands []string) *SCCSwitch {
@@ -49,11 +70,24 @@ func NewSCCSwitch(address, username, password string, upCommands, downCommands [
 	}
 }
 
+// GetStatus returns the state of the switch's configuration: UNKNOWN, CONFIGURING, ACTIVE, DISABLED or ERROR.
+func (scc *SCCSwitch) GetStatus() string {
+	scc.statusMutex.Lock()
+	defer scc.statusMutex.Unlock()
+	return scc.Status
+}
+
+func (scc *SCCSwitch) setStatus(status string) {
+	scc.statusMutex.Lock()
+	defer scc.statusMutex.Unlock()
+	scc.Status = status
+}
+
 func (scc *SCCSwitch) SetTeamEthernetEnabled(enabled bool) error {
 	scc.mutex.Lock()
 	defer scc.mutex.Unlock()
 
-	scc.Status = "CONFIGURING"
+	scc.setStatus("CONFIGURING")
 
 	commandSequence := scc.downCommands
 	if enabled {
@@ -62,14 +96,14 @@ func (scc *SCCSwitch) SetTeamEthernetEnabled(enabled bool) error {
 
 	_, err := scc.runCommandSequence(commandSequence)
 	if err != nil {
-		scc.Status = "ERROR"
+		scc.setStatus("ERROR")
 		return fmt.Errorf("failed to set team ethernet state: %w", err)
 	}
 
 	if enabled {
-		scc.Status = "ACTIVE"
+		scc.setStatus("ACTIVE")
 	} else {
-		scc.Status = "DISABLED"
+		scc.setStatus("DISABLED")
 	}
 
 	return nil
@@ -101,7 +135,7 @@ func (scc *SCCSwitch) runCommandSequence(commands []string) (string, error) {
 	defer session.Close()
 
 	// Capture the session output
-	var outputBuffer bytes.Buffer
+	var outputBuffer lockedBuffer
 	session.Stdout = &outputBuffer
 	session.Stderr = &outputBuffer
 

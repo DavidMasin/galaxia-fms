@@ -19,7 +19,6 @@ func TestConfigureSwitch(t *testing.T) {
 	sw.port = 9050
 	sw.configBackoffDuration = time.Millisecond
 	sw.configPauseDuration = time.Millisecond
-	var command1, command2 string
 	expectedResetCommand := "password\nenable\npassword\nterminal length 0\nconfig terminal\n" +
 		"interface Vlan10\nno ip address\nno ip dhcp pool dhcp10\n" +
 		"interface Vlan20\nno ip address\nno ip dhcp pool dhcp20\n" +
@@ -30,17 +29,18 @@ func TestConfigureSwitch(t *testing.T) {
 		"end\nexit\n"
 
 	// Should remove all previous VLANs and do nothing else if current configuration is blank.
-	mockTelnet(t, sw.port, &command1, &command2)
+	commands := mockTelnet(t, sw.port)
 	assert.Nil(t, sw.ConfigureTeamEthernet([6]*model.Team{nil, nil, nil, nil, nil, nil}))
-	assert.Equal(t, expectedResetCommand, command1)
-	assert.Equal(t, "", command2)
+	assert.Equal(t, expectedResetCommand, receiveCommand(t, commands))
+	assertNoCommand(t, commands)
 	assert.Equal(t, "ACTIVE", sw.Status)
+	assert.Equal(t, "ACTIVE", sw.GetStatus())
 
 	// Should configure one team if only one is present.
 	sw.port += 1
-	mockTelnet(t, sw.port, &command1, &command2)
+	commands = mockTelnet(t, sw.port)
 	assert.Nil(t, sw.ConfigureTeamEthernet([6]*model.Team{nil, nil, nil, nil, {Id: 254}, nil}))
-	assert.Equal(t, expectedResetCommand, command1)
+	assert.Equal(t, expectedResetCommand, receiveCommand(t, commands))
 	assert.Equal(
 		t,
 		"password\nenable\npassword\nterminal length 0\nconfig terminal\n"+
@@ -48,17 +48,17 @@ func TestConfigureSwitch(t *testing.T) {
 			"network 10.2.54.0 255.255.255.0\ndefault-router 10.2.54.4\nlease 7\n"+
 			"interface Vlan50\nip address 10.2.54.4 255.255.255.0\n"+
 			"end\nexit\n",
-		command2,
+		receiveCommand(t, commands),
 	)
 
 	// Should configure all teams if all are present.
 	sw.port += 1
-	mockTelnet(t, sw.port, &command1, &command2)
+	commands = mockTelnet(t, sw.port)
 	assert.Nil(
 		t,
 		sw.ConfigureTeamEthernet([6]*model.Team{{Id: 1114}, {Id: 254}, {Id: 296}, {Id: 1503}, {Id: 1678}, {Id: 1538}}),
 	)
-	assert.Equal(t, expectedResetCommand, command1)
+	assert.Equal(t, expectedResetCommand, receiveCommand(t, commands))
 	assert.Equal(
 		t,
 		"password\nenable\npassword\nterminal length 0\nconfig terminal\n"+
@@ -81,35 +81,50 @@ func TestConfigureSwitch(t *testing.T) {
 			"network 10.15.38.0 255.255.255.0\ndefault-router 10.15.38.4\nlease 7\n"+
 			"interface Vlan60\nip address 10.15.38.4 255.255.255.0\n"+
 			"end\nexit\n",
-		command2,
+		receiveCommand(t, commands),
 	)
 }
 
-func mockTelnet(t *testing.T, port int, command1 *string, command2 *string) {
+// Stands in for the switch: it accepts connections on the port, and sends what each one wrote on the channel it
+// returns once that connection has gone quiet. The socket is open by the time this returns.
+func mockTelnet(t *testing.T, port int) chan string {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	assert.Nil(t, err)
+	t.Cleanup(func() { ln.Close() })
+	commands := make(chan string, 10)
 	go func() {
-		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-		assert.Nil(t, err)
-		defer ln.Close()
-		*command1 = ""
-		*command2 = ""
-
-		// Fake the first connection.
-		conn1, err := ln.Accept()
-		assert.Nil(t, err)
-		conn1.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
-		var reader bytes.Buffer
-		reader.ReadFrom(conn1)
-		*command1 = reader.String()
-		conn1.Close()
-
-		// Fake the second connection.
-		conn2, err := ln.Accept()
-		assert.Nil(t, err)
-		conn2.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
-		reader.Reset()
-		reader.ReadFrom(conn2)
-		*command2 = reader.String()
-		conn2.Close()
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				// The test is over and has closed the socket.
+				return
+			}
+			conn.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
+			var reader bytes.Buffer
+			reader.ReadFrom(conn)
+			conn.Close()
+			commands <- reader.String()
+		}
 	}()
-	time.Sleep(100 * time.Millisecond) // Give it some time to open the socket.
+	return commands
+}
+
+// Returns what the next connection to the mock switch wrote.
+func receiveCommand(t *testing.T, commands chan string) string {
+	select {
+	case command := <-commands:
+		return command
+	case <-time.After(5 * time.Second):
+		assert.Fail(t, "the switch was not sent a command")
+		return ""
+	}
+}
+
+// Asserts that nothing more was sent to the mock switch.
+func assertNoCommand(t *testing.T, commands chan string) {
+	select {
+	case command := <-commands:
+		assert.Fail(t, "the switch was sent a command that was not expected", command)
+	case <-time.After(50 * time.Millisecond):
+	}
 }

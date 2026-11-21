@@ -254,6 +254,8 @@ func (web *Web) arenaWebsocketApiHandler(w http.ResponseWriter, r *http.Request)
 
 // Serves the avatar for a given team, or a default if none exists.
 func (web *Web) teamAvatarsApiHandler(w http.ResponseWriter, r *http.Request) {
+	// Avatars are files on disk; the arena has no part in serving them.
+	w = streamResponse(w)
 	teamId, err := strconv.Atoi(r.PathValue("teamId"))
 	if err != nil {
 		handleWebErr(w, err)

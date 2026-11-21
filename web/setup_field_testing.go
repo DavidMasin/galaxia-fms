@@ -78,45 +78,47 @@ func (web *Web) fieldTestingWebsocketHandler(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		switch messageType {
-		case "playSound":
-			sound, ok := data.(string)
-			if !ok {
-				writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
-				continue
-			}
-			web.arena.PlaySoundNotifier.NotifyWithMessage(sound)
-		case "setPlcCoilOverride":
-			args := struct {
-				Index    int
-				Override string
-			}{}
-			err = mapstructure.Decode(data, &args)
-			if err != nil {
-				ws.WriteError(err.Error())
-				continue
-			}
-			if !fieldTestingOverridesAllowed(web.arena.MatchState) {
-				ws.WriteError(fieldTestingOverrideDisabledMessage)
-				continue
-			}
+		web.withArena(ws, func() {
+			switch messageType {
+			case "playSound":
+				sound, ok := data.(string)
+				if !ok {
+					writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
+					return
+				}
+				web.arena.PlaySoundNotifier.NotifyWithMessage(sound)
+			case "setPlcCoilOverride":
+				args := struct {
+					Index    int
+					Override string
+				}{}
+				err = mapstructure.Decode(data, &args)
+				if err != nil {
+					ws.WriteError(err.Error())
+					return
+				}
+				if !fieldTestingOverridesAllowed(web.arena.MatchState) {
+					ws.WriteError(fieldTestingOverrideDisabledMessage)
+					return
+				}
 
-			switch args.Override {
-			case "auto":
-				web.arena.Plc.ClearCoilOverride(args.Index)
-			case "on":
-				web.arena.Plc.SetCoilOverride(args.Index, true)
-			case "off":
-				web.arena.Plc.SetCoilOverride(args.Index, false)
+				switch args.Override {
+				case "auto":
+					web.arena.Plc.ClearCoilOverride(args.Index)
+				case "on":
+					web.arena.Plc.SetCoilOverride(args.Index, true)
+				case "off":
+					web.arena.Plc.SetCoilOverride(args.Index, false)
+				default:
+					ws.WriteError(fmt.Sprintf("Invalid coil override state '%s'.", args.Override))
+					return
+				}
+				// The PLC tells the page itself that an override changed.
 			default:
-				ws.WriteError(fmt.Sprintf("Invalid coil override state '%s'.", args.Override))
-				continue
+				writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
+				return
 			}
-			web.arena.Plc.IoChangeNotifier().Notify()
-		default:
-			writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
-			continue
-		}
+		})
 	}
 }
 

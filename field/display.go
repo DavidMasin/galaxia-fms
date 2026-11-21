@@ -203,6 +203,7 @@ func (arena *Arena) RegisterDisplay(displayConfig *DisplayConfiguration, ipAddre
 			display.Notifier = websocket.NewNotifier(
 				"displayConfiguration", display.generateDisplayConfigurationMessage,
 			)
+			display.Notifier.SetProducerLocker(&displayRegistryMutex)
 			arena.Displays[displayConfig.Id] = display
 		}
 		if !reflect.DeepEqual(display.DisplayConfiguration, *displayConfig) {

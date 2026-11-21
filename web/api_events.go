@@ -155,6 +155,8 @@ func (web *Web) apiEventStreamHandler(w http.ResponseWriter, r *http.Request) {
 		writeJsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// The stream lasts as long as the client stays; from here on it needs only the bus.
+	w = streamResponse(w)
 	controller := http.NewResponseController(w)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")

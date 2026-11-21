@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -41,23 +42,36 @@ func TestConfigureSCC(t *testing.T) {
 	scc.connectTimeoutDuration = 10 * time.Millisecond
 	scc.configTimeoutDuration = 15 * time.Millisecond
 
-	var receivedUpCommands, receivedDownCommands []string
-
 	// Set the switch to the down state
-	mockSSHSwitch(t, scc.port, username, password, &receivedDownCommands)
+	received := mockSSHSwitch(t, scc.port, username, password)
 	assert.Nil(t, scc.SetTeamEthernetEnabled(false))
-	assert.Equal(t, downCommands, receivedDownCommands)
+	assert.Equal(t, downCommands, receiveCommands(t, received))
 	assert.Equal(t, "DISABLED", scc.Status)
+	assert.Equal(t, "DISABLED", scc.GetStatus())
 
 	// Set the switch to the up state
 	scc.port += 1
-	mockSSHSwitch(t, scc.port, username, password, &receivedUpCommands)
+	received = mockSSHSwitch(t, scc.port, username, password)
 	assert.Nil(t, scc.SetTeamEthernetEnabled(true))
-	assert.Equal(t, upCommands, receivedUpCommands)
+	assert.Equal(t, upCommands, receiveCommands(t, received))
 	assert.Equal(t, "ACTIVE", scc.Status)
 }
 
-func mockSSHSwitch(t *testing.T, port int, username, password string, commands *[]string) {
+// Returns the commands the mock switch was sent.
+func receiveCommands(t *testing.T, received chan []string) []string {
+	select {
+	case commands := <-received:
+		return commands
+	case <-time.After(5 * time.Second):
+		assert.Fail(t, "the switch was not sent any commands")
+		return nil
+	}
+}
+
+// Stands in for the switch: it takes one SSH session on the port and sends the commands it was given on the channel
+// it returns.
+func mockSSHSwitch(t *testing.T, port int, username, password string) chan []string {
+	received := make(chan []string, 1)
 	go func() {
 		// Create a simple SSH server that accepts a connection with password authentication
 		_, privateKey, err := ed25519.GenerateKey(nil)
@@ -73,9 +87,14 @@ func mockSSHSwitch(t *testing.T, port int, username, password string, commands *
 		}
 		config.AddHostKey(signer)
 		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-		assert.Nil(t, err)
+		if !assert.Nil(t, err) {
+			return
+		}
+		defer listener.Close()
 		nConn, err := listener.Accept()
-		assert.Nil(t, err)
+		if !assert.Nil(t, err) {
+			return
+		}
 		defer nConn.Close()
 		conn, chans, reqs, err := ssh.NewServerConn(nConn, config)
 		assert.Nil(t, err)
@@ -101,8 +120,10 @@ func mockSSHSwitch(t *testing.T, port int, username, password string, commands *
 		assert.Equal(t, "shell", req.Type)
 		req.Reply(true, nil)
 
-		// Read all data sent by the client
+		// Read all data sent by the client. The reader may still be at it when the wait below runs out, so what
+		// it has read so far is behind a lock.
 		var receivedData bytes.Buffer
+		var receivedMutex sync.Mutex
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
@@ -113,7 +134,9 @@ func mockSSHSwitch(t *testing.T, port int, username, password string, commands *
 					assert.Equal(t, io.EOF, err)
 					break
 				}
+				receivedMutex.Lock()
 				receivedData.Write(buffer[:n])
+				receivedMutex.Unlock()
 			}
 		}()
 
@@ -124,13 +147,17 @@ func mockSSHSwitch(t *testing.T, port int, username, password string, commands *
 			// All data should be read by now. Close the connection
 		}
 
-		*commands = strings.Split(receivedData.String(), "\n")
-		if len(*commands) > 0 && (*commands)[len(*commands)-1] == "" {
-			*commands = (*commands)[:len(*commands)-1] // Remove trailing newline
+		receivedMutex.Lock()
+		commands := strings.Split(receivedData.String(), "\n")
+		receivedMutex.Unlock()
+		if len(commands) > 0 && commands[len(commands)-1] == "" {
+			commands = commands[:len(commands)-1] // Remove trailing newline
 		}
+		received <- commands
 
 		// Send an exit command to cleanly close the session
 		channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
 	}()
 	time.Sleep(100 * time.Millisecond) // Give it some time to open the socket.
+	return received
 }

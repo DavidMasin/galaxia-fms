@@ -154,54 +154,62 @@ func (arena *Arena) listenForDsUdpPackets() {
 			continue
 		}
 
-		teamId := int(data[4])<<8 + int(data[5])
+		arena.Do(func() {
+			arena.handleDsUdpPacket(data, count)
+		})
+	}
+}
 
-		var dsConn *DriverStationConnection
-		for _, allianceStation := range arena.AllianceStations {
-			if allianceStation.Team != nil && allianceStation.Team.Id == teamId {
-				dsConn = allianceStation.DsConn
+// handleDsUdpPacket takes one status packet from a driver station into the connection it belongs to. The caller holds
+// the arena's lock.
+func (arena *Arena) handleDsUdpPacket(data []byte, count int) {
+	teamId := int(data[4])<<8 + int(data[5])
+
+	var dsConn *DriverStationConnection
+	for _, allianceStation := range arena.AllianceStations {
+		if allianceStation.Team != nil && allianceStation.Team.Id == teamId {
+			dsConn = allianceStation.DsConn
+			break
+		}
+	}
+
+	if dsConn != nil {
+		// Search through tags looking for tag 1
+		index := 8
+		for index < count {
+			length := data[index]
+			index++
+			if length == 0 {
+				continue
+			}
+			if index+int(length) > count {
+				log.Printf("Unable to finish parsing UDP packet")
 				break
 			}
+			tag := data[index]
+			if tag == 1 && length == 6 {
+				lost := (int(data[index+1]) << 8) + int(data[index+2])
+				ping := int(data[index+5])
+				dsConn.MissedPacketCount = lost
+				dsConn.DsRobotTripTimeMs = ping
+			}
+			index += int(length)
 		}
 
-		if dsConn != nil {
-			// Search through tags looking for tag 1
-			index := 8
-			for index < count {
-				length := data[index]
-				index++
-				if length == 0 {
-					continue
-				}
-				if index+int(length) > count {
-					log.Printf("Unable to finish parsing UDP packet")
-					break
-				}
-				tag := data[index]
-				if tag == 1 && length == 6 {
-					lost := (int(data[index+1]) << 8) + int(data[index+2])
-					ping := int(data[index+5])
-					dsConn.MissedPacketCount = lost
-					dsConn.DsRobotTripTimeMs = ping
-				}
-				index += int(length)
-			}
+		dsConn.DsLinked = true
+		dsConn.lastPacketTime = time.Now()
 
-			dsConn.DsLinked = true
-			dsConn.lastPacketTime = time.Now()
+		dsConn.RioLinked = data[3]&0x08 != 0
+		dsConn.RadioLinked = data[3]&0x10 != 0
+		dsConn.RobotLinked = data[3]&0x20 != 0
+		if dsConn.RobotLinked {
+			dsConn.lastRobotLinkedTime = time.Now()
 
-			dsConn.RioLinked = data[3]&0x08 != 0
-			dsConn.RadioLinked = data[3]&0x10 != 0
-			dsConn.RobotLinked = data[3]&0x20 != 0
-			if dsConn.RobotLinked {
-				dsConn.lastRobotLinkedTime = time.Now()
-
-				// Robot battery voltage, stored as volts * 256.
-				dsConn.BatteryVoltage = float64(data[6]) + float64(data[7])/256
-			}
-		} else {
-			log.Printf("Failed to find DS for UDP packet with teamid %d", teamId)
+			// Robot battery voltage, stored as volts * 256.
+			dsConn.BatteryVoltage = float64(data[6]) + float64(data[7])/256
 		}
+	} else {
+		log.Printf("Failed to find DS for UDP packet with teamid %d", teamId)
 	}
 }
 
@@ -396,158 +404,170 @@ func (arena *Arena) serveDriverStations(listener net.Listener) {
 			continue
 		}
 
-		udpSendPort := driverStationRoboRioUdpPort
-		if arena.EventSettings.UseLiteUdpPort {
-			udpSendPort = driverStationRoboRioUdpPortLite
-		}
-
-		isNewDs := false
-
-		teamId := 0
-
-		if packet[0] == 0 && packet[1] == 3 && packet[2] == 24 {
-			log.Printf("Received NI DS Connection")
-			teamId = int(packet[3])<<8 + int(packet[4])
-		} else if packet[0] == 0 && packet[1] >= 5 && packet[2] == 30 {
-			if len(packet) < 7 {
-				log.Printf("Invalid initial packet of length %d received: %v", len(packet), packet)
-				tcpConn.Close()
-				continue
-			}
-			log.Printf("Received New DS Connection")
-			isNewDs = true
-			packenLen := int(packet[0])<<8 + int(packet[1])
-			udpSendPort = int(packet[3])<<8 + int(packet[4])
-			// Skip 5, its flags currently
-			// Try to parse the team number in ASCII
-			teamNumberLen := int(packet[6])
-			if packenLen < 5+teamNumberLen || len(packet) < 7+teamNumberLen {
-				log.Printf("Invalid initial packet of length %d received with team number length %d: %v", packenLen, teamNumberLen, packet)
-				tcpConn.Close()
-				continue
-			}
-			teamIdStr := string(packet[7 : 7+teamNumberLen])
-			teamId, err = strconv.Atoi(teamIdStr)
-			if err != nil {
-				log.Printf("Error parsing team number from new DS connection: %v", err)
-				go handleInvalidTcpConnection(tcpConn, 3, 0, isNewDs)
-				continue
-			} else if teamId < 0 || teamId > 65535 {
-				log.Printf("Team number from new DS connection out of range: %d", teamId)
-				go handleInvalidTcpConnection(tcpConn, 3, 0, isNewDs)
-				continue
-			}
-		} else {
-			log.Printf("Invalid initial packet received: %v", packet)
-			closeTcpConn(tcpConn, "invalid initial packet")
-			continue
-		}
-
-		// Check to see if the team is supposed to be on the field, and notify the DS accordingly.
-		assignedStation := arena.getAssignedAllianceStation(teamId)
-		if assignedStation == "" {
-			log.Printf("Rejecting connection from Team %d, who is not in the current match, soon.", teamId)
-			go handleInvalidTcpConnection(tcpConn, 2, 0, isNewDs)
-			continue
-		}
-
-		// Read the team number from the IP address to check for a station mismatch.
-		stationStatus := byte(0)
-		wrongAssignedStation := ""
-		if arena.switchConfigEnabled() {
-			stationTeamId, ipAddress, ok := driverStationTeamIdFromRemoteAddr(tcpConn.RemoteAddr())
-			if ok && stationTeamId != teamId {
-				wrongAssignedStation = arena.getAssignedAllianceStation(stationTeamId)
-				// The team is supposed to be in this match, but is plugged into the wrong station.
-				if wrongAssignedStation != "" {
-					log.Printf("Team %d is in incorrect station %s.", teamId, wrongAssignedStation)
-					stationStatus = 1
-				} else {
-					log.Printf("Team %d is in unknown station with IP address %s.", teamId, ipAddress)
-					stationStatus = 1
-				}
-			}
-		}
-
-		flags := 0
-		if arena.EventSettings.UseLiteUdpPort {
-			flags |= 0x01
-		}
-
-		sendLength := 8
-
-		var assignmentPacket [8]byte
-		assignmentPacket[0] = 0  // Packet size
-		assignmentPacket[1] = 6  // Packet size
-		assignmentPacket[2] = 31 // Packet type
-		log.Printf("Accepting connection from Team %d in station %s with port %d", teamId, assignedStation, udpSendPort)
-		assignmentPacket[3] = allianceStationPositionMap[assignedStation]
-		assignmentPacket[4] = stationStatus
-		assignmentPacket[5] = byte(flags)
-		assignmentPacket[6] = byte(teamId >> 8)
-		assignmentPacket[7] = byte(teamId & 0xFF)
-
-		if !isNewDs {
-			assignmentPacket[2] = 25 // Packet type
-			assignmentPacket[1] = 3  // Packet size
-			sendLength = 5
-		}
-
-		_, err = tcpConn.Write(assignmentPacket[:sendLength])
-		if err != nil {
-			log.Printf("Error sending driver station assignment packet: %v", err)
-			closeTcpConn(tcpConn, "driver station assignment packet error")
-			continue
-		}
-
-		// Write event code here. We need to strip any numbers off the front if it has it.
-		// We also need to limit to 62 characters.
-		eventName := arena.EventSettings.TbaEventCode
-		if len(eventName) > 0 {
-			trimIndex := 0
-			for trimIndex < len(eventName) && eventName[trimIndex] >= '0' && eventName[trimIndex] <= '9' {
-				trimIndex++
-			}
-			eventName = eventName[trimIndex:]
-			if len(eventName) > 62 {
-				eventName = eventName[:62]
-			}
-			if len(eventName) > 0 {
-				eventNamePacket := make([]byte, 4+len(eventName))
-				eventNamePacket[0] = 0
-				eventNamePacket[1] = byte(len(eventName) + 2)
-				eventNamePacket[2] = 20 // Packet type for event name
-				eventNamePacket[3] = byte(len(eventName))
-				copy(eventNamePacket[4:], []byte(eventName))
-				_, err = tcpConn.Write(eventNamePacket)
-				if err != nil {
-					log.Printf("Error sending event name packet: %v", err)
-					closeTcpConn(tcpConn, "event name packet error")
-					continue
-				}
-			}
-		}
-
-		dsConn, err := newDriverStationConnection(teamId, assignedStation, tcpConn, udpSendPort, isNewDs)
-		if err != nil {
-			log.Printf("Error registering driver station connection: %v", err)
-			closeTcpConn(tcpConn, "driver station registration error")
-			continue
-		}
-		allianceStation := arena.AllianceStations[assignedStation]
-		if previousDsConn := allianceStation.DsConn; previousDsConn != nil {
-			dsConn.copyDsReportedStatus(previousDsConn)
-			previousDsConn.close()
-		}
-		allianceStation.DsConn = dsConn
-
-		if wrongAssignedStation != "" {
-			dsConn.WrongStation = wrongAssignedStation
-		}
-
-		// Spin up a goroutine to handle further TCP communication with this driver station.
-		go dsConn.handleTcpConnection(arena)
+		// The rest reads which team belongs where and puts the connection in its station.
+		arena.Do(func() {
+			arena.acceptDriverStation(tcpConn, packet)
+		})
 	}
+}
+
+// acceptDriverStation answers a driver station that has introduced itself, and if its team is in the match on the
+// field, puts the connection in the team's station. The caller holds the arena's lock. The answers written here are
+// a few bytes on a connection that has just been opened, so they cannot hold the lock up.
+func (arena *Arena) acceptDriverStation(tcpConn net.Conn, packet []byte) {
+	var err error
+
+	udpSendPort := driverStationRoboRioUdpPort
+	if arena.EventSettings.UseLiteUdpPort {
+		udpSendPort = driverStationRoboRioUdpPortLite
+	}
+
+	isNewDs := false
+
+	teamId := 0
+
+	if packet[0] == 0 && packet[1] == 3 && packet[2] == 24 {
+		log.Printf("Received NI DS Connection")
+		teamId = int(packet[3])<<8 + int(packet[4])
+	} else if packet[0] == 0 && packet[1] >= 5 && packet[2] == 30 {
+		if len(packet) < 7 {
+			log.Printf("Invalid initial packet of length %d received: %v", len(packet), packet)
+			tcpConn.Close()
+			return
+		}
+		log.Printf("Received New DS Connection")
+		isNewDs = true
+		packenLen := int(packet[0])<<8 + int(packet[1])
+		udpSendPort = int(packet[3])<<8 + int(packet[4])
+		// Skip 5, its flags currently
+		// Try to parse the team number in ASCII
+		teamNumberLen := int(packet[6])
+		if packenLen < 5+teamNumberLen || len(packet) < 7+teamNumberLen {
+			log.Printf("Invalid initial packet of length %d received with team number length %d: %v", packenLen, teamNumberLen, packet)
+			tcpConn.Close()
+			return
+		}
+		teamIdStr := string(packet[7 : 7+teamNumberLen])
+		teamId, err = strconv.Atoi(teamIdStr)
+		if err != nil {
+			log.Printf("Error parsing team number from new DS connection: %v", err)
+			go handleInvalidTcpConnection(tcpConn, 3, 0, isNewDs)
+			return
+		} else if teamId < 0 || teamId > 65535 {
+			log.Printf("Team number from new DS connection out of range: %d", teamId)
+			go handleInvalidTcpConnection(tcpConn, 3, 0, isNewDs)
+			return
+		}
+	} else {
+		log.Printf("Invalid initial packet received: %v", packet)
+		closeTcpConn(tcpConn, "invalid initial packet")
+		return
+	}
+
+	// Check to see if the team is supposed to be on the field, and notify the DS accordingly.
+	assignedStation := arena.getAssignedAllianceStation(teamId)
+	if assignedStation == "" {
+		log.Printf("Rejecting connection from Team %d, who is not in the current match, soon.", teamId)
+		go handleInvalidTcpConnection(tcpConn, 2, 0, isNewDs)
+		return
+	}
+
+	// Read the team number from the IP address to check for a station mismatch.
+	stationStatus := byte(0)
+	wrongAssignedStation := ""
+	if arena.switchConfigEnabled() {
+		stationTeamId, ipAddress, ok := driverStationTeamIdFromRemoteAddr(tcpConn.RemoteAddr())
+		if ok && stationTeamId != teamId {
+			wrongAssignedStation = arena.getAssignedAllianceStation(stationTeamId)
+			// The team is supposed to be in this match, but is plugged into the wrong station.
+			if wrongAssignedStation != "" {
+				log.Printf("Team %d is in incorrect station %s.", teamId, wrongAssignedStation)
+				stationStatus = 1
+			} else {
+				log.Printf("Team %d is in unknown station with IP address %s.", teamId, ipAddress)
+				stationStatus = 1
+			}
+		}
+	}
+
+	flags := 0
+	if arena.EventSettings.UseLiteUdpPort {
+		flags |= 0x01
+	}
+
+	sendLength := 8
+
+	var assignmentPacket [8]byte
+	assignmentPacket[0] = 0  // Packet size
+	assignmentPacket[1] = 6  // Packet size
+	assignmentPacket[2] = 31 // Packet type
+	log.Printf("Accepting connection from Team %d in station %s with port %d", teamId, assignedStation, udpSendPort)
+	assignmentPacket[3] = allianceStationPositionMap[assignedStation]
+	assignmentPacket[4] = stationStatus
+	assignmentPacket[5] = byte(flags)
+	assignmentPacket[6] = byte(teamId >> 8)
+	assignmentPacket[7] = byte(teamId & 0xFF)
+
+	if !isNewDs {
+		assignmentPacket[2] = 25 // Packet type
+		assignmentPacket[1] = 3  // Packet size
+		sendLength = 5
+	}
+
+	_, err = tcpConn.Write(assignmentPacket[:sendLength])
+	if err != nil {
+		log.Printf("Error sending driver station assignment packet: %v", err)
+		closeTcpConn(tcpConn, "driver station assignment packet error")
+		return
+	}
+
+	// Write event code here. We need to strip any numbers off the front if it has it.
+	// We also need to limit to 62 characters.
+	eventName := arena.EventSettings.TbaEventCode
+	if len(eventName) > 0 {
+		trimIndex := 0
+		for trimIndex < len(eventName) && eventName[trimIndex] >= '0' && eventName[trimIndex] <= '9' {
+			trimIndex++
+		}
+		eventName = eventName[trimIndex:]
+		if len(eventName) > 62 {
+			eventName = eventName[:62]
+		}
+		if len(eventName) > 0 {
+			eventNamePacket := make([]byte, 4+len(eventName))
+			eventNamePacket[0] = 0
+			eventNamePacket[1] = byte(len(eventName) + 2)
+			eventNamePacket[2] = 20 // Packet type for event name
+			eventNamePacket[3] = byte(len(eventName))
+			copy(eventNamePacket[4:], []byte(eventName))
+			_, err = tcpConn.Write(eventNamePacket)
+			if err != nil {
+				log.Printf("Error sending event name packet: %v", err)
+				closeTcpConn(tcpConn, "event name packet error")
+				return
+			}
+		}
+	}
+
+	dsConn, err := newDriverStationConnection(teamId, assignedStation, tcpConn, udpSendPort, isNewDs)
+	if err != nil {
+		log.Printf("Error registering driver station connection: %v", err)
+		closeTcpConn(tcpConn, "driver station registration error")
+		return
+	}
+	allianceStation := arena.AllianceStations[assignedStation]
+	if previousDsConn := allianceStation.DsConn; previousDsConn != nil {
+		dsConn.copyDsReportedStatus(previousDsConn)
+		previousDsConn.close()
+	}
+	allianceStation.DsConn = dsConn
+
+	if wrongAssignedStation != "" {
+		dsConn.WrongStation = wrongAssignedStation
+	}
+
+	// Spin up a goroutine to handle further TCP communication with this driver station.
+	go dsConn.handleTcpConnection(arena)
 }
 
 func readTaggedTcpPacket(tcpConn net.Conn, buffer []byte) (int, error) {
@@ -584,9 +604,11 @@ func (dsConn *DriverStationConnection) handleTcpConnection(arena *Arena) {
 		if err != nil {
 			log.Printf("Error reading from connection for Team %d: %v", dsConn.TeamId, err)
 			dsConn.close()
-			if arena.AllianceStations[dsConn.AllianceStation].DsConn == dsConn {
-				arena.AllianceStations[dsConn.AllianceStation].DsConn = nil
-			}
+			arena.Do(func() {
+				if arena.AllianceStations[dsConn.AllianceStation].DsConn == dsConn {
+					arena.AllianceStations[dsConn.AllianceStation].DsConn = nil
+				}
+			})
 			break
 		}
 
@@ -596,7 +618,9 @@ func (dsConn *DriverStationConnection) handleTcpConnection(arena *Arena) {
 			// DS keepalive packet; do nothing.
 			continue
 		case 22:
-			dsConn.parseDsLogPacket(buffer[:count])
+			arena.Do(func() {
+				dsConn.parseDsLogPacket(buffer[:count])
+			})
 		default:
 			log.Printf("Received unknown packet type %d from Team %d", packetType, dsConn.TeamId)
 		}

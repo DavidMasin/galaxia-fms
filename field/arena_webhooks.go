@@ -17,10 +17,12 @@ type arenaWebhooks struct {
 // newWebhooks builds the webhook dispatcher. Nothing runs until startWebhooks, so that an arena made for a test
 // leaves no goroutines behind; the events published in between are caught up from the bus then.
 func (arena *Arena) newWebhooks() {
+	arena.sharedDatabase.Store(arena.Database)
 	arena.Webhooks = webhook.NewDispatcher(webhook.Options{
 		Bus: arena.Bus,
-		// Asked each time, because restoring a backup replaces the database.
-		Database: func() *model.Database { return arena.Database },
+		// Asked each time, because restoring a backup replaces the database. The dispatcher asks from goroutines of
+		// its own, which do not hold the arena's lock, so it is given the copy kept for such readers.
+		Database: func() *model.Database { return arena.sharedDatabase.Load() },
 	})
 }
 

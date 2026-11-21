@@ -127,15 +127,19 @@ func (web *Web) scoringPanelWebsocketHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer closeWebsocket(ws)
-	web.arena.ScoringPanelRegistry.RegisterPanel(position, ws)
-	web.arena.ScoringStatusNotifier.Notify()
-	defer web.arena.ScoringStatusNotifier.Notify()
-	defer web.arena.ScoringPanelRegistry.UnregisterPanel(position, ws)
+	web.withArena(ws, func() {
+		web.arena.ScoringPanelRegistry.RegisterPanel(position, ws)
+		web.arena.ScoringStatusNotifier.Notify()
 
-	// Instruct panel to clear any local state in case this is a reconnect, and then tell it what has been scored so
-	// far so that it can offer to undo it.
-	writeWebsocketMessage(ws, "resetLocalState", nil)
-	web.writeScoreChangeHistory(ws)
+		// Instruct panel to clear any local state in case this is a reconnect, and then tell it what has been scored
+		// so far so that it can offer to undo it.
+		writeWebsocketMessage(ws, "resetLocalState", nil)
+		web.writeScoreChangeHistory(ws)
+	})
+	defer web.arena.Do(func() {
+		web.arena.ScoringPanelRegistry.UnregisterPanel(position, ws)
+		web.arena.ScoringStatusNotifier.Notify()
+	})
 
 	// Subscribe the websocket to the notifiers whose messages will be passed on to the client, in a separate goroutine.
 	go ws.HandleNotifiers(
@@ -159,22 +163,24 @@ func (web *Web) scoringPanelWebsocketHandler(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		switch command {
-		case "commitMatch":
-			if web.arena.MatchState != field.PostMatch {
-				// Don't allow committing the score until the match is over.
-				writeWebsocketError(ws, "Cannot commit score: Match is not over.")
-				continue
+		web.withArena(ws, func() {
+			switch command {
+			case "commitMatch":
+				if web.arena.MatchState != field.PostMatch {
+					// Don't allow committing the score until the match is over.
+					writeWebsocketError(ws, "Cannot commit score: Match is not over.")
+					return
+				}
+				web.arena.ScoringPanelRegistry.SetScoreCommitted(position, ws)
+				web.arena.ScoringStatusNotifier.Notify()
+			case "score", "undo":
+				if err = web.handleScoreCommand(command, data, source); err != nil {
+					writeWebsocketError(ws, err.Error())
+				}
+			default:
+				writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", command))
 			}
-			web.arena.ScoringPanelRegistry.SetScoreCommitted(position, ws)
-			web.arena.ScoringStatusNotifier.Notify()
-		case "score", "undo":
-			if err = web.handleScoreCommand(command, data, source); err != nil {
-				writeWebsocketError(ws, err.Error())
-			}
-		default:
-			writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", command))
-		}
+		})
 	}
 }
 

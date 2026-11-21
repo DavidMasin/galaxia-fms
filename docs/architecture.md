@@ -109,9 +109,9 @@ type MatchScore struct {
 }
 ```
 
-All scoring goes through two methods. They take the arena's score lock themselves and may be called from any
-goroutine; code outside the `field` package reads the score through `Arena.ScoreSnapshot()` and
-`Arena.BuildMatchResult()` rather than through `Arena.Score`.
+All scoring goes through two methods. Like the rest of the arena they are called with the arena's lock held (see
+[The arena's lock](#the-arenas-lock)); they take the score lock themselves. Code outside the `field` package reads
+the score through `Arena.ScoreSnapshot()` and `Arena.BuildMatchResult()` rather than through `Arena.Score`.
 
 ```go
 func (arena *Arena) ApplyScoreChange(change scoring.Change) (scoring.Change, error)
@@ -438,36 +438,97 @@ object per line:
   with the next event. The field runs either way.
 - **Reading.** `GET /api/v1/journal` lists the days and `GET /api/v1/journal/{day}` downloads one.
 
-## Known data races
+## The arena's lock
 
-Found on 2026-11-21 by the first run of `go test -race` in CI. The development laptop cannot run the detector.
+The arena's state (the match and its clock, the stations, the display modes, the settings, the game in use) is
+used by many goroutines: the arena loop, every web request, the driver station listeners, timers. Cheesy Arena
+lets them all read and write it at once. Galaxia makes them take turns with one lock, `Arena.Lock` and `Unlock`
+in `field/arena_lock.go`. Since 2026-11-21 the race detector is clean on every package, and CI requires it.
 
-**Clean under the detector:** `bus` (with the journal), `device`, `lighting`, `webhook`, `model`, `scoring`,
-`rules`, `gamedef` and the other packages not named below. CI requires these to stay clean.
+**The rule.**
+- Code outside the `field` package takes the lock around whatever it reads or changes: `Lock`/`Unlock`, or
+  `Do(func)`. The arena's own methods assume their caller holds it and never take it, so they can call each other.
+- `Arena.Update` is the exception. It is one pass of the loop, takes the lock itself, and is called without it.
+- A goroutine the arena starts takes the lock itself: the driver station listeners, the periodic tasks, delayed
+  work (`arena.later`), the game file watcher, the field-action worker, the audience display automation.
+- **Nothing waits while holding the lock**: not on a browser, not on the network, not on a long computation. The
+  loop needs the lock a hundred times a second, and the loop is what enables and stops robots. Code that must
+  wait calls `Arena.Unlocked(func)`, which lets go for the duration. The arena may have changed when it returns,
+  so the caller checks again whatever it relied on.
+- The lock is not reentrant. Code that holds it must not call `Update`, `Do`, or `Websocket.WriteNotifier`.
 
-**Not clean: `field`, `web`, `websocket` and `network`.** 47 reports, 37 distinct pairs of places. All are of two
-kinds, both inherited from Cheesy Arena:
+**The web layer** (`web/arena_lock.go`). The router wraps every handler (`routeMux.HandleFunc`):
+- the request body is read into memory first (at most 10 MB), so a slow upload is not waited for under the lock;
+- the handler runs with the lock held;
+- its answer is kept in memory and sent after the lock is released;
+- a handler that takes the connection over (a websocket upgrade) releases the lock at that moment. After that it
+  takes the lock for each message it handles, with `web.withArena`, which also holds back what it writes to the
+  websocket until the lock is released (`Websocket.Hold` and `Release`);
+- a handler that streams (the event stream, a journal download, a database download) calls `streamResponse` once
+  it has what it needs from the arena.
 
-1. **The arena's state has no single owner.** The arena loop reads and writes `MatchState`, `AllianceStations`,
-   `CurrentMatch`, the display modes and the driver station connections on its goroutine. Web and websocket
-   handlers, the field-action worker and the driver station listeners change the same fields from theirs, with
-   no lock. Only the live score has one (`scoreMutex`). Examples the detector caught:
-   - `Arena.LoadMatch` and `assignTeam` (called from Match Play's websocket) against the loop publishing station
-     statuses and drawing the team signs;
-   - `Arena.StartMatch` and `ResetMatch` against the phase clock in `match_phases.go`;
-   - `SetAudienceDisplayMode` called from two requests at once;
-   - a driver station connecting on one goroutine while another, closing, clears the same station
-     (`driver_station_connection.go`);
-   - `websocket.Notifier` sending to a listener's channel while that listener closes it.
-2. **Tests that share variables with their own mock servers** without a lock: `network/switch_test.go`,
-   `network/sccswitch_test.go`, `field/driver_station_connection_test.go`, and web tests that read arena fields
-   while a test server handles a websocket message.
+Five routes are registered with `HandleUnlocked` instead: the four device transport endpoints, which only talk to
+the device manager, and the database restore, whose upload can be larger than 10 MB. The restore takes the lock
+to check the login and again to swap the database in.
 
-On x86 these have not been seen to misbehave, which is why upstream runs this way. But they are undefined
-behaviour in Go, and the fields involved include the ones that enable and stop robots. The fix is to give the
-arena one owner: every change from outside goes through a queue the loop drains, or through one arena lock.
-The plan called this the arena command queue (milestone 3); it was not built. Until it is, CI runs the detector
-on these four packages and reports what it finds without failing.
+What handlers do without the lock, through `Unlocked`: talking to The Blue Alliance and Nexus, hashing and
+checking passwords, generating a schedule, writing a PDF out, writing a database backup, asking Windows for the
+computer's addresses.
+
+**Committing and loading.** Committing a match and loading the next one let go of the lock in the middle (the
+backup, Nexus). So that a second commit or load cannot start in that gap, `web.beginMatchFlow` refuses it with a
+message. It cannot wait instead: it would be waiting with the arena's lock held, which the first needs to finish.
+`Arena.LoadMatch` asks Nexus before it changes anything, so the field is whole while Nexus answers.
+
+**Parts with a lock of their own** do not need the arena's: the live score (`scoreMutex`), the display registry,
+the scoring panel registry, the PLC, the access point and switches (status), the device manager, the lighting
+engine, the bus, the journal, the webhook dispatcher. Their locks are taken after the arena's, never before.
+
+**What other goroutines may read without the lock** is copied for them:
+- the bus asks which match an event belongs to from whatever goroutine publishes; it gets a copy that `Unlock`
+  refreshes (`refreshBusContext`);
+- a notifier's message is encoded when `Notify` is called, by the caller, who holds the lock. Listeners receive
+  bytes, not pointers into the arena. A client that has just connected gets its first message through
+  `Notifier.snapshot`, which takes the notifier's producer lock (`SetProducerLocker`): the arena's for the arena's
+  notifiers, the display registry's for a display's own;
+- the access point's status is copied into the arena at the start of each pass (`readAccessPoint`);
+- the webhook dispatcher asks which database to use from its own goroutines, because a restore replaces it; it
+  gets a pointer that `Unlock` keeps current (`sharedDatabase`).
+
+**Device score changes are queued.** The device manager is called by code that holds the arena's lock (the loop
+running the debounce timers, a handler pressing a virtual button) and by code that does not (the transports). If
+it called `ApplyScoreChange` directly, taking the lock would freeze the first kind and not taking it would race
+with the second. So the arena builds the manager with `DeferScoring`: changes are kept and
+`Manager.ApplyScoreChanges` hands them over on the next pass of the loop, at most 10 ms later.
+
+**In the log.** `Warning: the arena was held for N ms by GET /some/page` names whatever held the lock for more
+than 50 ms (at most one line per five seconds). `Arena loop iteration took a long time` is about the loop's own
+work, measured after it has the lock.
+
+**In tests.** A test that has a server or a worker running is one more goroutine: it uses `web.arena.Do`, or the
+helpers in `web/web_test.go` (`locked`, `startTestMatch`, `liveState` and the others), which take the lock
+themselves and so must not be called inside `Do`.
+
+**Running the detector on Windows.** It needs a C toolchain. Zig serves as one:
+`pip install ziglang` into a virtual environment, then
+`CGO_ENABLED=1 CC="<venv>/Scripts/python.exe -m ziglang cc" go test -race -ldflags '-extldflags "-lapi-ms-win-core-synch-l1-2-0 -Wl,--no-dynamicbase"' ./...`
+
+**What the work found**, besides the missing owner: two notifier listeners could send on a channel being closed;
+the SCC switch client wrote SSH output from two goroutines into one buffer; a driver station connecting and
+another disconnecting could overwrite each other's station; The Blue Alliance client's cache of event names was
+written from several requests; and several upstream tests shared variables with their mock servers.
+
+**Limits.**
+- `Unlocked` trusts its caller to hold the lock. Called by a goroutine that does not, while another does, it would
+  release the other's lock. Every caller in the code holds it; tests on one goroutine hold nothing and are safe.
+- The loop still sends to field hardware while it holds the lock, as it always has: team signs over UDP, device
+  outputs. Those sends do not wait for an answer.
+- The plan's command queue, immutable snapshots for readers and a database writer goroutine were not built. The
+  lock gives the same guarantee, one owner at a time, without rewriting every handler.
+- Restoring a database swaps `Arena.Database` for a new one. The webhook dispatcher follows. **The device manager
+  and the lighting engine do not**: they keep the database they were built with, so after a restore the devices,
+  bindings and lighting of the restored event are not loaded, and saving them fails, until the FMS is restarted.
+  That is older than this work and was found while doing it.
 
 ## The API, logins and roles (M4)
 
@@ -612,6 +673,7 @@ For the arena, from its loop:
 SetGame(game, stations); SetProfile(profile) // From refreshGame and LoadSettings.
 SetMatch(MatchInfo)                          // Every pass: running, phase, grace phase, whether scoring takes input.
 Tick(now)                                    // Every pass: debounce timers and the heartbeat watchdog.
+ApplyScoreChanges()                          // Every pass: the score changes of inputs since the last one.
 TakeFieldActions() []FieldAction; ReportFieldAction(action, err)
 Stops() Stops; StartConditions() []string
 UpdatePlc(plc); UpdateOutputs(*Snapshot)     // Every fifth pass: twenty times a second.
@@ -622,7 +684,9 @@ UpdatePlc(plc); UpdateOutputs(*Snapshot)     // Every fifth pass: twenty times a
 `start_match`, `abort_match`, `field_reset` and `volunteers` call the arena's own methods; `commit` and
 `next_match` call the handlers the web layer registers with `Arena.SetFieldActionHandler(action, func() error)`,
 on a worker goroutine, one at a time, because committing writes a database backup and may talk to The Blue
-Alliance. An error from any of them is a refusal on the device that asked. Device stops are merged in
+Alliance. The worker holds the arena's lock while a handler runs, as the router does for a page's handler, and
+the handler lets go of it around what it waits for. An error from any of them is a refusal on the device that
+asked. Device stops are merged in
 `handlePlcInputOutput`: with a PLC, a station is stopped if either stops it, and either's field stop aborts the
 match; without one, only the stations some device can stop go through `handleTeamStop`, so an event without device
 stops behaves exactly as before. `getStartMatchConditions` appends `StartConditions()`. The arena records
@@ -641,10 +705,14 @@ opens a port; `LoadSettings` applies the profile and restarts the broker if its 
   pages do.
 - Transports call the `Sink` methods from their own goroutines, in the order each device's messages arrived (MQTT
   hands every message to the manager on the publishing client's goroutine).
-- Score changes go to `Arena.ApplyScoreChange`, which takes the score lock itself. A refused change takes `mu`
-  again to record the refusal.
-- Lock order: `storeMu`, then `Manager.mu`, then the arena's `scoreMutex` (output expressions run through
-  `Snapshot.Eval`, which takes it). The arena never calls the manager while it holds `scoreMutex`.
+- Score changes go to `Arena.ApplyScoreChange`. In the arena the manager is built with `DeferScoring`: it keeps
+  them in a queue of its own (`scoreMu`) and the arena loop hands them over with `ApplyScoreChanges` on its next
+  pass, so the manager never calls into the arena from a transport's goroutine or from under the arena's lock.
+  Without `DeferScoring` (the manager's own tests) each change is applied on the goroutine that caused it. A
+  refused change takes `mu` again to record the refusal.
+- Lock order: the arena's lock, then `storeMu`, then `Manager.mu`, then the arena's `scoreMutex` (output
+  expressions run through `Snapshot.Eval`, which takes it). The arena never calls the manager while it holds
+  `scoreMutex`, and the manager never takes the arena's lock.
 - Sending never blocks: `SendOutput`, `SendCommand`, `SendField` and `AccessChanged` return at once. The MQTT
   transport queues messages in an outbox drained by a goroutine of its own; outputs coalesce per topic, so the
   latest command of a channel is never lost; device commands and sounds queue in order up to a limit. A

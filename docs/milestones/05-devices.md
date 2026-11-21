@@ -90,8 +90,9 @@ go build
   either: the serial tests use in-memory port pairs.
 - **The race detector** needs cgo, which this laptop lacks, so the threading was reasoned about rather than
   checked when this was written. A CI job runs it on Linux since 2026-11-21: the `device` and `lighting`
-  packages are clean. The arena they plug into is not; see
-  [architecture.md](../architecture.md#known-data-races).
+  packages are clean, and so is the arena they plug into since the same day. That work found one fault here: a
+  debounced input committed by the arena loop would have called back into the arena. Device score changes are
+  now queued for the loop; see [architecture.md](../architecture.md#the-arenas-lock).
 - **Lighting.**
   - Theme colours are not offered yet; they come with milestone 9.
   - With `reverse` set, chase and rainbow still run in the device's own direction.

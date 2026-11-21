@@ -11,6 +11,7 @@ import (
 	"github.com/goburrow/modbus"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -41,10 +42,17 @@ type Plc interface {
 	ClearCoilOverride(index int)
 }
 
+// The PLC is polled on a goroutine of its own (Run) while the arena reads its inputs and sets its coils from the
+// arena loop, and the web sets coil overrides. mutex guards everything they share; it is never held while talking to
+// the PLC, so a PLC that is slow to answer holds nobody up.
 type ModbusPlc struct {
+	mutex sync.Mutex
+	// The connection. Only Run and what it calls use these, so they need no lock.
+	handler *modbus.TCPClientHandler
+	client  modbus.Client
+	// Everything below is guarded by mutex.
 	address          string
-	handler          *modbus.TCPClientHandler
-	client           modbus.Client
+	reconnect        bool // The address changed; Run drops the connection and makes a new one.
 	isHealthy        bool
 	ioChangeNotifier *websocket.Notifier
 	inputs           [inputCount]bool
@@ -136,44 +144,64 @@ const (
 	armorBlockCount
 )
 
+// Sets the address of the PLC. The connection to the old address is dropped by Run, which owns it, the next time
+// around its loop.
 func (plc *ModbusPlc) SetAddress(address string) {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	plc.address = address
-	plc.resetConnection()
+	plc.reconnect = true
 
 	if plc.ioChangeNotifier == nil {
-		// Register a notifier that listeners can subscribe to to get websocket updates about I/O value changes.
+		// Register a notifier that listeners can subscribe to to get websocket updates about I/O value changes. Its
+		// message describes values that mutex guards.
 		plc.ioChangeNotifier = websocket.NewNotifier("plcIoChange", plc.generateIoChangeMessage)
+		plc.ioChangeNotifier.SetProducerLocker(&plc.mutex)
 	}
 }
 
 // Returns true if the PLC is enabled in the configurations.
 func (plc *ModbusPlc) IsEnabled() bool {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	return plc.address != ""
 }
 
 // Returns true if the PLC is connected and responding to requests.
 func (plc *ModbusPlc) IsHealthy() bool {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	return plc.isHealthy
 }
 
 // Returns a notifier which fires whenever the I/O values change.
 func (plc *ModbusPlc) IoChangeNotifier() *websocket.Notifier {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	return plc.ioChangeNotifier
 }
 
 // Loops indefinitely to read inputs from and write outputs to PLC.
 func (plc *ModbusPlc) Run() {
 	for {
+		plc.mutex.Lock()
+		reconnect, address := plc.reconnect, plc.address
+		plc.reconnect = false
+		plc.mutex.Unlock()
+		if reconnect {
+			plc.resetConnection()
+		}
+
 		if plc.handler == nil {
-			if !plc.IsEnabled() {
+			if address == "" {
 				// No PLC is configured; just allow the loop to continue to simulate inputs and outputs.
-				plc.isHealthy = false
+				plc.setHealthy(false)
 			} else {
-				err := plc.connect()
+				err := plc.connect(address)
 				if err != nil {
 					log.Printf("PLC error: %v", err)
 					time.Sleep(time.Second * plcRetryIntevalSec)
-					plc.isHealthy = false
+					plc.setHealthy(false)
 					continue
 				}
 			}
@@ -185,8 +213,16 @@ func (plc *ModbusPlc) Run() {
 	}
 }
 
+func (plc *ModbusPlc) setHealthy(isHealthy bool) {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
+	plc.isHealthy = isHealthy
+}
+
 // Returns a map of ArmorBlocks I/O module names to whether they are connected properly.
 func (plc *ModbusPlc) GetArmorBlockStatuses() map[string]bool {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	statuses := make(map[string]bool, armorBlockCount)
 	for i := 0; i < int(armorBlockCount); i++ {
 		statuses[strings.Title(armorBlock(i).String())] = plc.registers[fieldIoConnection]&(1<<i) > 0
@@ -196,11 +232,15 @@ func (plc *ModbusPlc) GetArmorBlockStatuses() map[string]bool {
 
 // Returns the state of the field emergency stop button (true if e-stop is active).
 func (plc *ModbusPlc) GetFieldEStop() bool {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	return !plc.inputs[fieldEStop]
 }
 
 // Returns the state of the red and blue driver station emergency stop buttons (true if E-stop is active).
 func (plc *ModbusPlc) GetTeamEStops() ([3]bool, [3]bool) {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	var redEStops, blueEStops [3]bool
 	redEStops[0] = !plc.inputs[red1EStop]
 	redEStops[1] = !plc.inputs[red2EStop]
@@ -213,6 +253,8 @@ func (plc *ModbusPlc) GetTeamEStops() ([3]bool, [3]bool) {
 
 // Returns the state of the red and blue driver station autonomous stop buttons (true if A-stop is active).
 func (plc *ModbusPlc) GetTeamAStops() ([3]bool, [3]bool) {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	var redAStops, blueAStops [3]bool
 	redAStops[0] = !plc.inputs[red1AStop]
 	redAStops[1] = !plc.inputs[red2AStop]
@@ -225,6 +267,8 @@ func (plc *ModbusPlc) GetTeamAStops() ([3]bool, [3]bool) {
 
 // Returns whether anything is connected to each station's designated Ethernet port on the SCC.
 func (plc *ModbusPlc) GetEthernetConnected() ([3]bool, [3]bool) {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	return [3]bool{
 			plc.inputs[redConnected1],
 			plc.inputs[redConnected2],
@@ -239,6 +283,8 @@ func (plc *ModbusPlc) GetEthernetConnected() ([3]bool, [3]bool) {
 
 // Returns true if the FTA ready dead-man switch is active.
 func (plc *ModbusPlc) IsFtaReady() bool {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	return plc.inputs[ftaReady]
 }
 
@@ -246,6 +292,8 @@ func (plc *ModbusPlc) IsFtaReady() bool {
 // whatever it latched during the previous match, and drops any coil overrides left over from pre-match field testing.
 // The only register is fieldIoConnection, which reports live hardware status and so must survive the reset.
 func (plc *ModbusPlc) ResetMatch() {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	plc.coils[matchReset] = true
 	plc.matchResetCycles = 0
 	plc.coilOverrides = nil
@@ -253,6 +301,8 @@ func (plc *ModbusPlc) ResetMatch() {
 
 // Sets the on/off state of the stack lights on the scoring table.
 func (plc *ModbusPlc) SetStackLights(red, blue, orange, green bool) {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	plc.coils[stackLightRed] = red
 	plc.coils[stackLightBlue] = blue
 	plc.coils[stackLightOrange] = orange
@@ -261,20 +311,28 @@ func (plc *ModbusPlc) SetStackLights(red, blue, orange, green bool) {
 
 // Triggers the "match ready" chime if the state is true.
 func (plc *ModbusPlc) SetStackBuzzer(state bool) {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	plc.coils[stackLightBuzzer] = state
 }
 
 // Sets the on/off state of the field reset light.
 func (plc *ModbusPlc) SetFieldResetLight(state bool) {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	plc.coils[fieldResetLight] = state
 }
 
 // Sets the on/off state of the awards mode lighting.
 func (plc *ModbusPlc) SetAwardsModeLight(state bool) {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	plc.coils[awardsModeLight] = state
 }
 
 func (plc *ModbusPlc) GetCycleState(max, index, duration int) bool {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	return plc.cycleCounter/duration%max == index
 }
 
@@ -304,13 +362,17 @@ func (plc *ModbusPlc) GetCoilNames() []string {
 
 // Returns the state of every discrete input, in the order of GetInputNames.
 func (plc *ModbusPlc) GetInputs() []bool {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	inputs := plc.inputs
 	return inputs[:]
 }
 
 // Returns the state the arena drives every coil to, in the order of GetCoilNames. Overrides made for field testing
-// are left out: they live in a map that the web goroutines change, and this is read from the arena loop.
+// are left out: this is what the arena asks for, not what a person testing the field has forced.
 func (plc *ModbusPlc) GetCoils() []bool {
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	coils := plc.coils
 	return coils[:]
 }
@@ -319,21 +381,36 @@ func (plc *ModbusPlc) SetCoilOverride(index int, state bool) {
 	if index < 0 || index >= int(coilCount) {
 		return
 	}
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	if plc.coilOverrides == nil {
 		plc.coilOverrides = make(map[int]bool)
 	}
 	plc.coilOverrides[index] = state
+	plc.notifyOverrideChange()
 }
 
 func (plc *ModbusPlc) ClearCoilOverride(index int) {
 	if index < 0 || index >= int(coilCount) {
 		return
 	}
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	delete(plc.coilOverrides, index)
+	plc.notifyOverrideChange()
 }
 
-func (plc *ModbusPlc) connect() error {
-	address := fmt.Sprintf("%s:%d", plc.address, modbusPort)
+// notifyOverrideChange tells whoever watches the PLC's inputs and outputs that an override changed. It is done here,
+// with the mutex held, because the notifier's message is made of what the mutex guards; a caller outside this
+// package could not make it safely.
+func (plc *ModbusPlc) notifyOverrideChange() {
+	if plc.ioChangeNotifier != nil {
+		plc.ioChangeNotifier.Notify()
+	}
+}
+
+func (plc *ModbusPlc) connect(host string) error {
+	address := fmt.Sprintf("%s:%d", host, modbusPort)
 	handler := modbus.NewTCPClientHandler(address)
 	handler.Timeout = 1 * time.Second
 	handler.SlaveId = 0xFF
@@ -368,15 +445,18 @@ func (plc *ModbusPlc) update() {
 		if !isHealthy {
 			plc.resetConnection()
 		}
-		plc.isHealthy = isHealthy
+		plc.setHealthy(isHealthy)
 	}
 
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	plc.cycleCounter++
 	if plc.cycleCounter == cycleCounterMax {
 		plc.cycleCounter = 0
 	}
 
-	// Detect any changes in input or output and notify listeners if so.
+	// Detect any changes in input or output and notify listeners if so. The notifier's message is made here, with
+	// the lock that guards what it describes held.
 	effectiveCoils := plc.getEffectiveCoils()
 	coilOverrideStates := plc.getCoilOverrideStates()
 	if plc.inputs != plc.oldInputs || plc.registers != plc.oldRegisters || effectiveCoils != plc.oldCoils ||
@@ -404,6 +484,8 @@ func (plc *ModbusPlc) readInputs() bool {
 		return false
 	}
 
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	copy(plc.inputs[:], byteToBool(inputs, len(plc.inputs)))
 	return true
 }
@@ -427,15 +509,19 @@ func (plc *ModbusPlc) readRegisters() bool {
 		return false
 	}
 
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	copy(plc.registers[:], byteToUint(registers, len(plc.registers)))
 	return true
 }
 
 func (plc *ModbusPlc) writeCoils() bool {
 	// Send a heartbeat to the PLC so that it can disable outputs if the connection is lost.
+	plc.mutex.Lock()
 	plc.coils[heartbeat] = true
-
 	effectiveCoils := plc.getEffectiveCoils()
+	plc.mutex.Unlock()
+
 	coils := boolToByte(effectiveCoils[:])
 	_, err := plc.client.WriteMultipleCoils(0, uint16(len(plc.coils)), coils)
 	if err != nil {
@@ -443,6 +529,8 @@ func (plc *ModbusPlc) writeCoils() bool {
 		return false
 	}
 
+	plc.mutex.Lock()
+	defer plc.mutex.Unlock()
 	if plc.matchResetCycles > 5 {
 		plc.coils[matchReset] = false // Only need a short pulse to reset the internal state of the PLC.
 	} else {
@@ -451,6 +539,7 @@ func (plc *ModbusPlc) writeCoils() bool {
 	return true
 }
 
+// The three functions below read what mutex guards; their callers hold it.
 func (plc *ModbusPlc) generateIoChangeMessage() any {
 	effectiveCoils := plc.getEffectiveCoils()
 	coilOverrideStates := plc.getCoilOverrideStates()

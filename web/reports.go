@@ -14,6 +14,7 @@ import (
 	"github.com/DavidMasin/galaxia-fms/playoff"
 	"github.com/DavidMasin/galaxia-fms/tournament"
 	"github.com/jung-kurt/gofpdf"
+	"io"
 	"math"
 	"net/http"
 	"sort"
@@ -168,7 +169,7 @@ func (web *Web) rankingsPdfReportHandler(w http.ResponseWriter, r *http.Request)
 
 	// Write out the PDF file as the HTTP response.
 	w.Header().Set("Content-Type", "application/pdf")
-	err = pdf.Output(w)
+	err = web.writePdf(pdf, w)
 	if err != nil {
 		handleWebErr(w, err)
 		return
@@ -324,7 +325,7 @@ func (web *Web) backupsPdfReportHandler(w http.ResponseWriter, r *http.Request) 
 
 	// Write out the PDF file as the HTTP response.
 	w.Header().Set("Content-Type", "application/pdf")
-	err = pdf.Output(w)
+	err = web.writePdf(pdf, w)
 	if err != nil {
 		handleWebErr(w, err)
 		return
@@ -372,7 +373,7 @@ func (web *Web) couponsPdfReportHandler(w http.ResponseWriter, r *http.Request) 
 
 	// Write out the PDF file as the HTTP response.
 	w.Header().Set("Content-Type", "application/pdf")
-	if err := pdf.Output(w); err != nil {
+	if err := web.writePdf(pdf, w); err != nil {
 		handleWebErr(w, err)
 		return
 	}
@@ -600,7 +601,7 @@ func (web *Web) schedulePdfReportHandler(w http.ResponseWriter, r *http.Request)
 
 	// Write out the PDF file as the HTTP response.
 	w.Header().Set("Content-Type", "application/pdf")
-	err = pdf.Output(w)
+	err = web.writePdf(pdf, w)
 	if err != nil {
 		handleWebErr(w, err)
 		return
@@ -707,7 +708,7 @@ func (web *Web) teamsPdfReportHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Write out the PDF file as the HTTP response.
 	w.Header().Set("Content-Type", "application/pdf")
-	err = pdf.Output(w)
+	err = web.writePdf(pdf, w)
 	if err != nil {
 		handleWebErr(w, err)
 		return
@@ -852,7 +853,7 @@ func (web *Web) alliancesPdfReportHandler(w http.ResponseWriter, r *http.Request
 
 	// Write out the PDF file as the HTTP response.
 	w.Header().Set("Content-Type", "application/pdf")
-	err = pdf.Output(w)
+	err = web.writePdf(pdf, w)
 	if err != nil {
 		handleWebErr(w, err)
 		return
@@ -995,7 +996,7 @@ func (web *Web) cyclePdfReportHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Write out the PDF file as the HTTP response.
 	w.Header().Set("Content-Type", "application/pdf")
-	err = pdf.Output(w)
+	err = web.writePdf(pdf, w)
 	if err != nil {
 		handleWebErr(w, err)
 		return
@@ -1149,7 +1150,7 @@ func (web *Web) judgingSchedulePdfReportHandler(w http.ResponseWriter, r *http.R
 
 	// Write out the PDF file as the HTTP response.
 	w.Header().Set("Content-Type", "application/pdf")
-	err = pdf.Output(w)
+	err = web.writePdf(pdf, w)
 	if err != nil {
 		handleWebErr(w, err)
 		return
@@ -1174,4 +1175,13 @@ func drawMultiLineCell(pdf *reportPdf, width, height, lineHeight float64, text, 
 	pdf.MultiCell(width, lineHeight, text, "", align, false)
 
 	pdf.SetXY(startX+width, startY)
+}
+
+// writePdf writes a finished report out. That is where a report is compressed, which is most of the work of making
+// one and needs nothing from the arena, so the arena's lock is let go for it.
+func (web *Web) writePdf(pdf interface{ Output(io.Writer) error }, w http.ResponseWriter) (err error) {
+	web.arena.Unlocked(func() {
+		err = pdf.Output(w)
+	})
+	return
 }

@@ -186,7 +186,9 @@ func TestRefereePanelWebsocket(t *testing.T) {
 	assert.Equal(t, 0, len(state.Alliances["blue"].Fouls))
 	assert.Equal(t, 1, state.Alliances["red"].Fouls[0].Robot)
 	// Field reset is not signalled while a match is running.
-	assert.Equal(t, "match", web.arena.AllianceStationDisplayMode)
+	web.arena.Do(func() {
+		assert.Equal(t, "match", web.arena.AllianceStationDisplayMode)
+	})
 
 	// A referee may change the elements that list referees, and no others while the match runs.
 	ws.Write("score", scoreData("red", 2, "endgame_tower", "set", "level2", ""))
@@ -212,9 +214,13 @@ func TestRefereePanelWebsocket(t *testing.T) {
 	// Committing is ignored until the match is over.
 	ws.Write("commitAndPost", nil)
 	ws.Write("toggleBypass", "R1")
-	assert.Eventually(t, func() bool { return !web.arena.AllianceStations["R1"].Bypass }, time.Second, 10*time.Millisecond)
-	assert.False(t, web.arena.RefereeScoreReady())
-	assert.Equal(t, field.InMatch, web.arena.MatchState)
+	assert.Eventually(
+		t, locked(web, func() bool { return !web.arena.AllianceStations["R1"].Bypass }), time.Second, 10*time.Millisecond,
+	)
+	web.arena.Do(func() {
+		assert.False(t, web.arena.RefereeScoreReady())
+		assert.Equal(t, field.InMatch, web.arena.MatchState)
+	})
 	ws.Write("toggleBypass", "X9")
 	assert.Contains(t, readWebsocketUntil(t, ws, "error"), "Invalid alliance station")
 
@@ -267,26 +273,42 @@ func TestRefereePanelWebsocket(t *testing.T) {
 	assert.False(t, result.Alliances["blue"].Disqualified)
 
 	// Test field reset and match committing.
-	web.arena.AllianceStationDisplayMode = "logo"
+	web.arena.Do(func() {
+		web.arena.AllianceStationDisplayMode = "logo"
+	})
 	ws.Write("signalReset", nil)
 	assert.Eventually(
-		t, func() bool { return web.arena.AllianceStationDisplayMode == "fieldReset" }, time.Second, 10*time.Millisecond,
+		t, locked(web, func() bool { return web.arena.AllianceStationDisplayMode == "fieldReset" }), time.Second,
+		10*time.Millisecond,
 	)
-	assert.False(t, web.arena.FoulsCommitted("red"))
-	assert.False(t, web.arena.FoulsCommitted("blue"))
-	web.arena.AllianceStationDisplayMode = "logo"
+	web.arena.Do(func() {
+		assert.False(t, web.arena.FoulsCommitted("red"))
+		assert.False(t, web.arena.FoulsCommitted("blue"))
+		web.arena.AllianceStationDisplayMode = "logo"
+	})
 	ws.Write("signalVolunteers", nil)
 	assert.Eventually(
-		t, func() bool { return web.arena.AllianceStationDisplayMode == "signalCount" }, time.Second, 10*time.Millisecond,
+		t, locked(web, func() bool { return web.arena.AllianceStationDisplayMode == "signalCount" }), time.Second,
+		10*time.Millisecond,
 	)
 	ws.Write("commitAndPost", nil)
-	assert.Eventually(t, func() bool { return web.arena.AudienceDisplayMode == "score" }, time.Second, 10*time.Millisecond)
-	// The committed match went to the final score buffer with its fouls and cards, and a new match is loaded.
-	assert.Equal(t, "T", web.arena.SavedMatch.ShortName)
-	assert.Equal(t, 1, len(web.arena.SavedMatchResult.State.Alliances["red"].Fouls))
-	assert.Equal(t, map[int]string{2: "red"}, web.arena.SavedMatchResult.State.Alliances["red"].Cards)
-	assert.Equal(t, map[int]string{257: "red"}, web.arena.SavedMatchResult.TeamCards("red"))
-	assert.Equal(t, field.PreMatch, web.arena.MatchState)
+	// The committed match goes to the final score buffer with its fouls and cards, and a new match is loaded. The
+	// score is on the audience display a moment before the next match is.
+	assert.Eventually(
+		t,
+		locked(web, func() bool {
+			return web.arena.AudienceDisplayMode == "score" && web.arena.MatchState == field.PreMatch
+		}),
+		time.Second,
+		10*time.Millisecond,
+	)
+	web.arena.Do(func() {
+		assert.Equal(t, "T", web.arena.SavedMatch.ShortName)
+		assert.Equal(t, 1, len(web.arena.SavedMatchResult.State.Alliances["red"].Fouls))
+		assert.Equal(t, map[int]string{2: "red"}, web.arena.SavedMatchResult.State.Alliances["red"].Cards)
+		assert.Equal(t, map[int]string{257: "red"}, web.arena.SavedMatchResult.TeamCards("red"))
+		assert.Equal(t, field.PreMatch, web.arena.MatchState)
+	})
 	assert.Equal(t, 0, len(liveState(t, web).Alliances["red"].Fouls))
 }
 

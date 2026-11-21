@@ -74,75 +74,82 @@ func (web *Web) lowerThirdsWebsocketHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		switch messageType {
-		case "saveLowerThird":
-			var lowerThird model.LowerThird
-			err = mapstructure.Decode(data, &lowerThird)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
+		listChanged := false
+		web.withArena(ws, func() {
+			switch messageType {
+			case "saveLowerThird":
+				var lowerThird model.LowerThird
+				err = mapstructure.Decode(data, &lowerThird)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+				web.saveLowerThird(&lowerThird)
+			case "deleteLowerThird":
+				var lowerThird model.LowerThird
+				err = mapstructure.Decode(data, &lowerThird)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+				err = web.arena.Database.DeleteLowerThird(lowerThird.Id)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "showLowerThird":
+				var lowerThird model.LowerThird
+				err = mapstructure.Decode(data, &lowerThird)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+				web.saveLowerThird(&lowerThird)
+				web.arena.LowerThird = &lowerThird
+				web.arena.ShowLowerThird = true
+				web.arena.LowerThirdNotifier.Notify()
+				return
+			case "hideLowerThird":
+				var lowerThird model.LowerThird
+				err = mapstructure.Decode(data, &lowerThird)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+				web.saveLowerThird(&lowerThird)
+				web.arena.ShowLowerThird = false
+				web.arena.LowerThirdNotifier.Notify()
+				return
+			case "reorderLowerThird":
+				args := struct {
+					Id     int
+					MoveUp bool
+				}{}
+				err = mapstructure.Decode(data, &args)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+				err = web.reorderLowerThird(args.Id, args.MoveUp)
+				if err != nil {
+					writeWebsocketError(ws, err.Error())
+					return
+				}
+			case "setAudienceDisplay":
+				mode, ok := data.(string)
+				if !ok {
+					writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
+					return
+				}
+				web.arena.SetAudienceDisplayMode(mode)
+				return
+			default:
+				writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
+				return
 			}
-			web.saveLowerThird(&lowerThird)
-		case "deleteLowerThird":
-			var lowerThird model.LowerThird
-			err = mapstructure.Decode(data, &lowerThird)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-			err = web.arena.Database.DeleteLowerThird(lowerThird.Id)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "showLowerThird":
-			var lowerThird model.LowerThird
-			err = mapstructure.Decode(data, &lowerThird)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-			web.saveLowerThird(&lowerThird)
-			web.arena.LowerThird = &lowerThird
-			web.arena.ShowLowerThird = true
-			web.arena.LowerThirdNotifier.Notify()
-			continue
-		case "hideLowerThird":
-			var lowerThird model.LowerThird
-			err = mapstructure.Decode(data, &lowerThird)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-			web.saveLowerThird(&lowerThird)
-			web.arena.ShowLowerThird = false
-			web.arena.LowerThirdNotifier.Notify()
-			continue
-		case "reorderLowerThird":
-			args := struct {
-				Id     int
-				MoveUp bool
-			}{}
-			err = mapstructure.Decode(data, &args)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-			err = web.reorderLowerThird(args.Id, args.MoveUp)
-			if err != nil {
-				writeWebsocketError(ws, err.Error())
-				continue
-			}
-		case "setAudienceDisplay":
-			mode, ok := data.(string)
-			if !ok {
-				writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
-				continue
-			}
-			web.arena.SetAudienceDisplayMode(mode)
-			continue
-		default:
-			writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
+			listChanged = true
+		})
+		if !listChanged {
 			continue
 		}
 

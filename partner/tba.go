@@ -23,6 +23,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 )
 
 const (
@@ -37,6 +38,7 @@ type TbaClient struct {
 	secretId        string
 	secret          string
 	eventNamesCache map[string]string
+	eventNamesMutex sync.Mutex
 }
 
 type TbaMatch struct {
@@ -190,13 +192,21 @@ func (client *TbaClient) GetTeamAwards(teamNumber int) ([]*TbaAward, error) {
 	}
 
 	for _, award := range awards {
-		if _, ok := client.eventNamesCache[award.EventKey]; !ok {
-			client.eventNamesCache[award.EventKey], err = client.getEventName(award.EventKey)
+		// The cache is locked around each look, not around the request that fills it: two goroutines may then ask
+		// for the same event's name once each, which costs nothing but the request.
+		client.eventNamesMutex.Lock()
+		eventName, ok := client.eventNamesCache[award.EventKey]
+		client.eventNamesMutex.Unlock()
+		if !ok {
+			eventName, err = client.getEventName(award.EventKey)
 			if err != nil {
 				return nil, err
 			}
+			client.eventNamesMutex.Lock()
+			client.eventNamesCache[award.EventKey] = eventName
+			client.eventNamesMutex.Unlock()
 		}
-		award.EventName = client.eventNamesCache[award.EventKey]
+		award.EventName = eventName
 	}
 
 	return awards, nil

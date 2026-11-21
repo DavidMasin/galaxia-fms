@@ -118,6 +118,12 @@ type harness struct {
 }
 
 func newHarness(t *testing.T) *harness {
+	return newHarnessWith(t, Options{})
+}
+
+// newHarnessWith builds the harness around a manager with the given options; the database, bus, scorer and clock
+// are the harness's own whatever the options say.
+func newHarnessWith(t *testing.T, options Options) *harness {
 	h := &harness{
 		t: t, db: model.SetupTestDb(t), bus: bus.New(1000), scorer: &fakeScorer{},
 		clock: &fakeClock{now: time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)}, virtual: NewVirtualTransport(),
@@ -125,7 +131,8 @@ func newHarness(t *testing.T) *harness {
 	}
 	h.events = h.bus.Subscribe(nil, 1000)
 	var err error
-	h.m, err = NewManager(Options{Database: h.db, Bus: h.bus, Scorer: h.scorer, Now: h.clock.Now})
+	options.Database, options.Bus, options.Scorer, options.Now = h.db, h.bus, h.scorer, h.clock.Now
+	h.m, err = NewManager(options)
 	require.Nil(t, err)
 	require.Nil(t, h.m.AddTransport(h.virtual))
 	require.Nil(t, h.m.Start())

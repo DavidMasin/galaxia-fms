@@ -260,6 +260,12 @@ Today the HTTP handlers reach into `Arena` directly. Galaxia puts a **command qu
 
 This removes the existing data races and gives devices, panels and the API one ordered path into the match.
 
+> **As built (2026-11-21).** The data races are gone, by a simpler route: one arena lock that every goroutine
+> takes for its turn, instead of a queue. Handlers read the arena in some 150 places and need their answers at
+> once, which a queue would have meant rewriting. Device score changes do go through a queue that the loop
+> drains. The snapshots for readers, the deadline sleep and the database writer goroutine were not built. See
+> [architecture.md](architecture.md#the-arenas-lock).
+
 ### 3.4 Packages
 
 New packages are marked with a plus sign.

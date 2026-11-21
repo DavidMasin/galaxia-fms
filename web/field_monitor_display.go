@@ -124,19 +124,21 @@ func (web *Web) fieldMonitorDisplayWebsocketHandler(w http.ResponseWriter, r *ht
 					continue
 				}
 
-				if allianceStation, ok := web.arena.AllianceStations[args.Station]; ok {
-					if allianceStation.Team != nil {
-						allianceStation.Team.FtaNotes = args.Notes
-						if err := web.arena.Database.UpdateTeam(allianceStation.Team); err != nil {
-							writeWebsocketError(ws, err.Error())
+				web.withArena(ws, func() {
+					if allianceStation, ok := web.arena.AllianceStations[args.Station]; ok {
+						if allianceStation.Team != nil {
+							allianceStation.Team.FtaNotes = args.Notes
+							if err := web.arena.Database.UpdateTeam(allianceStation.Team); err != nil {
+								writeWebsocketError(ws, err.Error())
+							}
+							web.arena.ArenaStatusNotifier.Notify()
+						} else {
+							writeWebsocketError(ws, "No team present")
 						}
-						web.arena.ArenaStatusNotifier.Notify()
 					} else {
-						writeWebsocketError(ws, "No team present")
+						writeWebsocketError(ws, "Invalid alliance station")
 					}
-				} else {
-					writeWebsocketError(ws, "Invalid alliance station")
-				}
+				})
 			} else {
 				writeWebsocketError(ws, "Must be in FTA mode to update team notes")
 			}

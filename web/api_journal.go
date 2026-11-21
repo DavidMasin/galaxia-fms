@@ -12,6 +12,8 @@ import (
 
 // apiJournalHandler lists the days the journal has a file for, newest first.
 func (web *Web) apiJournalHandler(w http.ResponseWriter, r *http.Request) {
+	// The journal has a lock of its own and writes to disk here; the arena is not kept waiting for that.
+	w = streamResponse(w)
 	// So that today's size counts what was written in the last second.
 	web.arena.Journal.Flush()
 	days, err := web.arena.Journal.Days()
@@ -24,6 +26,8 @@ func (web *Web) apiJournalHandler(w http.ResponseWriter, r *http.Request) {
 
 // apiJournalDayHandler serves the events of one day, one JSON object per line, as they were written.
 func (web *Web) apiJournalDayHandler(w http.ResponseWriter, r *http.Request) {
+	// A day's file can be large, and nothing here needs the arena: it is read and sent without the arena's lock.
+	w = streamResponse(w)
 	day := r.PathValue("day")
 	path, err := web.arena.Journal.Path(day)
 	if err != nil {

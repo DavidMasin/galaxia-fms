@@ -864,22 +864,27 @@ inputs:
 		return refusal() == "next: next_match: the match on the field has not been committed; commit it, or "+
 			"discard it on Match Play"
 	}, "the next match to be refused")
-	assert.Equal(t, q1.Id, web.arena.CurrentMatch.Id)
+	// The worker that carries the actions out uses the arena from here on, so the test takes its turn with it.
+	web.arena.Do(func() {
+		assert.Equal(t, q1.Id, web.arena.CurrentMatch.Id)
+	})
 
 	press("commit")
-	waitForMatchPlay(t, func() bool {
+	waitForMatchPlay(t, locked(web, func() bool {
 		match, _ := web.arena.Database.GetMatchById(q1.Id)
 		return match != nil && match.IsComplete() && web.arena.CurrentMatch.Id == q2.Id
-	}, "the commit and the next match")
+	}), "the commit and the next match")
 	result, err := web.arena.Database.GetMatchResultForMatch(q1.Id)
 	require.Nil(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, field.PreMatch, web.arena.MatchState)
-	assert.Equal(t, q1.Id, web.arena.SavedMatch.Id, "the score is posted")
+	web.arena.Do(func() {
+		assert.Equal(t, field.PreMatch, web.arena.MatchState)
+		assert.Equal(t, q1.Id, web.arena.SavedMatch.Id, "the score is posted")
+	})
 
 	// With nothing waiting, the next match is the first unplayed one.
 	press("next")
-	waitForMatchPlay(t, func() bool { return web.arena.CurrentMatch.Id == q2.Id }, "the next match")
+	waitForMatchPlay(t, locked(web, func() bool { return web.arena.CurrentMatch.Id == q2.Id }), "the next match")
 	press("commit")
 	waitForMatchPlay(t, func() bool {
 		return refusal() == "commit: commit: cannot commit match while it is in progress"

@@ -6,6 +6,7 @@
 package websocket
 
 import (
+	"encoding/json"
 	"log"
 	"sync"
 )
@@ -18,11 +19,16 @@ type Notifier struct {
 	messageProducer func() any
 	listeners       map[chan messageEnvelope]struct{} // The map is essentially a set; the value is ignored.
 	mutex           sync.Mutex
+	// Guards what the messageProducer reads, if anything does. Whoever calls Notify must already hold it; the
+	// notifier takes it itself only to produce the message a newly connected client starts with.
+	producerLocker sync.Locker
 }
 
+// A message on its way to listeners. The body is already written out as JSON: it is made by whoever notifies, who
+// owns the state it describes at that moment, and not later by each listener, who does not.
 type messageEnvelope struct {
 	messageType string
-	messageBody any
+	messageBody json.RawMessage
 }
 
 func NewNotifier(messageType string, messageProducer func() any) *Notifier {
@@ -31,19 +37,32 @@ func NewNotifier(messageType string, messageProducer func() any) *Notifier {
 	return notifier
 }
 
+// SetProducerLocker names the lock that guards what the messageProducer reads. Notify is then to be called with that
+// lock held, and a newly connected client's first message is produced under it.
+func (notifier *Notifier) SetProducerLocker(locker sync.Locker) {
+	notifier.producerLocker = locker
+}
+
 // Calls the messageProducer function and sends a message containing the results to all registered listeners, and cleans
-// up any listeners that have closed.
+// up any listeners that have closed. The caller must own whatever the messageProducer reads.
 func (notifier *Notifier) Notify() {
 	notifier.NotifyWithMessage(notifier.getMessageBody())
 }
 
 // Sends the given message to all registered listeners, and cleans up any listeners that have closed. If there is a
-// messageProducer function defined it is ignored.
+// messageProducer function defined it is ignored. The message is written out as JSON here and now, so it may refer
+// to state that only the caller may read.
 func (notifier *Notifier) NotifyWithMessage(messageBody any) {
+	encoded, err := json.Marshal(messageBody)
+	if err != nil {
+		log.Printf("Failed to encode a '%s' notification: %v", notifier.messageType, err)
+		return
+	}
+
 	notifier.mutex.Lock()
 	defer notifier.mutex.Unlock()
 
-	message := messageEnvelope{messageType: notifier.messageType, messageBody: messageBody}
+	message := messageEnvelope{messageType: notifier.messageType, messageBody: encoded}
 	for listener := range notifier.listeners {
 		notifier.notifyListener(listener, message)
 	}
@@ -78,6 +97,18 @@ func (notifier *Notifier) listen() chan messageEnvelope {
 	return listener
 }
 
+// Removes a listener and closes its channel. Notifying holds the same mutex while it sends, so nothing is sent on
+// the channel while or after it is closed.
+func (notifier *Notifier) unlisten(listener chan messageEnvelope) {
+	notifier.mutex.Lock()
+	defer notifier.mutex.Unlock()
+
+	if _, ok := notifier.listeners[listener]; ok {
+		delete(notifier.listeners, listener)
+		close(listener)
+	}
+}
+
 // Invokes the message producer to get the message, or returns nil if no producer is defined.
 func (notifier *Notifier) getMessageBody() any {
 	if notifier.messageProducer == nil {
@@ -85,4 +116,14 @@ func (notifier *Notifier) getMessageBody() any {
 	} else {
 		return notifier.messageProducer()
 	}
+}
+
+// Produces the current message as JSON for a client that has just connected, holding the producer's lock while the
+// state is read and written out.
+func (notifier *Notifier) snapshot() (json.RawMessage, error) {
+	if notifier.producerLocker != nil {
+		notifier.producerLocker.Lock()
+		defer notifier.producerLocker.Unlock()
+	}
+	return json.Marshal(notifier.getMessageBody())
 }

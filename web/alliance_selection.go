@@ -8,6 +8,7 @@ package web
 import (
 	"fmt"
 	"github.com/DavidMasin/galaxia-fms/model"
+	"github.com/DavidMasin/galaxia-fms/partner"
 	"github.com/DavidMasin/galaxia-fms/tournament"
 	"github.com/DavidMasin/galaxia-fms/websocket"
 	"io"
@@ -231,7 +232,7 @@ func (web *Web) allianceSelectionFinalizeHandler(w http.ResponseWriter, r *http.
 	}
 
 	// Back up the database.
-	err = web.arena.Database.Backup(web.arena.EventSettings.Name, "post_alliance_selection")
+	err = web.backupDatabase("post_alliance_selection")
 	if err != nil {
 		handleWebErr(w, err)
 		return
@@ -239,12 +240,16 @@ func (web *Web) allianceSelectionFinalizeHandler(w http.ResponseWriter, r *http.
 
 	if web.arena.EventSettings.TbaPublishingEnabled {
 		// Publish alliances and schedule to The Blue Alliance.
-		err = web.arena.TbaClient.PublishAlliances(web.arena.Database)
+		err = web.withTba(func(client *partner.TbaClient, database *model.Database) error {
+			return client.PublishAlliances(database)
+		})
 		if err != nil {
 			web.renderAllianceSelection(w, r, fmt.Sprintf("Failed to publish alliances: %s", err.Error()))
 			return
 		}
-		err = web.arena.TbaClient.PublishMatches(web.arena.Database)
+		err = web.withTba(func(client *partner.TbaClient, database *model.Database) error {
+			return client.PublishMatches(database)
+		})
 		if err != nil {
 			web.renderAllianceSelection(w, r, fmt.Sprintf("Failed to publish matches: %s", err.Error()))
 			return
@@ -298,70 +303,81 @@ func (web *Web) allianceSelectionWebsocketHandler(w http.ResponseWriter, r *http
 			return
 		}
 
-		switch messageType {
-		case "setTimer":
-			if timeLimitSec, ok := data.(float64); ok {
-				allianceSelectionTimeLimitSec = int(timeLimitSec)
-			} else {
-				writeWebsocketError(ws, "Invalid time limit value.")
-			}
-		case "startTimer":
-			if allianceSelectionTicker != nil {
-				allianceSelectionTicker.Stop()
-			}
-			if web.arena.AllianceSelectionTimeRemainingSec == 0 {
+		web.withArena(ws, func() {
+			switch messageType {
+			case "setTimer":
+				if timeLimitSec, ok := data.(float64); ok {
+					allianceSelectionTimeLimitSec = int(timeLimitSec)
+				} else {
+					writeWebsocketError(ws, "Invalid time limit value.")
+				}
+			case "startTimer":
+				if allianceSelectionTicker != nil {
+					allianceSelectionTicker.Stop()
+				}
+				if web.arena.AllianceSelectionTimeRemainingSec == 0 {
+					web.arena.AllianceSelectionTimeRemainingSec = allianceSelectionTimeLimitSec
+					currentAllianceSelectionTimeLimitSec = allianceSelectionTimeLimitSec
+				}
+				web.arena.AllianceSelectionShowTimer = true
+				web.arena.AllianceSelectionNotifier.Notify()
+				ticker := time.NewTicker(time.Second)
+				allianceSelectionTicker = ticker
+				go func() {
+					// The clock counts on a goroutine of its own, which takes the arena's lock for each second. It
+					// keeps to the ticker it was started with: a later start has a ticker and a goroutine of its own.
+					for range ticker.C {
+						web.arena.Do(func() {
+							if allianceSelectionTicker != ticker {
+								// Stopped and started again in the meantime; the new clock counts from here.
+								return
+							}
+							web.arena.AllianceSelectionTimeRemainingSec--
+							web.arena.AllianceSelectionNotifier.Notify()
+
+							if web.arena.AllianceSelectionTimeRemainingSec <= 0 {
+								ticker.Stop()
+							}
+
+							// Only play sounds if we are not in a break between rounds
+							if currentAllianceSelectionTimeLimitSec != allianceSelectionBreakDurationSec {
+								if web.arena.AllianceSelectionTimeRemainingSec == 5 {
+									web.arena.PlaySound("pick_clock")
+								} else if web.arena.AllianceSelectionTimeRemainingSec == 0 {
+									web.arena.PlaySound("pick_clock_expired")
+								}
+							}
+						})
+					}
+				}()
+			case "stopTimer":
+				if allianceSelectionTicker != nil {
+					allianceSelectionTicker.Stop()
+				}
+				web.arena.AllianceSelectionNotifier.Notify()
+			case "restartTimer":
+				web.arena.AllianceSelectionShowTimer = true
 				web.arena.AllianceSelectionTimeRemainingSec = allianceSelectionTimeLimitSec
 				currentAllianceSelectionTimeLimitSec = allianceSelectionTimeLimitSec
-			}
-			web.arena.AllianceSelectionShowTimer = true
-			web.arena.AllianceSelectionNotifier.Notify()
-			allianceSelectionTicker = time.NewTicker(time.Second)
-			go func() {
-				for range allianceSelectionTicker.C {
-					web.arena.AllianceSelectionTimeRemainingSec--
-					web.arena.AllianceSelectionNotifier.Notify()
-
-					if web.arena.AllianceSelectionTimeRemainingSec <= 0 {
-						allianceSelectionTicker.Stop()
-					}
-
-					// Only play sounds if we are not in a break between rounds
-					if currentAllianceSelectionTimeLimitSec != allianceSelectionBreakDurationSec {
-						if web.arena.AllianceSelectionTimeRemainingSec == 5 {
-							web.arena.PlaySound("pick_clock")
-						} else if web.arena.AllianceSelectionTimeRemainingSec == 0 {
-							web.arena.PlaySound("pick_clock_expired")
-						}
-					}
+				web.arena.AllianceSelectionNotifier.Notify()
+			case "hideTimer":
+				if allianceSelectionTicker != nil {
+					allianceSelectionTicker.Stop()
 				}
-			}()
-		case "stopTimer":
-			if allianceSelectionTicker != nil {
-				allianceSelectionTicker.Stop()
+				web.arena.AllianceSelectionShowTimer = false
+				web.arena.AllianceSelectionTimeRemainingSec = 0
+				web.arena.AllianceSelectionNotifier.Notify()
+			case "setAudienceDisplay":
+				mode, ok := data.(string)
+				if !ok {
+					writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
+					return
+				}
+				web.arena.SetAudienceDisplayMode(mode)
+			default:
+				writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
 			}
-			web.arena.AllianceSelectionNotifier.Notify()
-		case "restartTimer":
-			web.arena.AllianceSelectionShowTimer = true
-			web.arena.AllianceSelectionTimeRemainingSec = allianceSelectionTimeLimitSec
-			currentAllianceSelectionTimeLimitSec = allianceSelectionTimeLimitSec
-			web.arena.AllianceSelectionNotifier.Notify()
-		case "hideTimer":
-			if allianceSelectionTicker != nil {
-				allianceSelectionTicker.Stop()
-			}
-			web.arena.AllianceSelectionShowTimer = false
-			web.arena.AllianceSelectionTimeRemainingSec = 0
-			web.arena.AllianceSelectionNotifier.Notify()
-		case "setAudienceDisplay":
-			mode, ok := data.(string)
-			if !ok {
-				writeWebsocketError(ws, fmt.Sprintf("Failed to parse '%s' message.", messageType))
-				continue
-			}
-			web.arena.SetAudienceDisplayMode(mode)
-		default:
-			writeWebsocketError(ws, fmt.Sprintf("Invalid message type '%s'.", messageType))
-		}
+		})
 	}
 }
 

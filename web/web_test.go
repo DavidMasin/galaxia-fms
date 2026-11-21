@@ -106,13 +106,31 @@ func setupTestWeb(t *testing.T) *Web {
 	return NewWeb(arena)
 }
 
+// The helpers below take the arena's lock around what they do with the arena, so that a test can use them while
+// its server, or anything else that runs beside it, is using the arena too. A test that touches the arena itself at
+// such a time does the same, with web.arena.Do or locked. The lock is not reentrant: none of these helpers may be
+// called from inside web.arena.Do.
+
+// locked returns a condition that is the given one evaluated with the arena's lock held.
+func locked(web *Web, condition func() bool) func() bool {
+	return func() bool {
+		var result bool
+		web.arena.Do(func() {
+			result = condition()
+		})
+		return result
+	}
+}
+
 // selectTestGame makes the given example game the active one, as selecting it on the settings page would.
 func selectTestGame(t *testing.T, web *Web, gameId string) {
-	web.arena.EventSettings.GameId = gameId
-	web.arena.EventSettings.GameParams = map[string]float64{}
-	assert.Nil(t, web.arena.Database.UpdateEventSettings(web.arena.EventSettings))
-	assert.Nil(t, web.arena.LoadSettings())
-	assert.Equal(t, gameId, web.arena.Game.ID)
+	web.arena.Do(func() {
+		web.arena.EventSettings.GameId = gameId
+		web.arena.EventSettings.GameParams = map[string]float64{}
+		assert.Nil(t, web.arena.Database.UpdateEventSettings(web.arena.EventSettings))
+		assert.Nil(t, web.arena.LoadSettings())
+		assert.Equal(t, gameId, web.arena.Game.ID)
+	})
 }
 
 // testRanking1 and testRanking2 are the two stored rankings used by the tests of everything that lists rankings.
@@ -142,22 +160,38 @@ func testRanking2() *model.Ranking {
 
 // setAllStationsBypassed bypasses every station so that a match can be started without robots.
 func setAllStationsBypassed(web *Web) {
-	for _, allianceStation := range web.arena.AllianceStations {
-		allianceStation.Bypass = true
-	}
+	web.arena.Do(func() {
+		for _, allianceStation := range web.arena.AllianceStations {
+			allianceStation.Bypass = true
+		}
+	})
 }
 
 // endTestMatch moves the clock of a running match to its end and lets the arena notice.
 func endTestMatch(web *Web) {
-	duration := time.Duration(web.arena.Game.Duration() * float64(time.Second))
-	web.arena.MatchStartTime = time.Now().Add(-duration - 10*time.Millisecond)
+	web.arena.Do(func() {
+		duration := time.Duration(web.arena.Game.Duration() * float64(time.Second))
+		web.arena.MatchStartTime = time.Now().Add(-duration - 10*time.Millisecond)
+	})
+	web.arena.Update()
+}
+
+// setTestMatchTime moves the clock of a running match to the given number of seconds in, and lets the arena notice.
+func setTestMatchTime(web *Web, matchTimeSec float64) {
+	web.arena.Do(func() {
+		web.arena.MatchStartTime = time.Now().Add(-time.Duration(matchTimeSec * float64(time.Second)))
+	})
 	web.arena.Update()
 }
 
 // playTestMatch starts a match with every station bypassed, enters its first phase and returns.
 func startTestMatch(t *testing.T, web *Web) {
 	setAllStationsBypassed(web)
-	assert.Nil(t, web.arena.StartMatch())
+	web.arena.Do(func() {
+		assert.Nil(t, web.arena.StartMatch())
+	})
 	web.arena.Update()
-	assert.Equal(t, field.InMatch, web.arena.MatchState)
+	web.arena.Do(func() {
+		assert.Equal(t, field.InMatch, web.arena.MatchState)
+	})
 }

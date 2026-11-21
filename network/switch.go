@@ -38,7 +38,10 @@ type Switch struct {
 	mutex                 sync.Mutex
 	configBackoffDuration time.Duration
 	configPauseDuration   time.Duration
-	Status                string
+	// Read with GetStatus by code that runs while a configuration is under way: a configuration holds mutex for
+	// its several seconds, so the status has a lock of its own.
+	Status      string
+	statusMutex sync.Mutex
 }
 
 // DefaultServerIpAddress is the address driver stations look for the FMS at, by a convention built into the FRC
@@ -63,12 +66,25 @@ func NewSwitch(address, password string) *Switch {
 	}
 }
 
+// GetStatus returns the state of the switch's configuration: UNKNOWN, CONFIGURING, ACTIVE or ERROR.
+func (sw *Switch) GetStatus() string {
+	sw.statusMutex.Lock()
+	defer sw.statusMutex.Unlock()
+	return sw.Status
+}
+
+func (sw *Switch) setStatus(status string) {
+	sw.statusMutex.Lock()
+	defer sw.statusMutex.Unlock()
+	sw.Status = status
+}
+
 // Sets up wired networks for the given set of teams.
 func (sw *Switch) ConfigureTeamEthernet(teams [6]*model.Team) error {
 	// Make sure multiple configurations aren't being set at the same time.
 	sw.mutex.Lock()
 	defer sw.mutex.Unlock()
-	sw.Status = "CONFIGURING"
+	sw.setStatus("CONFIGURING")
 
 	// Remove old team VLANs to reset the switch state.
 	removeTeamVlansCommand := ""
@@ -79,7 +95,7 @@ func (sw *Switch) ConfigureTeamEthernet(teams [6]*model.Team) error {
 	}
 	_, err := sw.runConfigCommand(removeTeamVlansCommand)
 	if err != nil {
-		sw.Status = "ERROR"
+		sw.setStatus("ERROR")
 		return err
 	}
 	time.Sleep(sw.configPauseDuration)
@@ -121,7 +137,7 @@ func (sw *Switch) ConfigureTeamEthernet(teams [6]*model.Team) error {
 	if len(addTeamVlansCommand) > 0 {
 		_, err = sw.runConfigCommand(addTeamVlansCommand)
 		if err != nil {
-			sw.Status = "ERROR"
+			sw.setStatus("ERROR")
 			return err
 		}
 	}
@@ -129,7 +145,7 @@ func (sw *Switch) ConfigureTeamEthernet(teams [6]*model.Team) error {
 	// Give some time for the configuration to take before another one can be attempted.
 	time.Sleep(sw.configBackoffDuration)
 
-	sw.Status = "ACTIVE"
+	sw.setStatus("ACTIVE")
 	return nil
 }
 

@@ -90,7 +90,11 @@ func (web *Web) scheduleGeneratePostHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	matches, err := tournament.BuildRandomSchedule(teams, scheduleBlocks, matchType)
+	// Working a schedule out can take seconds, and needs nothing from the arena meanwhile.
+	var matches []model.Match
+	web.arena.Unlocked(func() {
+		matches, err = tournament.BuildRandomSchedule(teams, scheduleBlocks, matchType)
+	})
 	if err != nil {
 		web.renderSchedule(w, r, fmt.Sprintf("Error generating schedule: %s.", err.Error()))
 		return
@@ -159,7 +163,7 @@ func (web *Web) scheduleSavePostHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Back up the database.
-	err = web.arena.Database.Backup(web.arena.EventSettings.Name, "post_scheduling")
+	err = web.backupDatabase("post_scheduling")
 	if err != nil {
 		handleWebErr(w, err)
 		return

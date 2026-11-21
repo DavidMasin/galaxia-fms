@@ -141,6 +141,44 @@ inputs:
 	assert.Equal(t, 1, len(h.scorer.take()))
 }
 
+// With scoring deferred, as the arena has it, nothing reaches the scorer until it is asked for: not from a message,
+// and not from the tick that ends a debounce. A change the scorer then refuses is still held against the device.
+func TestDeferredScoring(t *testing.T) {
+	h := newHarnessWith(t, Options{DeferScoring: true})
+	box := h.connect("box", digital("button"), digital("plate"))
+	h.bind(`
+inputs:
+  - { id: button, device: box, channel: button, action: { score: balls, op: increment, alliance: red } }
+  - { id: plate, device: box, channel: plate, debounce_ms: 30, action: { score: balls, op: increment, alliance: blue } }
+`)
+	start := h.clock.Now()
+
+	require.Nil(t, box.SetInput("button", 1))
+	require.Nil(t, box.SetInput("plate", 1))
+	h.m.Tick(start.Add(30 * time.Millisecond))
+	assert.Empty(t, h.scorer.take())
+
+	h.m.ApplyScoreChanges()
+	changes := h.scorer.take()
+	if assert.Equal(t, 2, len(changes)) {
+		assert.Equal(t, "red", changes[0].Alliance)
+		assert.Equal(t, "blue", changes[1].Alliance)
+	}
+	h.m.ApplyScoreChanges()
+	assert.Empty(t, h.scorer.take(), "each change is handed over once")
+
+	h.scorer.refuse = fmt.Errorf("the match is over")
+	require.Nil(t, box.SetInput("button", 0))
+	require.Nil(t, box.SetInput("button", 1))
+	info, _ := h.m.Device("box")
+	assert.Nil(t, info.Refusal)
+	h.m.ApplyScoreChanges()
+	info, _ = h.m.Device("box")
+	if assert.NotNil(t, info.Refusal) {
+		assert.Equal(t, "the match is over", info.Refusal.Reason)
+	}
+}
+
 func TestMinInterval(t *testing.T) {
 	h := newHarness(t)
 	box := h.connect("box", digital("button"))

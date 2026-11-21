@@ -107,7 +107,16 @@ func (web *Web) userCreatePostHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wasEnabled := web.authEnabled()
-	user, err := web.arena.Database.CreateUser(username, r.PostFormValue("password"), role)
+	if err = web.arena.Database.CheckNewUser(username, role); err != nil {
+		web.usersError(w, r, err)
+		return
+	}
+	hash, err := web.hashPassword(r.PostFormValue("password"))
+	if err != nil {
+		web.usersError(w, r, err)
+		return
+	}
+	user, err := web.arena.Database.CreateUserWithHash(username, hash, role)
 	if err != nil {
 		web.usersError(w, r, err)
 		return
@@ -199,7 +208,18 @@ func (web *Web) userPasswordPostHandler(w http.ResponseWriter, r *http.Request) 
 	if user == nil {
 		return
 	}
-	if err := web.arena.Database.SetUserPassword(user, r.PostFormValue("password")); err != nil {
+	hash, err := web.hashPassword(r.PostFormValue("password"))
+	if err != nil {
+		web.usersError(w, r, err)
+		return
+	}
+	// The user is read again: the arena was let go while the password was hashed.
+	if user, err = web.arena.Database.GetUserById(user.Id); err != nil || user == nil {
+		web.usersError(w, r, fmt.Errorf("that user is no longer there"))
+		return
+	}
+	user.PasswordHash = hash
+	if err = web.arena.Database.UpdateUser(user); err != nil {
 		web.usersError(w, r, err)
 		return
 	}
@@ -265,4 +285,12 @@ func (web *Web) tokenDeletePostHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	usersDone(w, r, "Revoked the token.")
+}
+
+// hashPassword hashes a new password without the arena's lock: the hash is slow to work out on purpose.
+func (web *Web) hashPassword(password string) (hash string, err error) {
+	web.arena.Unlocked(func() {
+		hash, err = model.HashPassword(password)
+	})
+	return
 }

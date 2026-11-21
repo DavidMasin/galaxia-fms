@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/DavidMasin/galaxia-fms/model"
@@ -22,7 +23,11 @@ const (
 	accessPointPollPeriodSec = 1
 )
 
+// The access point is polled on a goroutine of its own (Run) while the arena configures it and reads what it
+// reports. mutex guards every field, and what TeamWifiStatuses points to; it is never held while talking to the
+// access point. Other goroutines read through GetStatus and Snapshot.
 type AccessPoint struct {
+	mutex                  sync.Mutex
 	apiUrl                 string
 	password               string
 	channel                int
@@ -30,6 +35,9 @@ type AccessPoint struct {
 	Status                 string
 	TeamWifiStatuses       [6]*TeamWifiStatus
 	lastConfiguredTeams    [6]*model.Team
+	// Counts the times the status or the stations' radio links were updated, so that a reader can tell whether
+	// there is anything new.
+	revision uint64
 }
 
 type TeamWifiStatus struct {
@@ -83,12 +91,35 @@ func (ap *AccessPoint) SetSettings(
 	networkSecurityEnabled bool,
 	wifiStatuses [6]*TeamWifiStatus,
 ) {
+	ap.mutex.Lock()
+	defer ap.mutex.Unlock()
 	ap.apiUrl = fmt.Sprintf("http://%s", address)
 	ap.password = password
 	ap.channel = channel
 	ap.networkSecurityEnabled = networkSecurityEnabled
 	ap.Status = "UNKNOWN"
 	ap.TeamWifiStatuses = wifiStatuses
+	ap.revision++
+}
+
+// GetStatus returns the state of the access point: UNKNOWN, CONFIGURING, ACTIVE, ERROR, or what it reports itself.
+func (ap *AccessPoint) GetStatus() string {
+	ap.mutex.Lock()
+	defer ap.mutex.Unlock()
+	return ap.Status
+}
+
+// Snapshot returns a copy of what the access point last reported about each station's radio link, in the order red
+// 1 to 3 then blue 1 to 3, and a number that changes whenever any of it does.
+func (ap *AccessPoint) Snapshot() (statuses [6]TeamWifiStatus, revision uint64) {
+	ap.mutex.Lock()
+	defer ap.mutex.Unlock()
+	for i, status := range ap.TeamWifiStatuses {
+		if status != nil {
+			statuses[i] = *status
+		}
+	}
+	return statuses, ap.revision
 }
 
 // Loops indefinitely to read status from the access point.
@@ -101,9 +132,13 @@ func (ap *AccessPoint) Run() {
 		}
 
 		// If the access point is in a good state but doesn't match the expected configuration, try again.
-		if ap.Status == "ACTIVE" && !ap.statusMatchesLastConfiguration() {
+		ap.mutex.Lock()
+		retry := ap.Status == "ACTIVE" && !ap.statusMatchesLastConfiguration()
+		teams := ap.lastConfiguredTeams
+		ap.mutex.Unlock()
+		if retry {
 			log.Println("Access point is ACTIVE but does not match expected configuration; retrying configuration.")
-			if err := ap.ConfigureTeamWifi(ap.lastConfiguredTeams); err != nil {
+			if err := ap.ConfigureTeamWifi(teams); err != nil {
 				log.Printf("Failed to reconfigure access point: %v", err)
 			}
 		}
@@ -112,14 +147,20 @@ func (ap *AccessPoint) Run() {
 
 // Calls the access point's API to configure the team SSIDs and WPA keys.
 func (ap *AccessPoint) ConfigureTeamWifi(teams [6]*model.Team) error {
+	ap.mutex.Lock()
 	if !ap.networkSecurityEnabled {
+		ap.mutex.Unlock()
 		return nil
 	}
 
 	ap.Status = "CONFIGURING"
+	ap.revision++
 	ap.lastConfiguredTeams = teams
+	channel, apiUrl, password := ap.channel, ap.apiUrl, ap.password
+	ap.mutex.Unlock()
+
 	request := configurationRequest{
-		Channel:               ap.channel,
+		Channel:               channel,
 		StationConfigurations: make(map[string]stationConfiguration),
 	}
 	addStation(request.StationConfigurations, "red1", teams[0])
@@ -134,13 +175,13 @@ func (ap *AccessPoint) ConfigureTeamWifi(teams [6]*model.Team) error {
 	}
 
 	// Send the configuration to the access point API.
-	url := ap.apiUrl + "/configuration"
+	url := apiUrl + "/configuration"
 	httpRequest, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return err
 	}
-	if ap.password != "" {
-		httpRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", ap.password))
+	if password != "" {
+		httpRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", password))
 	}
 	httpClient := http.Client{Timeout: time.Second * 3}
 	httpResponse, err := httpClient.Do(httpRequest)
@@ -167,23 +208,26 @@ func (ap *AccessPoint) ConfigureTeamWifi(teams [6]*model.Team) error {
 
 // Fetches the current access point status from the API and updates the status structure.
 func (ap *AccessPoint) updateMonitoring() error {
-	if !ap.networkSecurityEnabled {
+	ap.mutex.Lock()
+	enabled, apiUrl, password := ap.networkSecurityEnabled, ap.apiUrl, ap.password
+	ap.mutex.Unlock()
+	if !enabled {
 		return nil
 	}
 
 	// Fetch the status from the access point API.
-	url := ap.apiUrl + "/status"
+	url := apiUrl + "/status"
 	httpRequest, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return err
 	}
-	if ap.password != "" {
-		httpRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", ap.password))
+	if password != "" {
+		httpRequest.Header.Add("Authorization", fmt.Sprintf("Bearer %s", password))
 	}
 	var httpClient http.Client
 	httpResponse, err := httpClient.Do(httpRequest)
 	if err != nil {
-		ap.Status = "ERROR"
+		ap.setStatus("ERROR")
 		return fmt.Errorf("failed to fetch access point status: %v", err)
 	}
 	defer func() {
@@ -192,7 +236,7 @@ func (ap *AccessPoint) updateMonitoring() error {
 		}
 	}()
 	if httpResponse.StatusCode/100 != 2 {
-		ap.Status = "ERROR"
+		ap.setStatus("ERROR")
 		body, err := io.ReadAll(httpResponse.Body)
 		if err != nil {
 			return fmt.Errorf("access point returned status %d and failed to read response body: %w",
@@ -205,9 +249,13 @@ func (ap *AccessPoint) updateMonitoring() error {
 	var apStatus accessPointStatus
 	err = json.NewDecoder(httpResponse.Body).Decode(&apStatus)
 	if err != nil {
-		ap.Status = "ERROR"
+		ap.setStatus("ERROR")
 		return fmt.Errorf("failed to parse access point status: %v", err)
 	}
+
+	ap.mutex.Lock()
+	defer ap.mutex.Unlock()
+	ap.revision++
 	if ap.Status != apStatus.Status {
 		log.Printf("Access point status changed from %s to %s.", ap.Status, apStatus.Status)
 		ap.Status = apStatus.Status
@@ -225,7 +273,15 @@ func (ap *AccessPoint) updateMonitoring() error {
 	return nil
 }
 
-// Returns true if the access point's current status matches the last configuration that was sent to it.
+func (ap *AccessPoint) setStatus(status string) {
+	ap.mutex.Lock()
+	defer ap.mutex.Unlock()
+	ap.Status = status
+	ap.revision++
+}
+
+// Returns true if the access point's current status matches the last configuration that was sent to it. The caller
+// holds mutex.
 func (ap *AccessPoint) statusMatchesLastConfiguration() bool {
 	for i := 0; i < 6; i++ {
 		var expectedTeamId, actualTeamId int
@@ -256,6 +312,9 @@ func addStation(stationsConfigurations map[string]stationConfiguration, station 
 
 // Updates the given team's wifi status structure with the given station status.
 func updateTeamWifiStatus(teamWifiStatus *TeamWifiStatus, stationStatus *stationStatus) {
+	if teamWifiStatus == nil {
+		return
+	}
 	if stationStatus == nil {
 		teamWifiStatus.TeamId = 0
 		teamWifiStatus.RadioLinked = false

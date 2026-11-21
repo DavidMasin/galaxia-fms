@@ -49,15 +49,10 @@ jobs:
           go-version-file: go.mod
       # A job of its own: the detector needs a C compiler, which the development laptop lacks, and it makes tests
       # several times slower, which the plain test job should not pay for.
-      - name: Packages that must be free of data races
-        # Every package but the four below, so that a new package is covered without being listed.
-        run: go test -race $(go list ./... | grep -v -E '/(field|network|web|websocket)$')
-      - name: Packages with data races inherited from Cheesy Arena (reported, not required yet)
-        # The arena's state is shared between its loop and the web handlers without a lock, as upstream does, and
-        # some upstream tests share state with their mock servers. docs/architecture.md (Known data races) lists
-        # what the detector finds. This step keeps reporting them until the arena is given one owner.
-        continue-on-error: true
-        run: go test -race ./field/... ./network/... ./web/... ./websocket/...
+      - name: Test with the race detector
+        # Every package must be free of data races. docs/architecture.md (The arena's lock) says how the arena's
+        # state is shared between its loop, the web handlers and the listeners.
+        run: go test -race ./...
 
   sdk:
     name: Device SDKs and examples

@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/DavidMasin/galaxia-fms/model"
+	"github.com/DavidMasin/galaxia-fms/partner"
 	"github.com/dchest/uniuri"
 	"net/http"
 	"regexp"
@@ -298,9 +299,16 @@ func (web *Web) canModifyTeamList() bool {
 	return true
 }
 
-// Returns the data for the given team number.
+// Fills in the data for the given team number from The Blue Alliance. The team is the caller's own copy; the arena
+// is not held up while The Blue Alliance answers.
 func (web *Web) populateOfficialTeamInfo(team *model.Team) error {
-	tbaTeam, err := web.arena.TbaClient.GetTeam(team.Id)
+	return web.withTba(func(client *partner.TbaClient, database *model.Database) error {
+		return downloadOfficialTeamInfo(client, team)
+	})
+}
+
+func downloadOfficialTeamInfo(client *partner.TbaClient, team *model.Team) error {
+	tbaTeam, err := client.GetTeam(team.Id)
 	if err != nil {
 		return err
 	}
@@ -321,13 +329,13 @@ func (web *Web) populateOfficialTeamInfo(team *model.Team) error {
 		team.SchoolName = matches[1]
 	}
 	team.RookieYear = tbaTeam.RookieYear
-	team.RobotName, err = web.arena.TbaClient.GetRobotName(team.Id, time.Now().Year())
+	team.RobotName, err = client.GetRobotName(team.Id, time.Now().Year())
 	if err != nil {
 		return err
 	}
 
 	// Generate string of recent awards in reverse chronological order.
-	recentAwards, err := web.arena.TbaClient.GetTeamAwards(team.Id)
+	recentAwards, err := client.GetTeamAwards(team.Id)
 	if err != nil {
 		return err
 	}
@@ -343,7 +351,7 @@ func (web *Web) populateOfficialTeamInfo(team *model.Team) error {
 	team.Accomplishments = accomplishmentsBuffer.String()
 
 	// Download and store the team's avatar; if there isn't one, ignore the error.
-	if err = web.arena.TbaClient.DownloadTeamAvatar(team.Id, time.Now().Year()); err != nil {
+	if err = client.DownloadTeamAvatar(team.Id, time.Now().Year()); err != nil {
 		return err
 	}
 

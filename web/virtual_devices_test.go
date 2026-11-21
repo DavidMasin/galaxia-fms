@@ -58,7 +58,9 @@ inputs:
 
 	startTestMatch(t, web)
 	assert.Equal(t, "auto", web.arena.CurrentPhase().ID)
+	// A device's count reaches the score on the next pass of the arena loop.
 	score := func(alliance string) float64 {
+		web.arena.Update()
 		result, _, _ := web.arena.ScoreSnapshot()
 		return result.Alliances[alliance].Score
 	}

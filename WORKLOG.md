@@ -549,5 +549,46 @@ the message it needs. Six cold starts in a row pass.
 - The scratch database had been reset during the week, so the test copy briefly took broker ports 1883 and 8083
   again. I moved it to 18840/18841 at once. David's FMS was not running at the time.
 
-**Not done in milestone 4 yet:** the on-disk event journal. Events are replayed from memory, which is lost on a
-restart. Next.
+**Not done in milestone 4 at that point:** the on-disk event journal. It is in the next entry.
+
+## 2026-11-21 21:42 - The event journal; milestone 4 finished
+
+Commits `8ed3390` (the webhook dispatcher) and `52bd768` (logins, pages, checked API description) are pushed.
+
+**The journal** (the last piece of milestone 4)
+- Every event is appended to a file as one JSON object per line: one file per day, in a `journal` folder beside
+  the database, named by the FMS computer's own date.
+- It starts when the arena starts running, first writing what the bus still remembers, so the whole run is there.
+  Events reach the file within a second. 30 days are kept.
+- If it ever falls behind, it reads the missed events back from the bus's memory. Anything the bus has also
+  forgotten is marked with a `journal.gap` line instead of silently missing.
+- A new event, `system.started`, is published once per run. Sequence numbers begin again with each run, and this
+  is how a reader of the journal, the event stream or a webhook can tell.
+- `GET /api/v1/journal` lists the days and `GET /api/v1/journal/{day}` downloads one.
+- The repo's `.gitignore` now ignores `/journal`, since David's own copy will write there.
+
+**The API description, tightened again**
+- Every operation that needs a login or token now lists its 401 answer, and the admin ones their 403. A small
+  script added them (63 lines); running it twice changes nothing.
+- The conformance test now sends about 80 requests, including each read route without a token.
+- My first version of that check opened the live event stream with a valid token and hung, because a stream never
+  ends. I stopped the run and left the two streams out of that one check.
+
+**Checks**
+- Journal tests, 3 runs in a row:
+  - a file per day;
+  - catching up after starting late;
+  - the gap line;
+  - pruning (only journal files are deleted);
+  - a folder that cannot be created;
+  - refusing anything that is not a date as a file name.
+- A journal test first failed for a good reason: only the callers prevented writing an event twice. The write
+  itself now refuses a repeat.
+- `go test ./...` passes in all 19 packages; formatting and vet are clean.
+- On the test copy: after a restart, today's file held the run's three events, ending with `system.started`, and
+  downloaded through the API. The folder was beside the scratch database, not in the repo.
+
+**Report:** [docs/milestones/04-events-api.md](docs/milestones/04-events-api.md), with what the API does not do
+yet stated plainly (it reads, and manages games and webhooks; it does not run a match).
+
+**Next:** milestone 9's countdown on the field, or milestone 7's practice modes.

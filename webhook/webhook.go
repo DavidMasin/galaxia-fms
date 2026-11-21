@@ -126,6 +126,8 @@ var EventTypes = []EventType{
 	{Type: "device.input", Group: "Devices", Description: "A device input changed.", HighRate: true},
 	{Type: "device.output", Group: "Devices", Description: "An output command was sent to a device.",
 		HighRate: true},
+	{Type: "system.started", Group: "System",
+		Description: "The FMS started. Sequence numbers begin again from here."},
 	{Type: "system.game_changed", Group: "System", Description: "A different game was selected."},
 	{Type: "system.game_reloaded", Group: "System", Description: "A game definition file was reloaded."},
 }

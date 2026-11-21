@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // apiDescription is docs/openapi.yaml, ready to check answers against.
@@ -68,9 +69,17 @@ func (description *apiDescription) check(
 		answer, _ = shared[reference[strings.LastIndex(reference, "/")+1:]].(map[string]any)
 	}
 	content, _ := answer["content"].(map[string]any)
-	media, isJson := content["application/json"]
-	if !isJson {
+	if len(content) == 0 {
 		assert.Zero(t, recorder.Body.Len(), "%s: an answer described without a body has one", label)
+		return
+	}
+	// The answer must be of one of the kinds described; only JSON has a shape to check.
+	kind, _, _ := strings.Cut(recorder.Header().Get("Content-Type"), ";")
+	media, described := content[kind]
+	if !assert.True(t, described, "%s: the description does not list answers of type %q", label, kind) {
+		return
+	}
+	if kind != "application/json" {
 		return
 	}
 	if described, _ := media.(map[string]any); described["schema"] == nil {
@@ -88,7 +97,6 @@ func (description *apiDescription) check(
 		}
 		description.schemas[pointer] = schema
 	}
-	assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"), label)
 	instance, err := jsonschema.UnmarshalJSON(bytes.NewReader(recorder.Body.Bytes()))
 	if assert.NoError(t, err, label) {
 		assert.NoError(t, schema.Validate(instance), "%s: %s", label, recorder.Body.String())
@@ -119,6 +127,10 @@ func TestApiAnswersMatchTheDescription(t *testing.T) {
 	ranking.Rank = 1
 	assert.NoError(t, database.CreateRanking(&ranking))
 	web.arena.Bus.Publish("match.started", map[string]any{"match": "Q1"})
+	// The journal writes into a folder beside the test's database, which goes with the test.
+	require.NoError(t, web.arena.Journal.Start())
+	defer web.arena.Journal.Stop()
+	today := time.Now().Format("2006-01-02")
 
 	asJson := map[string]string{"Content-Type": "application/json"}
 	recorder := web.request(
@@ -151,6 +163,12 @@ func TestApiAnswersMatchTheDescription(t *testing.T) {
 		{"GET", "/api/v1/alliances", "/api/v1/alliances", "", 200},
 		{"GET", "/api/v1/events", "/api/v1/events", "", 200},
 		{"GET", "/api/v1/exports/{file}", "/api/v1/exports/matches.json", "", 200},
+		{"GET", "/api/v1/exports/{file}", "/api/v1/exports/matches.csv", "", 200},
+		{"GET", "/api/v1/journal", "/api/v1/journal", "", 200},
+		{"GET", "/api/v1/journal/{day}", "/api/v1/journal/" + today, "", 200},
+		{"GET", "/api/v1/journal/{day}", "/api/v1/journal/2001-01-01", "", 404},
+		{"GET", "/api/v1/journal/{day}", "/api/v1/journal/yesterday", "", 400},
+		{"GET", "/api/v1/openapi.yaml", "/api/v1/openapi.yaml", "", 200},
 		{"GET", "/api/v1/exports/{file}", "/api/v1/exports/nothing.json", "", 404},
 		{"GET", "/api/v1/games", "/api/v1/games", "", 200},
 		{"GET", "/api/v1/games/{id}", "/api/v1/games/ball-count", "", 200},
@@ -208,4 +226,44 @@ func TestApiAnswersMatchTheDescription(t *testing.T) {
 	}
 	recorder = web.request("GET", "/api/v1/auth", "", bearer(readToken))
 	description.check(t, "GET", "/api/v1/auth", recorder)
+
+	// Every route that reads says 401 to nobody, and the description says so for each.
+	for _, test := range []struct{ path, request string }{
+		{"/api/v1/game", "/api/v1/game"},
+		{"/api/v1/match", "/api/v1/match"},
+		{"/api/v1/matches", "/api/v1/matches"},
+		{"/api/v1/matches/{id}", matchPath},
+		{"/api/v1/rankings", "/api/v1/rankings"},
+		{"/api/v1/teams", "/api/v1/teams"},
+		{"/api/v1/alliances", "/api/v1/alliances"},
+		{"/api/v1/events", "/api/v1/events"},
+		{"/api/v1/events/stream", "/api/v1/events/stream"},
+		{"/api/v1/events/ws", "/api/v1/events/ws"},
+		{"/api/v1/exports/{file}", "/api/v1/exports/matches.json"},
+		{"/api/v1/journal", "/api/v1/journal"},
+		{"/api/v1/journal/{day}", "/api/v1/journal/" + today},
+		{"/api/v1/diagnostics/connection/{matchId}/{stationId}", "/api/v1/diagnostics/connection/1/R1"},
+		{"/api/v1/games", "/api/v1/games"},
+		{"/api/v1/games/{id}", "/api/v1/games/ball-count"},
+	} {
+		recorder = web.request("GET", test.request, "", nil)
+		assert.Equal(t, 401, recorder.Code, test.request)
+		description.check(t, "GET", test.path, recorder)
+		// With a token the same request gets past the door. The two streams are left out: they would never end.
+		if !strings.HasPrefix(test.path, "/api/v1/events/") {
+			assert.NotEqual(t, 401, web.request("GET", test.request, "", bearer(readToken)).Code, test.request)
+		}
+	}
+	for _, test := range []struct{ method, path, request string }{
+		{"POST", "/api/v1/games/validate", "/api/v1/games/validate"},
+		{"POST", "/api/v1/games/score", "/api/v1/games/score"},
+		{"PUT", "/api/v1/games/{id}", "/api/v1/games/some-game"},
+	} {
+		recorder = web.request(test.method, test.request, "{}", nil)
+		assert.Equal(t, 401, recorder.Code, test.request)
+		description.check(t, test.method, test.path, recorder)
+	}
+	recorder = web.request("PUT", "/api/v1/games/some-game", "id: some-game", bearer(readToken))
+	assert.Equal(t, 403, recorder.Code)
+	description.check(t, "PUT", "/api/v1/games/{id}", recorder)
 }

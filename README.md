@@ -27,7 +27,8 @@ Field electronics are plug-and-play:
   [docs/devices.md](docs/devices.md) is the full reference.
 
 A read API, an event stream and data exports are under `/api/v1`, described in
-[docs/openapi.yaml](docs/openapi.yaml). Webhooks send the same events to a program of yours, signed and retried;
+[docs/openapi.yaml](docs/openapi.yaml). Every event is also written to a file per day in a `journal` folder
+beside the database. Webhooks send the same events to a program of yours, signed and retried;
 they are set up on Setup → Webhooks and explained in [docs/webhooks.md](docs/webhooks.md).
 
 Logins are off until you want them: every page is open, as on a practice field nobody else joins.

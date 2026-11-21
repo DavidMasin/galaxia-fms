@@ -28,6 +28,7 @@ _testmain.go
 *.out
 .DS_Store
 static/logs
+/journal
 static/img/avatars
 
 # Galaxia FMS

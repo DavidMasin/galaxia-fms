@@ -109,6 +109,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/GameView"}
+        "401": {$ref: "#/components/responses/Error"}
         "503": {$ref: "#/components/responses/Error"}
   /api/v1/match:
     get:
@@ -133,6 +134,7 @@ paths:
                   score:
                     type: object
                     description: The live score, in the shape of the realtimeScore message in docs/architecture.md
+        "401": {$ref: "#/components/responses/Error"}
   /api/v1/matches:
     get:
       summary: The matches of one type, with their results
@@ -153,6 +155,7 @@ paths:
                     type: array
                     items: {$ref: "#/components/schemas/MatchSummary"}
         "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
   /api/v1/matches/{id}:
     get:
       summary: One match with its full result and audit log
@@ -182,6 +185,7 @@ paths:
                     description: Every score change, including undo records
                     items: {$ref: "#/components/schemas/ScoreChange"}
         "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
   /api/v1/rankings:
     get:
@@ -226,6 +230,7 @@ paths:
                         stats:
                           type: object
                           additionalProperties: {type: number}
+        "401": {$ref: "#/components/responses/Error"}
   /api/v1/teams:
     get:
       summary: The teams at the event
@@ -253,6 +258,7 @@ paths:
                         schoolName: {type: string}
                         rookieYear: {type: integer}
                         robotName: {type: string}
+        "401": {$ref: "#/components/responses/Error"}
   /api/v1/alliances:
     get:
       summary: Playoff alliances
@@ -274,6 +280,7 @@ paths:
                         number: {type: integer}
                         teams: {type: array, items: {type: integer}}
                         lineup: {type: array, items: {type: integer}}
+        "401": {$ref: "#/components/responses/Error"}
   /api/v1/events:
     get:
       summary: Events after a sequence number
@@ -304,6 +311,7 @@ paths:
                   more: {type: boolean, description: True when the limit cut the list short}
                   lastSeq: {type: integer}
         "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
   /api/v1/events/stream:
     get:
       summary: Live events as Server-Sent Events
@@ -327,6 +335,7 @@ paths:
           content:
             text/event-stream: {}
         "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
   /api/v1/events/ws:
     get:
       summary: Live events over a WebSocket
@@ -340,6 +349,7 @@ paths:
         "101":
           description: Switching to the WebSocket protocol
         "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
   /api/v1/exports/{file}:
     get:
       summary: Download matches, scores, rankings or the audit log
@@ -366,6 +376,52 @@ paths:
             text/csv: {}
             application/json: {}
         "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+  /api/v1/journal:
+    get:
+      summary: The days the event journal has a file for
+      description: >
+        Every event is also appended to a file, one per day by the clock of the computer the FMS runs on, in a
+        folder named journal beside the database. The journal outlives a restart, which the event stream does not.
+      responses:
+        "200":
+          description: The days, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [days, keepDays]
+                properties:
+                  days:
+                    type: array
+                    items:
+                      type: object
+                      required: [day, bytes]
+                      properties:
+                        day: {type: string, format: date}
+                        bytes: {type: integer}
+                  keepDays: {type: integer, description: Files older than this many days are deleted}
+        "401": {$ref: "#/components/responses/Error"}
+  /api/v1/journal/{day}:
+    get:
+      summary: The events of one day
+      description: >
+        One JSON object per line (JSON Lines), in the envelope of the event stream, in the order they happened.
+        Sequence numbers begin again each time the FMS starts, which a system.started event marks. A line of type
+        journal.gap says that the events between two sequence numbers were lost before they could be written.
+      parameters:
+        - name: day
+          in: path
+          required: true
+          schema: {type: string, format: date}
+      responses:
+        "200":
+          description: The file of that day, as an attachment
+          content:
+            application/x-ndjson: {}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
   /api/v1/diagnostics/connection/{matchId}/{stationId}:
     get:
@@ -421,6 +477,7 @@ paths:
                                   startSec: {type: number}
                                   endSec: {type: number}
         "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
   /api/v1/games:
     get:
@@ -448,6 +505,7 @@ paths:
                         diagnostics:
                           type: array
                           items: {$ref: "#/components/schemas/Diagnostic"}
+        "401": {$ref: "#/components/responses/Error"}
   /api/v1/games/{id}:
     parameters:
       - name: id
@@ -463,6 +521,7 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/GameDocument"}
         "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
     put:
       summary: Save a game definition
@@ -481,6 +540,8 @@ paths:
         "307":
           description: Redirect to the login page
         "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
         "413": {$ref: "#/components/responses/Error"}
         "422":
           description: The definition has errors; nothing was written
@@ -501,6 +562,7 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/GameDocument"}
+        "401": {$ref: "#/components/responses/Error"}
         "413": {$ref: "#/components/responses/Error"}
   /api/v1/games/score:
     post:
@@ -540,6 +602,7 @@ paths:
                   live: {type: object}
                   state: {type: object}
         "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
         "422": {$ref: "#/components/responses/Error"}
   /api/v1/devices/ws:

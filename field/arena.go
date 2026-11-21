@@ -82,6 +82,7 @@ type Arena struct {
 	ArenaNotifiers
 	arenaLighting
 	arenaWebhooks
+	arenaJournal
 	MatchState
 	lastMatchState                    MatchState
 	PhaseIndex                        int // Index into Game.Match.Phases while InMatch; -1 otherwise.
@@ -203,6 +204,7 @@ func NewArena(dbPath string) (*Arena, error) {
 	}
 	arena.newLighting()
 	arena.newWebhooks()
+	arena.newJournal()
 	err = arena.LoadSettings()
 	if err != nil {
 		// Without a game to play there is no arena; do not leave the database locked behind it.
@@ -940,6 +942,7 @@ func (arena *Arena) Run() {
 	if err := arena.Devices.Start(); err != nil {
 		log.Printf("%v", err)
 	}
+	arena.startJournal()
 	arena.startWebhooks()
 
 	for {

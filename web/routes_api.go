@@ -43,6 +43,8 @@ var apiRoutes = []apiRoute{
 	{"GET", "/api/v1/events/stream", func(web *Web) http.HandlerFunc { return web.apiEventStreamHandler }},
 	{"GET", "/api/v1/events/ws", func(web *Web) http.HandlerFunc { return web.apiEventSocketHandler }},
 	{"GET", "/api/v1/exports/{file}", func(web *Web) http.HandlerFunc { return web.apiExportHandler }},
+	{"GET", "/api/v1/journal", func(web *Web) http.HandlerFunc { return web.apiJournalHandler }},
+	{"GET", "/api/v1/journal/{day}", func(web *Web) http.HandlerFunc { return web.apiJournalDayHandler }},
 	{
 		"GET", "/api/v1/diagnostics/connection/{matchId}/{stationId}",
 		func(web *Web) http.HandlerFunc { return web.apiConnectionReportHandler },

@@ -412,6 +412,7 @@ screen.
 | `score.undone` | the reverting `scoring.Change` |
 | `station.status` | `station`, `team`, `changed` (which of the following changed), `driverStation`, `robot`, `radio`, `eStop`, `aStop`, `bypass` |
 | `field.reset`, `field.volunteers` | none |
+| `system.started` | `game`: the id of the active game. Published once, when the arena starts running. |
 | `system.game_reloaded` | `id`, `valid` |
 | `system.game_changed` | `id`, `hash` of the newly active game |
 
@@ -419,6 +420,23 @@ screen.
 edited)`, which the code that commits a result calls.
 
 Field devices publish the `device.*` events listed at the end of [devices.md](devices.md).
+
+**Sequence numbers** count from 1 in each run of the FMS. `system.started` marks where a run begins.
+
+**The journal** (`bus/journal.go`, `Arena.Journal`). The bus remembers only recent events, and only while
+the process lives. The journal is a subscriber of its own that appends every event to a file as one JSON
+object per line:
+- **Where.** A folder named `journal` beside the database file, one file per day by the local clock of the
+  FMS computer: `2026-11-21.jsonl`. Files older than 30 days are deleted when the journal starts and when a
+  new day's file begins.
+- **When.** It starts in `Arena.Run`, so a test arena writes nothing, and first writes what the bus still
+  remembers from before. Events reach the file within a second.
+- **Falling behind.** If the bus drops events for the journal, it reads them back from the bus's memory.
+  What the bus has also forgotten becomes a line of type `journal.gap` with `after` and `before`, the
+  sequence numbers around what was lost.
+- **Failing.** A disk that cannot be written is logged once, not once per event, and writing is tried again
+  with the next event. The field runs either way.
+- **Reading.** `GET /api/v1/journal` lists the days and `GET /api/v1/journal/{day}` downloads one.
 
 ## The API, logins and roles (M4)
 

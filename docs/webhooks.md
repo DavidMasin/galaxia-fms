@@ -203,6 +203,7 @@ result.
 | `device.online`, `device.offline`, `device.pending`, `device.manifest` | A field device came, went, or described itself | |
 | `device.fault`, `device.fault_cleared`, `device.refused` | Safety faults and refused inputs | |
 | `device.input`, `device.output` | A device input or output changed. Many a second. | |
+| `system.started` | The FMS started; `seq` begins again from here | |
 | `system.game_changed`, `system.game_reloaded` | The game was changed or its file reloaded | |
 
 The page also lists `schedule.changed`, `alliance_selection.updated`, `alliance_selection.finalized` and

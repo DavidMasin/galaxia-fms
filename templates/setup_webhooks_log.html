@@ -1,0 +1,54 @@
+{{/*
+The delivery log of one webhook: every delivery with its status, the receiver's answer and how long it took, and a
+button to send it again. It is drawn in the browser from the webhook API (static/js/setup_webhooks.js).
+*/}}
+{{define "title"}}Webhook Deliveries{{end}}
+{{define "body"}}
+<link href="/static/css/setup_webhooks.css" rel="stylesheet">
+<div id="webhookLogPage">
+  <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+    <a class="btn btn-outline-secondary btn-sm" href="/setup/webhooks"><i class="bi bi-arrow-left"></i> Webhooks</a>
+    <h3 class="me-auto mb-0" id="logTitle">Deliveries</h3>
+    <select class="form-select form-select-sm w-auto" id="logStatus" aria-label="Show deliveries with this status">
+      <option value="">Every status</option>
+      <option value="pending">Waiting</option>
+      <option value="succeeded">Delivered</option>
+      <option value="failed">Failed</option>
+    </select>
+    <button type="button" class="btn btn-outline-primary btn-sm" id="logSendTest">
+      <i class="bi bi-send"></i> Send a test event</button>
+  </div>
+  <div class="text-secondary small mb-3" id="logSubtitle"></div>
+  <div id="webhookMessages"></div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle webhook-log">
+      <thead>
+        <tr>
+          <th>Queued</th>
+          <th>Event</th>
+          <th>Status</th>
+          <th class="text-end">Attempts</th>
+          <th class="text-end">Answer</th>
+          <th class="text-end">Took</th>
+          <th>Next try</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="logRows"></tbody>
+    </table>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span class="text-secondary small me-auto" id="logCount"></span>
+    <button type="button" class="btn btn-outline-secondary btn-sm" id="logNewer">Newer</button>
+    <button type="button" class="btn btn-outline-secondary btn-sm" id="logOlder">Older</button>
+  </div>
+</div>
+{{end}}
+{{define "script"}}
+<script src="/static/js/setup_webhooks.js"></script>
+<script>
+  $(function () {
+    WebhooksPage.startLog({{.WebhookId}});
+  });
+</script>
+{{end}}

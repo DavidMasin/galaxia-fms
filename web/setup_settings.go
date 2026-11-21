@@ -122,6 +122,20 @@ func (web *Web) settingsPostHandler(w http.ResponseWriter, r *http.Request) {
 		)
 		return
 	}
+	// Without an admin password, an admin user must remain, or nobody could log in to change anything again.
+	if r.PostFormValue("adminPassword") == "" && previousAdminPassword != "" {
+		users, err := web.arena.Database.GetAllUsers()
+		if err != nil {
+			handleWebErr(w, err)
+			return
+		}
+		if err = checkAdminRemains("", users); err != nil {
+			web.renderSettingsWithStatus(
+				w, r, "The admin password cannot be cleared: "+err.Error()+".", activeSettingsTab, http.StatusOK,
+			)
+			return
+		}
+	}
 	// The field profile: the physical setup whose device bindings and lighting apply. A new name makes a new, empty
 	// profile, which is created only once every other setting has been checked.
 	fieldProfile := eventSettings.FieldProfile

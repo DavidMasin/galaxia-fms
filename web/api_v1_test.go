@@ -21,8 +21,8 @@ import (
 	"time"
 )
 
-// Every route in the API's table, and every version 1 route registered elsewhere, must be described in
-// docs/openapi.yaml, and the description must not list anything that does not exist.
+// Every version 1 route the server registers, wherever it is registered, must be described in docs/openapi.yaml, and
+// the description must not list anything that does not exist.
 func TestApiRoutesMatchTheDescription(t *testing.T) {
 	src, err := os.ReadFile(filepath.Join("..", openApiSpecPath))
 	assert.NoError(t, err)
@@ -42,12 +42,23 @@ func TestApiRoutesMatchTheDescription(t *testing.T) {
 			described[strings.ToUpper(method)+" "+path] = true
 		}
 	}
+	web := setupTestWeb(t)
 	registered := map[string]bool{}
-	for _, route := range apiRoutes {
-		registered[route.method+" "+route.path] = true
+	for _, pattern := range web.newRoutes().patterns {
+		method, path, hasMethod := strings.Cut(pattern, " ")
+		if !hasMethod {
+			method, path = "", pattern
+		}
+		if !strings.HasPrefix(path, "/api/v1/") {
+			continue
+		}
+		// A pattern without a method would answer every method, which no description could list.
+		assert.True(t, hasMethod, "the route %q must name its method", pattern)
+		registered[method+" "+path] = true
 	}
-	for _, route := range alreadyRegisteredApiRoutes {
-		registered[route[0]+" "+route[1]] = true
+	assert.Greater(t, len(registered), len(apiRoutes))
+	for _, route := range apiRoutes {
+		assert.True(t, registered[route.method+" "+route.path], route.path)
 	}
 	var missing, extra []string
 	for route := range registered {
@@ -65,8 +76,7 @@ func TestApiRoutesMatchTheDescription(t *testing.T) {
 	assert.Empty(t, missing, "routes not described in docs/openapi.yaml")
 	assert.Empty(t, extra, "operations described in docs/openapi.yaml that do not exist")
 
-	// And the registered routes really answer.
-	web := setupTestWeb(t)
+	// And the routes registered outside the table really answer.
 	for _, route := range alreadyRegisteredApiRoutes {
 		if route[0] == "GET" && !strings.Contains(route[1], "{") {
 			assert.Equal(t, 200, web.getHttpResponse(route[1]).Code, route[1])

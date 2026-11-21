@@ -57,7 +57,7 @@ func (web *Web) scoringPanel(id string) *gamedef.Panel {
 
 // Renders the scoring interface which enables input of scores in real-time.
 func (web *Web) scoringPanelHandler(w http.ResponseWriter, r *http.Request) {
-	if !web.userIsAdmin(w, r) {
+	if !web.userHasRole(w, r, model.RoleScorer) {
 		return
 	}
 
@@ -109,7 +109,7 @@ func (web *Web) scoringPanelManifestHandler(w http.ResponseWriter, r *http.Reque
 
 // The websocket endpoint for the scoring interface client to send control commands and receive status updates.
 func (web *Web) scoringPanelWebsocketHandler(w http.ResponseWriter, r *http.Request) {
-	if !web.userIsAdmin(w, r) {
+	if !web.userHasRole(w, r, model.RoleScorer) {
 		return
 	}
 

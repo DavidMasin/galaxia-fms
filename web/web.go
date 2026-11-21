@@ -21,7 +21,6 @@ import (
 
 const (
 	sessionTokenCookie = "session_token"
-	adminUser          = "admin"
 )
 
 type Web struct {
@@ -141,7 +140,12 @@ func addNoCacheHeader(handler http.Handler) http.Handler {
 
 // Sets up the mapping between URLs and handlers.
 func (web *Web) newHandler() http.Handler {
-	mux := http.NewServeMux()
+	return web.newRoutes()
+}
+
+// newRoutes registers every route of the server.
+func (web *Web) newRoutes() *routeMux {
+	mux := newRouteMux()
 	mux.HandleFunc("GET /", web.indexHandler)
 	mux.HandleFunc("GET /alliance_selection", web.allianceSelectionGetHandler)
 	mux.HandleFunc("POST /alliance_selection", web.allianceSelectionPostHandler)
@@ -196,6 +200,7 @@ func (web *Web) newHandler() http.Handler {
 	mux.HandleFunc("GET /displays/youtube/websocket", web.youtubeDisplayWebsocketHandler)
 	mux.HandleFunc("GET /login", web.loginHandler)
 	mux.HandleFunc("POST /login", web.loginPostHandler)
+	mux.HandleFunc("GET /logout", web.logoutHandler)
 	mux.HandleFunc("GET /match_play", web.matchPlayHandler)
 	mux.HandleFunc("GET /match_play/match_load", web.matchPlayMatchLoadHandler)
 	mux.HandleFunc("GET /match_play/websocket", web.matchPlayWebsocketHandler)
@@ -270,6 +275,8 @@ func (web *Web) newHandler() http.Handler {
 	web.addDeviceRoutes(mux)
 	web.addDeviceTransportRoutes(mux)
 	web.addLightingRoutes(mux)
+	web.addWebhookRoutes(mux)
+	web.addUserRoutes(mux)
 	return mux
 }
 

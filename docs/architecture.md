@@ -420,6 +420,89 @@ edited)`, which the code that commits a result calls.
 
 Field devices publish the `device.*` events listed at the end of [devices.md](devices.md).
 
+## The API, logins and roles (M4)
+
+**The API.** Version 1 lives under `/api/v1` and is described in [openapi.yaml](openapi.yaml), also served as
+`/api/v1/openapi.yaml` and `/api/v1/openapi.json`. Two tests keep the description honest:
+- `TestApiRoutesMatchTheDescription` compares it with every `/api/v1` pattern the server registers. The router
+  (`routeMux` in `web/route_mux.go`) records each pattern, so a route registered anywhere is seen.
+- `TestApiAnswersMatchTheDescription` sends real requests and validates each answer, errors included, against the
+  schema the description gives for that status.
+
+**Who a request comes from** (`web/auth.go`). `requestIdentity` reads an API token from
+`Authorization: Bearer <token>`, or else the login session cookie. A request that sends a token is judged by the
+token alone.
+
+**Whether it may proceed.** Every handler that needs a role starts with one of three checks:
+
+| Check | Lets through |
+|-------|--------------|
+| `userIsAdmin(w, r)` | admin |
+| `userHasRole(w, r, roles...)` | admin, and the roles named |
+| `userCanRead(w, r)` | any role |
+
+Each check answers the request itself when it refuses: a page sends nobody-in-particular to `/login` and shows a
+logged-in person a "Not allowed" page (403), while paths under `/api/` get 401 or 403 with a JSON error.
+
+**When logins are on.** `authEnabled` is true once the settings have an admin password or any user exists. While
+it is false every check passes, as in Cheesy Arena.
+
+**What each role opens:**
+
+| Role | Opens |
+|------|-------|
+| admin | Everything |
+| scorer | Scoring panels and their websockets; match review edits |
+| referee | The referee panel and its websocket |
+| read-only | Every API read |
+
+- Every route in the API table (`web/routes_api.go`) only reads, and is wrapped in `readerOnly` unless it is in
+  `publicApiPaths` (the clock, health, the description, who am I).
+- Displays, rankings, reports, match logs, connection reports and the match review list have no check, so a TV or
+  a team's phone needs no login.
+- The device routes under `/api/v1/devices` use device tokens and are not part of this.
+
+**Storage** (`model/user.go`):
+- `model.User` has a role and a salted PBKDF2-HMAC-SHA256 password hash that carries its own work factor
+  (`model.PasswordIterations`, 600,000; tests lower it).
+- `model.ApiToken` keeps only a SHA-256 hash of the token and its first characters. The token is shown once, on
+  the answer that creates it.
+- The settings' admin password still logs in as `admin`, a name no user may take.
+- A session stores the username; the role is looked up on every request, so a changed role or a deleted user
+  takes effect at once.
+
+**Not locking everyone out.** `checkAdminRemains` refuses any change that would leave logins on with no admin:
+making a first user that is not an admin, demoting or deleting the last admin, or clearing the admin password
+while no user is an admin.
+
+**Templates do not escape.** Pages are rendered with `text/template`, as upstream does. Anything a person typed
+must be escaped where it is shown: `{{html .Value}}` in a template, `.text()` in JavaScript.
+
+## Webhooks (M4)
+
+[webhooks.md](webhooks.md) is the guide for receivers; this is how the code is put together.
+
+- **Package `webhook`** does not import `web` or `field`. `webhook.Dispatcher` is `Arena.Webhooks`, built in
+  `field/arena_webhooks.go` and started in `Arena.Run`, so a test arena starts no goroutines unless a test calls
+  `Start`.
+- **From event to delivery.** The dispatcher subscribes to every event on the bus. For each event it writes one
+  `model.WebhookDelivery` per enabled webhook whose filters select the type. The record is written before
+  anything is sent, so the outbox survives a restart, and the same records are the delivery log.
+- **Sending.** A scheduler goroutine starts a request for each due delivery, oldest first:
+  - at most one request per webhook at a time, so a receiver that is down cannot hold up the others;
+  - at most four requests at once over all webhooks;
+  - requests have a 10-second limit and do not follow redirects.
+- **Retries.** A failed delivery's next attempt is scheduled by `DefaultBackoff` until its deadline, 24 hours
+  after it was queued or resent. The clock, the backoff and the HTTP client are options, which the tests replace.
+- **Falling behind.** If the bus drops events for the dispatcher, it reads them back from the bus's memory with
+  `Since`. What the bus has also forgotten becomes a `webhook.gap` delivery to every enabled webhook.
+- **Limits.** `DefaultMaxPending` (5,000) waiting deliveries per webhook and `DefaultKeepFinished` (500) finished
+  ones in the log; older ones are given up or pruned.
+- **Locks.** `Dispatcher.mu` guards the webhooks, the outbox in memory and the bookkeeping. Requests are made
+  without it. The database is asked for through a function each time, because restoring a backup replaces it.
+- **Web.** `web/setup_webhooks.go` holds the two pages and the API, all admin only. The pages are drawn in the
+  browser from the API (`static/js/setup_webhooks.js`), so they cannot show anything the API does not.
+
 ## Devices (M5)
 
 Field devices are specified in [devices.md](devices.md); this is how the code is put together. The package

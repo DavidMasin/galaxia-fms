@@ -474,3 +474,80 @@ checks.
 
 **Next:** milestone 4's remaining pieces (users and roles, API tokens, webhooks), then the countdown on the field
 (milestone 9).
+
+## 2026-11-21 21:29 - Users, roles, API tokens and webhooks (milestone 4)
+
+Work resumed after a week. David stopped the session mid-task on 2026-11-13; that also stopped the helper agent
+that was building webhooks, and a stopped agent cannot be resumed. I finished its work myself, starting from the
+files it left. No new agent was started.
+
+**Logins, roles and API tokens** (mine)
+- Logins stay **off** until the settings have an admin password or a user exists. Until then every page is open,
+  as before.
+- **Setup → Users and API Tokens** (new page) adds users with a role, changes roles and passwords, and makes and
+  revokes API tokens.
+- Four roles:
+  - admin: everything;
+  - scorer: scoring panels and match review edits;
+  - referee: the referee panel;
+  - read-only: every API read.
+- Displays, rankings, reports, match logs and the match review list stay open, so a TV or a team's phone that
+  scans a QR code needs no login.
+- **Passwords** are stored as salted PBKDF2-HMAC-SHA256 hashes, 600,000 rounds. **API tokens** are stored only as
+  a SHA-256 hash, and the token is shown once.
+- **The API** now needs a login or a token while logins are on, and answers 401 or 403 in JSON instead of
+  redirecting to the login page. The clock, health, the description and a new "who am I" route
+  (`/api/v1/auth`) stay open.
+- **Lockout guards.** The FMS refuses to make a first user that is not an admin, to demote or delete the last
+  admin, or to clear the admin password while no user is an admin.
+- The login cookie is now `HttpOnly` and `SameSite=Lax`, the login page only redirects to this server, and there
+  is a Log out link. The navigation bar shows who is logged in.
+- One deviation from the plan: committing a match stays with the admin on Match Play. The plan listed "commit"
+  under scorer; splitting Match Play by role is a bigger change than this milestone needed.
+
+**Webhooks**
+- Kept from the agent after reading it: package `webhook` (the dispatcher with its outbox in the database), its
+  storage, the arena wiring, the API handlers and 15 tests.
+- Written by me: the Webhooks page and the delivery log page, their script and styles, handler tests, the
+  description in `docs/openapi.yaml`, and `docs/webhooks.md`.
+- Each delivery is a signed POST: `X-Galaxia-Signature` is an HMAC-SHA256 of the timestamp, a full stop and the
+  body. Failures are retried with growing waits for 24 hours, about 33 attempts, then kept in the log with a
+  Resend button.
+- Two fixes in what the agent left:
+  - A test of the backoff overflowed its own arithmetic and failed. The code was right; the test now caps the
+    doubling as the code does.
+  - The test's "computed independently in Python" signature really matches: I recomputed it in Python and in
+    Node.
+- One mistake of my own, caught by reading the code against my text: I had written that a disabled webhook still
+  queues events. It does not; only deliveries already waiting are held. Page, script and guide corrected.
+
+**The API description is now enforced two ways**
+- Every `/api/v1` route the server registers, wherever it is registered, must be in `docs/openapi.yaml`, and the
+  reverse. The router now records its routes for this. This found four device routes missing from the
+  description; they are described now.
+- A new test sends about 60 real requests and validates each answer against the schema given for its status.
+  I checked that it can fail: with a required field added to one schema and a type changed in another, it
+  reported both. `/api/v1/openapi.json` serves the description as JSON.
+
+**A flaky test fixed.** `TestAllianceStationDisplayWebsocket` assumed the clock message is among the first three
+after a match starts. It failed about one run in six, and on every cold start during this work. It now waits for
+the message it needs. Six cold starts in a row pass.
+
+**Checks**
+- Formatting and vet are clean. `go test -count=1 ./...` passes in all 19 packages; the signed-delivery test
+  passed 8 runs in a row.
+- In a browser, on the test copy (port 8090, scratch database):
+  - Making the first admin turned logins on and logged me in as that user.
+  - A scorer was sent to the login page, came back to the scoring panel, and got "Not allowed" on Settings.
+  - A read-only token read the API (200), was refused changes (403), and without it the API said 401.
+  - A token name containing HTML was shown as text.
+  - Two webhooks, one to a Python receiver and one to a Node receiver, both running the code printed in
+    `docs/webhooks.md`. Both verified the signatures of a test event and of a match (started, three phase
+    changes, aborted), and both refused a forged and an unsigned delivery with 401.
+  - With the Python receiver stopped, the log showed "Retrying, no answer" with a countdown. After restarting it,
+    Resend delivered on the third attempt, and the details listed all three.
+- The scratch database had been reset during the week, so the test copy briefly took broker ports 1883 and 8083
+  again. I moved it to 18840/18841 at once. David's FMS was not running at the time.
+
+**Not done in milestone 4 yet:** the on-disk event journal. Events are replayed from memory, which is lost on a
+restart. Next.

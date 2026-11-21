@@ -17,12 +17,21 @@ type apiRoute struct {
 	handler func(web *Web) http.HandlerFunc
 }
 
+// publicApiPaths are open to anyone even while logins are needed: the clock (displays and devices measure their
+// offset with it), health, the description, and who am I.
+var publicApiPaths = map[string]bool{
+	"/api/v1/time": true, "/api/v1/health": true, "/api/v1/openapi.yaml": true, "/api/v1/openapi.json": true,
+	"/api/v1/auth": true,
+}
+
 // apiRoutes lists the operations of the version 1 API that this file registers. The game routes are registered in
 // newHandler, before this table existed; they are listed here too so the description test covers them.
 var apiRoutes = []apiRoute{
 	{"GET", "/api/v1/time", func(web *Web) http.HandlerFunc { return web.apiTimeHandler }},
 	{"GET", "/api/v1/health", func(web *Web) http.HandlerFunc { return web.apiHealthHandler }},
 	{"GET", "/api/v1/openapi.yaml", func(web *Web) http.HandlerFunc { return web.apiSpecHandler }},
+	{"GET", "/api/v1/openapi.json", func(web *Web) http.HandlerFunc { return web.apiSpecJsonHandler }},
+	{"GET", "/api/v1/auth", func(web *Web) http.HandlerFunc { return web.apiAuthHandler }},
 	{"GET", "/api/v1/game", func(web *Web) http.HandlerFunc { return web.apiGameHandler }},
 	{"GET", "/api/v1/match", func(web *Web) http.HandlerFunc { return web.apiCurrentMatchHandler }},
 	{"GET", "/api/v1/matches", func(web *Web) http.HandlerFunc { return web.apiMatchesHandler }},
@@ -50,9 +59,23 @@ var alreadyRegisteredApiRoutes = [][2]string{
 	{"PUT", "/api/v1/games/{id}"},
 }
 
-// addApiRoutes registers the version 1 API.
-func (web *Web) addApiRoutes(mux *http.ServeMux) {
+// addApiRoutes registers the version 1 API. Every operation in the table only reads, so while logins are needed each
+// needs a login or an API token of any role, unless it is public.
+func (web *Web) addApiRoutes(mux *routeMux) {
 	for _, route := range apiRoutes {
-		mux.HandleFunc(route.method+" "+route.path, route.handler(web))
+		handler := route.handler(web)
+		if !publicApiPaths[route.path] {
+			handler = web.readerOnly(handler)
+		}
+		mux.HandleFunc(route.method+" "+route.path, handler)
+	}
+}
+
+// readerOnly lets a request through to the handler if it may read.
+func (web *Web) readerOnly(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if web.userCanRead(w, r) {
+			handler(w, r)
+		}
 	}
 }

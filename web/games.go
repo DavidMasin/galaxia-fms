@@ -53,6 +53,9 @@ func writeJsonError(w http.ResponseWriter, status int, message string) {
 
 // Lists every game in the games directory, including those that fail to load.
 func (web *Web) gamesApiListHandler(w http.ResponseWriter, r *http.Request) {
+	if !web.userCanRead(w, r) {
+		return
+	}
 	web.arena.ReloadGames()
 	writeJson(w, http.StatusOK, map[string]any{"games": web.arena.Games.List()})
 }
@@ -81,6 +84,9 @@ func describeGame(id string, src []byte) gameResponse {
 
 // Returns one game's YAML, its diagnostics, and its browser view if it is valid.
 func (web *Web) gameApiGetHandler(w http.ResponseWriter, r *http.Request) {
+	if !web.userCanRead(w, r) {
+		return
+	}
 	id := r.PathValue("id")
 	src, err := web.arena.Games.Source(id)
 	if err != nil {
@@ -97,6 +103,9 @@ func (web *Web) gameApiGetHandler(w http.ResponseWriter, r *http.Request) {
 
 // Validates a game definition sent as the request body, without saving it.
 func (web *Web) gameApiValidateHandler(w http.ResponseWriter, r *http.Request) {
+	if !web.userCanRead(w, r) {
+		return
+	}
 	src, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxGameRequestBytes))
 	if err != nil {
 		writeJsonError(w, http.StatusRequestEntityTooLarge, "the game definition is too large")
@@ -152,6 +161,9 @@ type scoreRequest struct {
 
 // Computes the score of a raw state: the sandbox behind the game editor's test match.
 func (web *Web) gameApiScoreHandler(w http.ResponseWriter, r *http.Request) {
+	if !web.userCanRead(w, r) {
+		return
+	}
 	var request scoreRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxGameRequestBytes))
 	if err := decoder.Decode(&request); err != nil {

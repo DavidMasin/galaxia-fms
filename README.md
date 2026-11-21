@@ -27,7 +27,15 @@ Field electronics are plug-and-play:
   [docs/devices.md](docs/devices.md) is the full reference.
 
 A read API, an event stream and data exports are under `/api/v1`, described in
-[docs/openapi.yaml](docs/openapi.yaml).
+[docs/openapi.yaml](docs/openapi.yaml). Webhooks send the same events to a program of yours, signed and retried;
+they are set up on Setup → Webhooks and explained in [docs/webhooks.md](docs/webhooks.md).
+
+Logins are off until you want them: every page is open, as on a practice field nobody else joins.
+- They turn on with an admin password (Setup → Settings) or with the first user (Setup → Users and API Tokens).
+- Users have a role: admin, scorer (scoring panels and match review edits), referee (the referee panel) or
+  read-only.
+- Programs use the API with an API token, made on the same page.
+- Displays, rankings, reports and match logs stay open, so a TV or a team's phone never needs a login.
 
 ## Building and running
 

@@ -25,6 +25,7 @@ type Database struct {
 	Path                 string
 	bolt                 *bbolt.DB
 	allianceTable        *table[Alliance]
+	apiTokenTable        *table[ApiToken]
 	awardTable           *table[Award]
 	bindingSetTable      *table[BindingSet]
 	deviceTable          *table[Device]
@@ -43,6 +44,7 @@ type Database struct {
 	sponsorSlideTable    *table[SponsorSlide]
 	teamTable            *table[Team]
 	userSessionTable     *table[UserSession]
+	userTable            *table[User]
 	webhookTable         *table[Webhook]
 	webhookDeliveryTable *table[WebhookDelivery]
 	snapshotMutex        sync.Mutex
@@ -60,6 +62,9 @@ func OpenDatabase(filename string) (*Database, error) {
 
 	// Register tables.
 	if database.allianceTable, err = newTable[Alliance](&database); err != nil {
+		return nil, err
+	}
+	if database.apiTokenTable, err = newTable[ApiToken](&database); err != nil {
 		return nil, err
 	}
 	if database.awardTable, err = newTable[Award](&database); err != nil {
@@ -114,6 +119,9 @@ func OpenDatabase(filename string) (*Database, error) {
 		return nil, err
 	}
 	if database.userSessionTable, err = newTable[UserSession](&database); err != nil {
+		return nil, err
+	}
+	if database.userTable, err = newTable[User](&database); err != nil {
 		return nil, err
 	}
 	if database.webhookTable, err = newTable[Webhook](&database); err != nil {

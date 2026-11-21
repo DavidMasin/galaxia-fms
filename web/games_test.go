@@ -144,10 +144,11 @@ func TestGamesApiSave(t *testing.T) {
 	recorder = web.requestWithBody("PUT", "/api/v1/games/Bad%20Id", game)
 	assert.Equal(t, 400, recorder.Code)
 
-	// Saving requires the admin password when one is set.
+	// Saving requires an admin login or token when one is set; the API answers 401 rather than sending to a login page.
 	web.arena.EventSettings.AdminPassword = "secret"
 	recorder = web.requestWithBody("PUT", "/api/v1/games/my-game", game)
-	assert.Equal(t, 307, recorder.Code)
+	assert.Equal(t, 401, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "Authorization: Bearer")
 }
 
 func TestGamesApiScore(t *testing.T) {

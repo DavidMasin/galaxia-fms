@@ -9,6 +9,7 @@ import (
 	"github.com/DavidMasin/galaxia-fms/field"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/scoring"
+	"go.yaml.in/yaml/v3"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -353,15 +354,38 @@ func (web *Web) apiAlliancesHandler(w http.ResponseWriter, r *http.Request) {
 
 // apiSpecHandler serves the OpenAPI description of this API.
 func (web *Web) apiSpecHandler(w http.ResponseWriter, r *http.Request) {
-	spec, err := os.ReadFile(filepath.Join(model.BaseDir, openApiSpecPath))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			writeJsonError(w, http.StatusNotFound, "the API description is not installed")
-			return
-		}
-		writeJsonError(w, http.StatusInternalServerError, err.Error())
+	spec, ok := readApiSpec(w)
+	if !ok {
 		return
 	}
 	w.Header().Set("Content-Type", "application/yaml")
 	w.Write(spec)
+}
+
+// apiSpecJsonHandler serves the same description as JSON, which most OpenAPI tools read.
+func (web *Web) apiSpecJsonHandler(w http.ResponseWriter, r *http.Request) {
+	spec, ok := readApiSpec(w)
+	if !ok {
+		return
+	}
+	var document any
+	if err := yaml.Unmarshal(spec, &document); err != nil {
+		writeJsonError(w, http.StatusInternalServerError, "the API description cannot be read: "+err.Error())
+		return
+	}
+	writeJson(w, http.StatusOK, document)
+}
+
+// readApiSpec reads the OpenAPI description, answering the request itself if it cannot.
+func readApiSpec(w http.ResponseWriter) ([]byte, bool) {
+	spec, err := os.ReadFile(filepath.Join(model.BaseDir, openApiSpecPath))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeJsonError(w, http.StatusNotFound, "the API description is not installed")
+			return nil, false
+		}
+		writeJsonError(w, http.StatusInternalServerError, err.Error())
+		return nil, false
+	}
+	return spec, true
 }

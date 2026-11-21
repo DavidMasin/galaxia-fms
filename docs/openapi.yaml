@@ -3,13 +3,27 @@ info:
   title: Galaxia FMS API
   version: "1"
   description: >
-    The version 1 API of Galaxia FMS. Reading is open to anyone on the field network, like the displays. Changing a
-    game requires the admin login while an admin password is set. Everything that happens on the field is also
-    published as an event: poll /events, or stream /events/stream (Server-Sent Events) or /events/ws (WebSocket).
-    Device endpoints are described in docs/devices.md.
+    The version 1 API of Galaxia FMS. Everything that happens on the field is also published as an event: poll
+    /events, stream /events/stream (Server-Sent Events) or /events/ws (WebSocket), or have events sent to you with
+    webhooks (docs/webhooks.md).
+
+
+    Logins are off until the event has an admin password or a user; while they are off the whole API is open, like
+    the displays. Once they are on, a request needs a login session or an API token sent as
+    "Authorization: Bearer <token>" (made on Setup, Users and API Tokens). Any role may read; changing a game and
+    everything about webhooks need the admin role. Without a login or token the answer is 401, and with a role
+    that may not, 403. /time, /health, /openapi.yaml, /openapi.json and /auth are always open.
+
+
+    The device routes under /devices are for field devices, which send their own device token instead; see
+    docs/devices.md.
 servers:
   - url: http://10.0.100.5:8080
     description: The field's FMS at its usual address
+security:
+  - {}
+  - apiToken: []
+  - session: []
 paths:
   /api/v1/time:
     get:
@@ -51,6 +65,38 @@ paths:
           description: The OpenAPI description in YAML
           content:
             application/yaml: {}
+  /api/v1/openapi.json:
+    get:
+      summary: This description, as JSON
+      responses:
+        "200":
+          description: The OpenAPI description in JSON
+          content:
+            application/json:
+              schema: {type: object}
+  /api/v1/auth:
+    get:
+      summary: Whether logins are needed, and who this request comes from
+      description: For a program to check its token, and for pages to show who is logged in. Always open.
+      responses:
+        "200":
+          description: The answer
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [required, identity]
+                properties:
+                  required: {type: boolean, description: Whether logins are on}
+                  identity:
+                    oneOf:
+                      - type: "null"
+                      - type: object
+                        required: [name, role, token]
+                        properties:
+                          name: {type: string, description: "The username, admin, or the name of the token"}
+                          role: {$ref: "#/components/schemas/Role"}
+                          token: {type: boolean, description: Identified by an API token rather than a login}
   /api/v1/game:
     get:
       summary: The active game
@@ -496,8 +542,327 @@ paths:
         "400": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
         "422": {$ref: "#/components/responses/Error"}
+  /api/v1/devices/ws:
+    get:
+      summary: The WebSocket connection of a field device
+      description: >
+        For field devices, not for API clients. JSON text frames, starting with a hello that carries the id and the
+        token of the device. The messages are in docs/devices.md (WebSocket).
+      security:
+        - {}
+      responses:
+        "101": {description: Switching to the WebSocket protocol}
+        "503": {$ref: "#/components/responses/Error"}
+  /api/v1/devices/{id}/manifest:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+    put:
+      summary: A field device announces or updates its manifest
+      description: For field devices that cannot hold a connection open. See docs/devices.md (HTTP).
+      security:
+        - deviceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, description: The manifest described in docs/devices.md}
+      responses:
+        "200":
+          description: The manifest was taken
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [approved]
+                properties:
+                  approved: {type: boolean, description: False while the device waits for approval}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "413": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /api/v1/devices/{id}/in/{ch}:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+      - name: ch
+        in: path
+        required: true
+        description: The id of one of the input channels of the device
+        schema: {type: string}
+    post:
+      summary: A field device reports one input
+      security:
+        - deviceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [v]
+              properties:
+                v: {description: The value; a number, or text for a text channel}
+                seq: {type: integer}
+                conf: {type: number, description: Confidence from 0 to 1}
+                ts: {type: integer}
+      responses:
+        "204": {description: The input was taken}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "413": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /api/v1/devices/{id}/out:
+    parameters:
+      - $ref: "#/components/parameters/DeviceId"
+    get:
+      summary: A field device asks what its outputs should show
+      description: >
+        Answers at once when since is missing or is not the current number of the device; otherwise waits up to wait
+        seconds for a change.
+      security:
+        - deviceToken: []
+      parameters:
+        - name: since
+          in: query
+          description: The seq of the last answer the device has
+          schema: {type: integer}
+        - name: wait
+          in: query
+          description: Seconds to wait for a change, at most 60
+          schema: {type: integer, minimum: 0, maximum: 60}
+      responses:
+        "200":
+          description: Every output in force; a channel missing from outputs is off
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [seq, outputs]
+                properties:
+                  seq: {type: integer}
+                  outputs:
+                    type: object
+                    description: Channel id to output command (docs/devices.md)
+                    additionalProperties: {type: object}
+                  commands:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        do: {type: string, enum: [identify, reboot]}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /api/v1/webhooks:
+    get:
+      summary: The webhooks, without their secrets
+      description: Admin only, like every webhook route. Receivers are described in docs/webhooks.md.
+      responses:
+        "200":
+          description: The webhooks, and what a webhook can subscribe to
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [webhooks, outboxDepth, eventTypes, defaultEvents]
+                properties:
+                  webhooks:
+                    type: array
+                    items: {$ref: "#/components/schemas/Webhook"}
+                  outboxDepth: {type: integer, description: Deliveries waiting to be sent, over all webhooks}
+                  eventTypes:
+                    type: array
+                    items:
+                      type: object
+                      required: [type, group, description]
+                      properties:
+                        type: {type: string}
+                        group: {type: string}
+                        description: {type: string}
+                        default: {type: boolean, description: Chosen for a new webhook}
+                        highRate: {type: boolean, description: Can come many times a second}
+                        planned: {type: boolean, description: Not published yet}
+                  defaultEvents:
+                    type: array
+                    items: {type: string}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+    post:
+      summary: Add a webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/WebhookChanges"}
+      responses:
+        "201":
+          description: The new webhook, with its secret
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Webhook"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+  /api/v1/webhooks/{id}:
+    parameters:
+      - $ref: "#/components/parameters/WebhookId"
+    get:
+      summary: One webhook, with its secret
+      responses:
+        "200":
+          description: The webhook
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Webhook"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+    put:
+      summary: Change a webhook
+      description: Fields left out keep their value. Deliveries already waiting go to the new URL with the new secret.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/WebhookChanges"}
+      responses:
+        "200":
+          description: The webhook as it is now
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Webhook"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+    delete:
+      summary: Delete a webhook, its outbox and its delivery log
+      responses:
+        "204": {description: Deleted}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+  /api/v1/webhooks/{id}/secret:
+    parameters:
+      - $ref: "#/components/parameters/WebhookId"
+    post:
+      summary: Give a webhook a new random secret
+      description: Deliveries already waiting are signed with it from their next attempt.
+      responses:
+        "200":
+          description: The webhook, with its new secret
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Webhook"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+  /api/v1/webhooks/{id}/test:
+    parameters:
+      - $ref: "#/components/parameters/WebhookId"
+    post:
+      summary: Send a test delivery
+      description: An event of type webhook.test, sent even while the webhook is disabled.
+      responses:
+        "202":
+          description: The delivery, queued
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/WebhookDelivery"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+  /api/v1/webhooks/{id}/deliveries:
+    parameters:
+      - $ref: "#/components/parameters/WebhookId"
+    get:
+      summary: The delivery log of a webhook, newest first
+      parameters:
+        - name: status
+          in: query
+          description: Only deliveries with this status
+          schema: {type: string, enum: [pending, succeeded, failed]}
+        - name: offset
+          in: query
+          schema: {type: integer, minimum: 0, default: 0}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 500, default: 50}
+      responses:
+        "200":
+          description: A page of the log
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deliveries, total]
+                properties:
+                  deliveries:
+                    type: array
+                    items: {$ref: "#/components/schemas/WebhookDelivery"}
+                  total: {type: integer, description: How many deliveries match in all}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+  /api/v1/webhooks/{id}/deliveries/{deliveryId}/resend:
+    parameters:
+      - $ref: "#/components/parameters/WebhookId"
+      - name: deliveryId
+        in: path
+        required: true
+        description: The id of the delivery, as in the X-Galaxia-Delivery header
+        schema: {type: string}
+    post:
+      summary: Send a delivery again
+      description: >
+        With the same id and body, signed with a new timestamp, and retried for another 24 hours if it fails. It is
+        sent even while the webhook is disabled.
+      responses:
+        "202":
+          description: The delivery, queued again
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/WebhookDelivery"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
 components:
+  securitySchemes:
+    apiToken:
+      type: http
+      scheme: bearer
+      description: An API token made on Setup, Users and API Tokens. It carries a role.
+    session:
+      type: apiKey
+      in: cookie
+      name: session_token
+      description: The cookie set by logging in on /login.
+    deviceToken:
+      type: http
+      scheme: bearer
+      description: The own token of a field device (docs/devices.md), only for the routes under /devices.
   parameters:
+    DeviceId:
+      name: id
+      in: path
+      required: true
+      description: The id of the device
+      schema: {type: string}
+    WebhookId:
+      name: id
+      in: path
+      required: true
+      schema: {type: integer}
     Types:
       name: types
       in: query
@@ -516,6 +881,74 @@ components:
                 type: array
                 items: {$ref: "#/components/schemas/Diagnostic"}
   schemas:
+    Role:
+      type: string
+      enum: [admin, scorer, referee, read-only]
+    Webhook:
+      type: object
+      required: [id, name, url, events, enabled, createdAt, updatedAt, pending, lastDelivery]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        url: {type: string}
+        events:
+          type: array
+          description: Event types or prefixes; "*" alone is every event
+          items: {type: string}
+        enabled: {type: boolean}
+        secret: {type: string, description: Only in answers about one webhook}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+        pending: {type: integer, description: Deliveries waiting to be sent}
+        lastDelivery:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/WebhookDelivery"
+    WebhookChanges:
+      type: object
+      description: >
+        What to set. On a new webhook, url is required; name defaults to the host of the URL, events to the default
+        selection, enabled to true and secret to a new random one.
+      additionalProperties: false
+      properties:
+        name: {type: string, maxLength: 100}
+        url: {type: string, description: An http or https address, maxLength: 2000}
+        events:
+          type: array
+          maxItems: 50
+          items: {type: string}
+        enabled: {type: boolean}
+        secret: {type: string, minLength: 16, maxLength: 200}
+    WebhookDelivery:
+      type: object
+      required: [id, webhook, event, seq, status, manual, attempts, createdAt, responseCode, latencyMs, error, history]
+      properties:
+        id: {type: string, description: The X-Galaxia-Delivery header}
+        webhook: {type: integer}
+        event: {type: string}
+        seq: {type: integer, description: "The sequence number of the event, or 0 for a test"}
+        status: {type: string, enum: [pending, sending, succeeded, failed]}
+        manual: {type: boolean, description: A test or a resend}
+        attempts: {type: integer}
+        createdAt: {type: string, format: date-time}
+        lastAttemptAt: {type: [string, "null"], format: date-time}
+        nextAttemptAt: {type: [string, "null"], format: date-time}
+        deadline: {type: [string, "null"], format: date-time, description: When retrying stops}
+        responseCode: {type: integer, description: The last HTTP status, or 0 when there was no answer}
+        latencyMs: {type: integer}
+        error: {type: string}
+        responseBody: {type: string, description: The start of the last answer of the receiver}
+        body: {type: string, description: The JSON that is sent}
+        history:
+          type: array
+          items:
+            type: object
+            required: [time, responseCode, latencyMs, error]
+            properties:
+              time: {type: string, format: date-time}
+              responseCode: {type: integer}
+              latencyMs: {type: integer}
+              error: {type: string}
     MatchState:
       type: string
       enum: [pre_match, starting, in_match, post_match, timeout, post_timeout, unknown]

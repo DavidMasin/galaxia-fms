@@ -2,13 +2,9 @@
 
 package web
 
-import (
-	"net/http"
-)
-
 // addDeviceRoutes registers the device management pages and their API. Their API lives under /setup rather than
 // /api/v1/devices, which belongs to the devices themselves (the WebSocket and HTTP transports).
-func (web *Web) addDeviceRoutes(mux *http.ServeMux) {
+func (web *Web) addDeviceRoutes(mux *routeMux) {
 	mux.HandleFunc("GET /setup/devices", web.devicesPageGetHandler)
 	mux.HandleFunc("GET /setup/devices/state", web.devicesPageStateHandler)
 	mux.HandleFunc("GET /setup/devices/websocket", web.devicesPageWebsocketHandler)

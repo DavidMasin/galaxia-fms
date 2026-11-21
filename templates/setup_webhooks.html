@@ -1,0 +1,106 @@
+{{/*
+The Webhooks page: where events are sent, which events, and how each webhook is doing. It is drawn in the browser
+from the webhook API (static/js/setup_webhooks.js).
+*/}}
+{{define "title"}}Webhooks{{end}}
+{{define "body"}}
+<link href="/static/css/setup_webhooks.css" rel="stylesheet">
+<div id="webhooksPage">
+  <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+    <h3 class="me-auto mb-0">Webhooks</h3>
+    <span class="badge text-bg-secondary" id="outboxDepth"
+      title="Deliveries waiting to be sent, over all webhooks"></span>
+    <button type="button" class="btn btn-primary" id="addWebhook"><i class="bi bi-plus-lg"></i> Add webhook</button>
+  </div>
+  <p class="text-secondary">
+    A webhook sends what happens on the field to a program of yours, as an HTTP POST for each event: a stream overlay,
+    a scoreboard, a chat bot. Each POST is signed with the webhook's secret, so the program can tell it really came
+    from this FMS. A delivery that fails is tried again for 24 hours. How to receive and verify one is in
+    <code>docs/webhooks.md</code>.
+  </p>
+  <div id="webhookMessages"></div>
+  <div id="webhookList"></div>
+</div>
+
+<div class="modal fade" id="webhookModal" tabindex="-1" aria-labelledby="webhookModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form class="modal-content" id="webhookForm">
+      <div class="modal-header">
+        <h5 class="modal-title" id="webhookModalTitle">Add webhook</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-danger d-none" id="webhookFormError"></div>
+        <div class="row g-3">
+          <div class="col-md-8">
+            <label class="form-label" for="webhookUrl">Address</label>
+            <input type="url" class="form-control" id="webhookUrl" required maxlength="2000"
+              placeholder="http://10.0.100.20:9000/galaxia">
+            <div class="form-text">Where the events are sent. It must answer with a 2xx status within 10 seconds.</div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="webhookName">Name</label>
+            <input type="text" class="form-control" id="webhookName" maxlength="100" placeholder="Stream overlay">
+            <div class="form-text">The address's host if left empty.</div>
+          </div>
+          <div class="col-12" id="webhookSecretRow">
+            <label class="form-label" for="webhookSecret">Secret</label>
+            <div class="input-group">
+              <input type="password" class="form-control font-monospace" id="webhookSecret" readonly
+                autocomplete="off">
+              <button type="button" class="btn btn-outline-secondary" id="showSecret">Show</button>
+              <button type="button" class="btn btn-outline-secondary" id="copySecret">
+                <i class="bi bi-clipboard"></i> Copy</button>
+              <button type="button" class="btn btn-outline-warning" id="newSecret">New secret</button>
+            </div>
+            <div class="form-text">
+              Give it to the receiving program, which uses it to check each delivery's signature. A new secret takes
+              effect at once, so change it in the program too.
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="d-flex align-items-center gap-3 mb-1">
+              <label class="form-label mb-0">Events</label>
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="webhookEveryEvent">
+                <label class="form-check-label" for="webhookEveryEvent">Every event</label>
+              </div>
+            </div>
+            <div id="webhookEvents" class="webhook-events"></div>
+            <label class="form-label mt-2 small" for="webhookOtherEvents">Other event types or prefixes</label>
+            <input type="text" class="form-control form-control-sm font-monospace" id="webhookOtherEvents"
+              placeholder="for example: device, score.totals">
+            <div class="form-text">
+              Separated by commas. A prefix selects everything beneath it: <code>match</code> selects
+              <code>match.started</code>.
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="webhookEnabled" checked>
+              <label class="form-check-label" for="webhookEnabled">Enabled</label>
+            </div>
+            <div class="form-text">
+              While disabled, no new events are queued for it. Deliveries already waiting are held, and sent if it is
+              enabled again within their 24 hours. Tests and resends are sent anyway.
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-danger me-auto d-none" id="deleteWebhook">Delete</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveWebhook">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}
+{{define "script"}}
+<script src="/static/js/setup_webhooks.js"></script>
+<script>
+  $(function () {
+    WebhooksPage.startList();
+  });
+</script>
+{{end}}

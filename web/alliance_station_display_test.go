@@ -59,14 +59,20 @@ func TestAllianceStationDisplayWebsocket(t *testing.T) {
 	web.arena.AllianceStations["B3"].Bypass = true
 	web.arena.StartMatch()
 	web.arena.Update()
-	messages := readWebsocketMultiple(t, ws, 3)
-	_, ok := messages["matchTime"]
-	assert.True(t, ok)
-	// Move the clock to the end of the first phase of the game; the display is told about the next one.
+	// The display hears the clock start. What else the arena sends around it, and in what order, is not fixed.
+	readWebsocketUntil(t, ws, "matchTime")
+	// Move the clock to the end of the first phase of the game; the display is told about the next one. Clock
+	// messages from the start may still be on their way, so read on until the one for the new phase.
 	firstPhaseDuration := time.Duration(web.arena.Game.Match.Phases[0].Duration * float64(time.Second))
 	web.arena.MatchStartTime = time.Now().Add(-firstPhaseDuration)
 	web.arena.Update()
-	matchTime := readWebsocketUntil(t, ws, "matchTime").(map[string]any)
+	var matchTime map[string]any
+	for i := 0; i < 10; i++ {
+		matchTime, _ = readWebsocketUntil(t, ws, "matchTime").(map[string]any)
+		if matchTime == nil || matchTime["PhaseIndex"] == float64(1) {
+			break
+		}
+	}
 	assert.Equal(t, float64(1), matchTime["PhaseIndex"])
 	assert.Equal(t, web.arena.Game.Match.Phases[1].ID, matchTime["PhaseId"])
 	web.arena.RealtimeScoreNotifier.Notify()

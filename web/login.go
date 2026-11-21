@@ -6,12 +6,13 @@
 package web
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/google/uuid"
 	"log"
 	"net/http"
-	"net/url"
+	"strings"
 	"time"
 )
 
@@ -22,8 +23,8 @@ func (web *Web) loginHandler(w http.ResponseWriter, r *http.Request) {
 
 // Processes the login request.
 func (web *Web) loginPostHandler(w http.ResponseWriter, r *http.Request) {
-	username := r.PostFormValue("username")
-	if err := web.checkAuthPassword(username, r.PostFormValue("password")); err != nil {
+	username, err := web.checkAuthPassword(r.PostFormValue("username"), r.PostFormValue("password"))
+	if err != nil {
 		web.renderLogin(w, r, err.Error())
 		return
 	}
@@ -34,12 +35,28 @@ func (web *Web) loginPostHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{Name: sessionTokenCookie, Value: session.Token})
+	// SameSite keeps other sites from sending requests with the login, and HttpOnly keeps scripts from reading it.
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionTokenCookie, Value: session.Token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
+	})
 	redirectUrl := r.URL.Query().Get("redirect")
-	if redirectUrl == "" {
+	if redirectUrl == "" || !strings.HasPrefix(redirectUrl, "/") || strings.HasPrefix(redirectUrl, "//") {
+		// Only addresses on this server, so that a link cannot use the login page to send someone elsewhere.
 		redirectUrl = "/"
 	}
 	http.Redirect(w, r, redirectUrl, 303)
+}
+
+// Ends the login session of the request, if any.
+func (web *Web) logoutHandler(w http.ResponseWriter, r *http.Request) {
+	if session := web.getUserSessionFromCookie(r); session != nil {
+		if err := web.arena.Database.DeleteUserSession(session.Id); err != nil {
+			handleWebErr(w, err)
+			return
+		}
+	}
+	http.SetCookie(w, &http.Cookie{Name: sessionTokenCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	http.Redirect(w, r, "/", 303)
 }
 
 func (web *Web) renderLogin(w http.ResponseWriter, r *http.Request, errorMessage string) {
@@ -59,25 +76,6 @@ func (web *Web) renderLogin(w http.ResponseWriter, r *http.Request, errorMessage
 	}
 }
 
-// Returns true if the given user is authorized for admin operations. Used for HTTP cookie authentication.
-func (web *Web) userIsAdmin(w http.ResponseWriter, r *http.Request) bool {
-	if web.arena.EventSettings.AdminPassword == "" {
-		// Disable auth if there is no password configured.
-		return true
-	}
-	session := web.getUserSessionFromCookie(r)
-	if session != nil && session.Username == adminUser {
-		return true
-	} else {
-		redirect := r.URL.Path
-		if r.URL.RawQuery != "" {
-			redirect += "?" + r.URL.RawQuery
-		}
-		http.Redirect(w, r, "/login?redirect="+url.QueryEscape(redirect), 307)
-		return false
-	}
-}
-
 func (web *Web) getUserSessionFromCookie(r *http.Request) *model.UserSession {
 	token, err := r.Cookie(sessionTokenCookie)
 	if err != nil {
@@ -90,10 +88,20 @@ func (web *Web) getUserSessionFromCookie(r *http.Request) *model.UserSession {
 	return session
 }
 
-func (web *Web) checkAuthPassword(user, password string) error {
-	if user == adminUser && password == web.arena.EventSettings.AdminPassword {
-		return nil
-	} else {
-		return fmt.Errorf("Invalid login credentials.")
+// checkAuthPassword returns the login to keep in the session, if the password is right: "admin" with the admin
+// password from the settings, or a user's name with that user's password.
+func (web *Web) checkAuthPassword(username, password string) (string, error) {
+	adminPassword := web.arena.EventSettings.AdminPassword
+	if username == model.AdminUsername && adminPassword != "" &&
+		subtle.ConstantTimeCompare([]byte(password), []byte(adminPassword)) == 1 {
+		return model.AdminUsername, nil
 	}
+	user, err := web.arena.Database.GetUserByUsername(username)
+	if err != nil {
+		return "", err
+	}
+	if user != nil && model.CheckPassword(user.PasswordHash, password) {
+		return user.Username, nil
+	}
+	return "", fmt.Errorf("Invalid login credentials.")
 }

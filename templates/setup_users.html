@@ -1,0 +1,189 @@
+{{/*
+The Users and API Tokens page: logins with a role, and tokens that let programs use the API with a role.
+*/}}
+{{define "title"}}Users and API Tokens{{end}}
+{{define "body"}}
+<div class="row justify-content-center">
+  <div class="col-xl-10">
+    <h3 class="mb-3">Users and API Tokens</h3>
+    {{if .ErrorMessage}}
+    <div class="alert alert-danger">{{html .ErrorMessage}}</div>
+    {{end}}
+    {{if .Message}}
+    <div class="alert alert-success alert-dismissible">
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>{{html .Message}}
+    </div>
+    {{end}}
+    {{if .NewToken}}
+    <div class="alert alert-warning">
+      <div class="mb-2">
+        The token <strong>{{html .NewTokenName}}</strong>. Copy it now: it is shown only this once, and the FMS keeps
+        only a hash of it.
+      </div>
+      <div class="input-group">
+        <input type="text" class="form-control font-monospace" id="newToken" value="{{html .NewToken}}" readonly>
+        <button type="button" class="btn btn-outline-light" id="copyToken"><i class="bi bi-clipboard"></i> Copy</button>
+      </div>
+      <div class="small mt-2">Programs send it as <code>Authorization: Bearer &lt;token&gt;</code>.</div>
+    </div>
+    {{end}}
+
+    <div class="card card-body bg-body-tertiary mb-4">
+      {{if .AuthEnabled}}
+      <p class="mb-2">
+        Logins are <strong>on</strong>.
+        {{if .Me}}You are logged in as <strong>{{html .Me.Name}}</strong> ({{.Me.Role}}).{{end}}
+        {{if .AdminPassword}}The admin password in Setup &rarr; Settings also logs in, as <code>admin</code>.{{end}}
+      </p>
+      {{else}}
+      <p class="mb-2">
+        Logins are <strong>off</strong>: every page and the whole API are open, as on a practice field nobody else
+        joins. They turn on with an admin password in Setup &rarr; Settings, or with the first user below, which must
+        then be an admin.
+      </p>
+      {{end}}
+      <table class="table table-sm mb-0 small">
+        <thead><tr><th>Role</th><th>Can</th></tr></thead>
+        <tbody>
+          <tr><td>admin</td><td>Everything, including settings, users, devices and games.</td></tr>
+          <tr><td>scorer</td><td>Scoring panels, and match review with its edits.</td></tr>
+          <tr><td>referee</td><td>The referee panel: fouls, cards, and committing the referee's score.</td></tr>
+          <tr><td>read-only</td><td>Every API read. No changes.</td></tr>
+        </tbody>
+      </table>
+      <div class="small text-secondary mt-2">
+        Displays, rankings, reports, match logs and the match review list stay open to everyone, so a TV or a team's
+        phone needs no login.
+      </div>
+    </div>
+
+    <div class="card card-body bg-body-tertiary mb-4">
+      <legend>Users</legend>
+      {{if .Users}}
+      <table class="table table-sm align-middle">
+        <thead><tr><th>Username</th><th>Role</th><th>New password</th><th>Added</th><th></th></tr></thead>
+        <tbody>
+          {{range $user := .Users}}
+          <tr>
+            <td>{{$user.Username}}</td>
+            <td>
+              <form method="POST" action="/setup/users/{{$user.Id}}/role" class="d-flex gap-1">
+                <select name="role" class="form-select form-select-sm w-auto" aria-label="Role of {{$user.Username}}">
+                  {{range $role := $.Roles}}
+                  <option value="{{$role}}" {{if eq $role $user.Role}}selected{{end}}>{{$role}}</option>
+                  {{end}}
+                </select>
+                <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+              </form>
+            </td>
+            <td>
+              <form method="POST" action="/setup/users/{{$user.Id}}/password" class="d-flex gap-1">
+                <input type="password" name="password" class="form-control form-control-sm" minlength="8"
+                  autocomplete="new-password" placeholder="At least 8 characters" required
+                  aria-label="New password for {{$user.Username}}">
+                <button type="submit" class="btn btn-sm btn-outline-primary">Set</button>
+              </form>
+            </td>
+            <td class="small text-secondary">{{$user.CreatedAt.Format "2006-01-02 15:04"}}</td>
+            <td class="text-end">
+              <form method="POST" action="/setup/users/{{$user.Id}}/delete"
+                onsubmit="return confirm('Delete this user? They are logged out everywhere.');">
+                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <p class="text-secondary">No users yet.</p>
+      {{end}}
+      <form method="POST" action="/setup/users" class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label small">Username</label>
+          <input type="text" name="username" class="form-control" pattern="[A-Za-z0-9._\-]{1,40}" required
+            autocomplete="off" placeholder="head-scorer">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">Password</label>
+          <input type="password" name="password" class="form-control" minlength="8" required
+            autocomplete="new-password" placeholder="At least 8 characters">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small">Role</label>
+          <select name="role" class="form-select">
+            {{range $role := .Roles}}<option value="{{$role}}">{{$role}}</option>{{end}}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <button type="submit" class="btn btn-primary w-100"><i class="bi bi-person-plus"></i> Add user</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card card-body bg-body-tertiary mb-4">
+      <legend>API tokens</legend>
+      <p class="small text-secondary">
+        A token lets a program (a stream overlay, a scoreboard, a script) use <code>/api/v1</code> with a role and no
+        login, while logins are on. Give each program its own token, so that one can be revoked without the others.
+      </p>
+      {{if .Tokens}}
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr><th>Name</th><th>Role</th><th>Starts with</th><th>Created</th><th>Last used</th><th></th></tr>
+        </thead>
+        <tbody>
+          {{range $token := .Tokens}}
+          <tr>
+            <td>{{html $token.Name}}</td>
+            <td>{{$token.Role}}</td>
+            <td><code>{{$token.Prefix}}&hellip;</code></td>
+            <td class="small text-secondary">{{$token.CreatedAt.Format "2006-01-02 15:04"}}</td>
+            <td class="small text-secondary">
+              {{if $token.LastUsedAt.IsZero}}never{{else}}{{$token.LastUsedAt.Format "2006-01-02 15:04"}}{{end}}
+            </td>
+            <td class="text-end">
+              <form method="POST" action="/setup/tokens/{{$token.Id}}/delete"
+                onsubmit="return confirm('Revoke this token? Programs using it stop working.');">
+                <button type="submit" class="btn btn-sm btn-outline-danger">Revoke</button>
+              </form>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+      {{end}}
+      <form method="POST" action="/setup/tokens" class="row g-2 align-items-end">
+        <div class="col-md-6">
+          <label class="form-label small">Name</label>
+          <input type="text" name="name" class="form-control" maxlength="60" required placeholder="Stream overlay">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small">Role</label>
+          <select name="role" class="form-select">
+            {{range $role := .Roles}}
+            <option value="{{$role}}" {{if eq $role "read-only"}}selected{{end}}>{{$role}}</option>
+            {{end}}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <button type="submit" class="btn btn-primary w-100"><i class="bi bi-key"></i> Create token</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{{end}}
+{{define "script"}}
+<script>
+  $("#copyToken").on("click", function () {
+    const input = document.getElementById("newToken");
+    input.select();
+    navigator.clipboard.writeText(input.value).then(function () {
+      $("#copyToken").html('<i class="bi bi-check2"></i> Copied');
+    }, function () {
+      document.execCommand("copy");
+    });
+  });
+</script>
+{{end}}

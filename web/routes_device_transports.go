@@ -8,7 +8,7 @@ import (
 )
 
 // addDeviceTransportRoutes registers the WebSocket and HTTP device transports, and the serial port page.
-func (web *Web) addDeviceTransportRoutes(mux *http.ServeMux) {
+func (web *Web) addDeviceTransportRoutes(mux *routeMux) {
 	mux.HandleFunc("GET /api/v1/devices/ws", web.deviceWebsocketHandler)
 	mux.HandleFunc("PUT /api/v1/devices/{id}/manifest", web.deviceHttpManifestHandler)
 	mux.HandleFunc("POST /api/v1/devices/{id}/in/{ch}", web.deviceHttpInputHandler)

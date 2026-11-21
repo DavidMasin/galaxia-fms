@@ -2,12 +2,8 @@
 
 package web
 
-import (
-	"net/http"
-)
-
 // addLightingRoutes registers the Lighting page and its API.
-func (web *Web) addLightingRoutes(mux *http.ServeMux) {
+func (web *Web) addLightingRoutes(mux *routeMux) {
 	mux.HandleFunc("GET /setup/lighting", web.lightingGetHandler)
 	mux.HandleFunc("POST /setup/lighting/cell", web.lightingCellPostHandler)
 	mux.HandleFunc("GET /setup/lighting/data", web.lightingDataHandler)

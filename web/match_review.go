@@ -97,7 +97,7 @@ func (web *Web) matchReviewHandler(w http.ResponseWriter, r *http.Request) {
 
 // Shows the page to edit the results for a match.
 func (web *Web) matchReviewEditGetHandler(w http.ResponseWriter, r *http.Request) {
-	if !web.userIsAdmin(w, r) {
+	if !web.userHasRole(w, r, model.RoleScorer) {
 		return
 	}
 
@@ -197,7 +197,7 @@ func applyEditedState(
 
 // Calculates the summary of an edited result without saving it.
 func (web *Web) matchReviewSummaryPostHandler(w http.ResponseWriter, r *http.Request) {
-	if !web.userIsAdmin(w, r) {
+	if !web.userHasRole(w, r, model.RoleScorer) {
 		return
 	}
 
@@ -225,7 +225,7 @@ func (web *Web) matchReviewSummaryPostHandler(w http.ResponseWriter, r *http.Req
 
 // Updates the results for a match.
 func (web *Web) matchReviewEditPostHandler(w http.ResponseWriter, r *http.Request) {
-	if !web.userIsAdmin(w, r) {
+	if !web.userHasRole(w, r, model.RoleScorer) {
 		return
 	}
 
@@ -278,7 +278,7 @@ func (web *Web) matchReviewEditPostHandler(w http.ResponseWriter, r *http.Reques
 
 // Undoes one change of a match's result, or brings an undone change back by undoing its undo record.
 func (web *Web) matchReviewUndoPostHandler(w http.ResponseWriter, r *http.Request) {
-	if !web.userIsAdmin(w, r) {
+	if !web.userHasRole(w, r, model.RoleScorer) {
 		return
 	}
 

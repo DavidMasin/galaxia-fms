@@ -51,7 +51,7 @@ type refereeFoul struct {
 
 // Renders the referee interface for assigning fouls.
 func (web *Web) refereePanelHandler(w http.ResponseWriter, r *http.Request) {
-	if !web.userIsAdmin(w, r) {
+	if !web.userHasRole(w, r, model.RoleReferee) {
 		return
 	}
 
@@ -142,7 +142,7 @@ func buildRefereeFouls(g *gamedef.Game, matchResult *model.MatchResult) []refere
 
 // The websocket endpoint for the refereee interface client to send control commands and receive status updates.
 func (web *Web) refereePanelWebsocketHandler(w http.ResponseWriter, r *http.Request) {
-	if !web.userIsAdmin(w, r) {
+	if !web.userHasRole(w, r, model.RoleReferee) {
 		return
 	}
 

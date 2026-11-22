@@ -170,8 +170,10 @@ func (arena *Arena) refreshGame() error {
 	arena.Game = selected
 	arena.gameParams = params
 	if changedGame {
-		// Device bindings are kept per game, and are checked against the game they bind to.
-		arena.Devices.SetGame(selected, fieldStationIdList())
+		// Device bindings are kept per game, and are checked against the game they bind to. The manager is given the
+		// database and the profile with the game: after a restore all three may be new, and it takes them in one
+		// step. A database it cannot read is reported by LoadSettings, which gives it the same again.
+		_ = arena.configureDevices()
 	}
 
 	// The raw score state has the shape of the game, so the loaded match starts over with the new one. Nothing is

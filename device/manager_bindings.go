@@ -5,6 +5,8 @@ package device
 
 import (
 	"fmt"
+	"github.com/DavidMasin/galaxia-fms/gamedef"
+	"github.com/DavidMasin/galaxia-fms/model"
 )
 
 // BindingsState is the binding set in force and what is wrong with it.
@@ -18,35 +20,44 @@ type BindingsState struct {
 // loadBindings reads the binding set of the active game and profile from the database and puts it in force. A
 // stored set that no longer reads is reported as a problem, and no bindings are in force.
 func (m *Manager) loadBindings() {
+	// storeMu keeps the database from being replaced between reading the set and putting it in force.
+	m.storeMu.Lock()
 	m.mu.Lock()
-	game, profile := m.game, m.profile
+	game, profile, db := m.game, m.profile, m.db
 	m.mu.Unlock()
 
-	set, loadError := &BindingSet{}, ""
-	if game != nil && m.db != nil {
-		stored, err := m.db.GetBindingSet(game.ID, profile)
-		switch {
-		case err != nil:
-			loadError = fmt.Sprintf(
-				"the bindings of %q in field profile %q could not be read: %v", game.ID, profile, err,
-			)
-		case stored != nil:
-			if parsed, err := ParseBindings([]byte(stored.Yaml)); err != nil {
-				loadError = fmt.Sprintf("the stored bindings of %q in field profile %q: %v", game.ID, profile, err)
-			} else {
-				set = parsed
-			}
-		}
-	}
+	set, loadError := readBindings(db, game, profile)
 
 	m.mu.Lock()
-	defer m.unlock()
+	defer m.unlockStore()
 	if m.game != game || m.profile != profile {
 		// The game or profile changed again while the set was read; that call loads the right one.
 		return
 	}
 	m.source, m.loadError = set, loadError
 	m.recompile()
+}
+
+// readBindings reads the binding set a database holds for a game and a profile: an empty one if it holds none, or
+// with no game or no database. If the stored set cannot be read, it returns an empty set and why.
+func readBindings(db *model.Database, game *gamedef.Game, profile string) (*BindingSet, string) {
+	if game == nil || db == nil {
+		return &BindingSet{}, ""
+	}
+	stored, err := db.GetBindingSet(game.ID, profile)
+	switch {
+	case err != nil:
+		return &BindingSet{}, fmt.Sprintf(
+			"the bindings of %q in field profile %q could not be read: %v", game.ID, profile, err,
+		)
+	case stored == nil:
+		return &BindingSet{}, ""
+	}
+	set, err := ParseBindings([]byte(stored.Yaml))
+	if err != nil {
+		return &BindingSet{}, fmt.Sprintf("the stored bindings of %q in field profile %q: %v", game.ID, profile, err)
+	}
+	return set, ""
 }
 
 // recompile compiles the binding set in force against the game and the devices as they are now. The caller holds
@@ -85,33 +96,48 @@ func (m *Manager) ValidateBindings(set *BindingSet) Problems {
 // SaveBindings stores a binding set for the active game and profile and puts it in force. A set with errors is
 // refused and nothing changes; the problems, errors and warnings alike, are returned either way.
 func (m *Manager) SaveBindings(set *BindingSet) (Problems, error) {
+	// storeMu is held from the check until the set is in force, so that the database it was written to is still
+	// the one in use by then. What putting it in force decided is carried out once storeMu is released, because
+	// storing a device takes it.
+	m.storeMu.Lock()
+	problems, work, err := m.saveBindings(set)
+	m.storeMu.Unlock()
+	m.run(work)
+	return problems, err
+}
+
+// saveBindings does what SaveBindings says. The caller holds storeMu, and carries out the work returned once it
+// has released it.
+func (m *Manager) saveBindings(set *BindingSet) (Problems, deferredWork, error) {
 	m.mu.Lock()
-	game, profile := m.game, m.profile
+	game, profile, db := m.game, m.profile, m.db
 	problems := compile(set, m.environment(), nil).problems
 	m.mu.Unlock()
 	if game == nil {
-		return problems, fmt.Errorf("there is no active game to bind to")
+		return problems, deferredWork{}, fmt.Errorf("there is no active game to bind to")
 	}
 	if err := problems.Err(); err != nil {
-		return problems, err
+		return problems, deferredWork{}, err
 	}
 	data, err := set.YAML()
 	if err != nil {
-		return problems, err
+		return problems, deferredWork{}, err
 	}
-	if m.db != nil {
-		if err = m.db.SaveBindingSet(game.ID, profile, string(data)); err != nil {
-			return problems, err
+	if db != nil {
+		if err = db.SaveBindingSet(game.ID, profile, string(data)); err != nil {
+			return problems, deferredWork{}, err
 		}
 	}
 
 	m.mu.Lock()
-	defer m.unlock()
 	if m.game == game && m.profile == profile {
 		m.source, m.loadError = set.Clone(), ""
 		m.recompile()
 	}
-	return problems, nil
+	work := m.work
+	m.work = deferredWork{}
+	m.mu.Unlock()
+	return problems, work, nil
 }
 
 // ExportBindings returns the binding set in force as YAML.

@@ -43,18 +43,36 @@ func (arena *Arena) newDevices() error {
 	return arena.Devices.AddTransport(arena.DeviceMqtt)
 }
 
-// applyDeviceSettings takes the device settings into use: the field profile whose bindings apply, the ports of the
-// MQTT broker, which is restarted if they changed while it runs, and the serial ports to open.
-func (arena *Arena) applyDeviceSettings() {
-	arena.Devices.SetProfile(arena.EventSettings.FieldProfile)
+// configureDevices tells the device manager where it stores and what its bindings apply to: the database, the
+// field profile and the game, together. The database is the one it has, unless a backup was restored: then it
+// takes the devices from the new one, and the bindings of the profile and the game that are now in use, in one
+// step. If it cannot read the new database it changes nothing, and the error is returned.
+func (arena *Arena) configureDevices() error {
+	err := arena.Devices.Configure(device.Setup{
+		Database: arena.Database, Profile: arena.EventSettings.FieldProfile, Game: arena.Game,
+		Stations: fieldStationIdList(),
+	})
+	if err != nil {
+		err = fmt.Errorf("the devices could not be read from the database: %w", err)
+		log.Print(err)
+	}
+	return err
+}
+
+// applyDeviceSettings takes the device settings into use: the database and the field profile whose bindings apply,
+// the ports of the MQTT broker, which is restarted if they changed while it runs, and the serial ports to open. It
+// runs after the game is settled, so that the manager is given all three at once.
+func (arena *Arena) applyDeviceSettings() error {
+	err := arena.configureDevices()
 	config := device.MqttConfig{
 		TCPAddress: device.MqttAddress(arena.EventSettings.DeviceMqttPort),
 		WSAddress:  device.MqttAddress(arena.EventSettings.DeviceMqttWsPort),
 	}
-	if err := arena.DeviceMqtt.Configure(config); err != nil {
-		log.Printf("Failed to restart the device MQTT broker: %v", err)
+	if mqttErr := arena.DeviceMqtt.Configure(config); mqttErr != nil {
+		log.Printf("Failed to restart the device MQTT broker: %v", mqttErr)
 	}
 	arena.applyDeviceTransportSettings()
+	return err
 }
 
 // fieldStationIdList returns the id of every station of the field, the ones the active game leaves unused too:

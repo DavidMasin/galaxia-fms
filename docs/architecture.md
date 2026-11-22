@@ -501,6 +501,28 @@ it called `ApplyScoreChange` directly, taking the lock would freeze the first ki
 with the second. So the arena builds the manager with `DeferScoring`: changes are kept and
 `Manager.ApplyScoreChanges` hands them over on the next pass of the loop, at most 10 ms later.
 
+**A restored database.** Restoring a backup closes the event's database and opens the uploaded one as a new
+`Arena.Database`, with the lock held. Three parts keep some of the database in memory, and each follows:
+- the webhook dispatcher asks for the database every time it uses it (above), and reads its outbox again when it
+  is given another one;
+- the device manager and the lighting engine are told. `LoadSettings`, which a restore ends with, first settles
+  the game and then calls `Manager.Configure` with the database, the field profile and the game, and
+  `Engine.SetDatabase(db, game)`. Given the database they already have they do nothing more than a settings save
+  did before, so `LoadSettings` calls them every time. A database that one of them cannot read is reported on
+  the settings page, as a game that cannot be used is; the manager then changes nothing.
+
+They are told rather than left to ask, because:
+- the Devices, Bindings and Lighting pages must show the restored event as soon as the restore has answered, so
+  both read the new database before `LoadSettings` returns;
+- the arena loop calls the manager a hundred times a second, and must not be the one that notices and goes off
+  to read a database;
+- the transports call the manager without the arena's lock. A function they could ask would have to return the
+  shared copy, which is only brought up to date when the lock is released, after `LoadSettings`.
+
+Neither needs the dispatcher's generation counter. Everything in them that touches the database holds their
+`storeMu`, and so does the swap, so nothing begins on one database and ends on the other. What the swap does to
+connected devices, stops and faults is under [Devices](#a-replaced-database).
+
 **In the log.** `Warning: the arena was held for N ms by GET /some/page` names whatever held the lock for more
 than 50 ms (at most one line per five seconds). `Arena loop iteration took a long time` is about the loop's own
 work, measured after it has the lock.
@@ -525,10 +547,9 @@ written from several requests; and several upstream tests shared variables with 
   outputs. Those sends do not wait for an answer.
 - The plan's command queue, immutable snapshots for readers and a database writer goroutine were not built. The
   lock gives the same guarantee, one owner at a time, without rewriting every handler.
-- Restoring a database swaps `Arena.Database` for a new one. The webhook dispatcher follows. **The device manager
-  and the lighting engine do not**: they keep the database they were built with, so after a restore the devices,
-  bindings and lighting of the restored event are not loaded, and saving them fails, until the FMS is restarted.
-  That is older than this work and was found while doing it.
+- A restore is not refused while a match is running. The game then stays until the match is over, as for any
+  change of settings, and the devices and bindings are replaced at once (see
+  [A replaced database](#a-replaced-database)).
 
 ## The API, logins and roles (M4)
 
@@ -667,10 +688,19 @@ ExportBindings() ([]byte, error); ImportBindings(yaml) (Problems, error)
 Environment() Environment; Profile() string; TransportStatuses() []TransportStatus
 ```
 
+For the arena, from `LoadSettings` and `refreshGame`:
+
+```go
+Configure(Setup{Database, Profile, Game, Stations}) error // All of where it stores and what bindings apply to.
+```
+
+The arena only uses `Configure`, so that the manager never has two of the three from one event and the third
+from another. `SetGame(game, stations)`, `SetProfile(profile)` and `SetDatabase(db)` change one of them and are
+what the tests use.
+
 For the arena, from its loop:
 
 ```go
-SetGame(game, stations); SetProfile(profile) // From refreshGame and LoadSettings.
 SetMatch(MatchInfo)                          // Every pass: running, phase, grace phase, whether scoring takes input.
 Tick(now)                                    // Every pass: debounce timers and the heartbeat watchdog.
 ApplyScoreChanges()                          // Every pass: the score changes of inputs since the last one.
@@ -692,17 +722,19 @@ match; without one, only the stations some device can stop go through `handleTea
 stops behaves exactly as before. `getStartMatchConditions` appends `StartConditions()`. The arena records
 `match.start`, `match.end`, `match.abort`, `phase.<id>.start`, `phase.<id>.end`, `cue.<id>` and `score.posted`
 (from `PublishMatchCommitted`) for the next snapshot. The transports start in `Arena.Run`, so a test arena never
-opens a port; `LoadSettings` applies the profile and restarts the broker if its ports changed while it runs.
+opens a port; `LoadSettings` configures the manager and restarts the broker if its ports changed while it runs.
 
 ### Threading
 
 - `Manager.mu` guards the registry, the compiled bindings and their state, the outputs, the faults and the field
   action queue. Nothing slow happens under it: score changes, bus events, sends to transports and database writes
   are collected while it is held and carried out once it is released (`deferredWork`, run by `Manager.unlock`).
-- Database writes go through `Manager.save`, serialised by `storeMu`, which is taken before `mu` and never while
-  `mu` is held; each write stores the record as it is in memory at that moment, so writes cannot land out of
-  order. The arena loop never writes: transports (a new pending device, a counter total, going offline) and the
-  pages do.
+- Everything that reads or writes the database holds `storeMu`, which is taken before `mu` and never while `mu`
+  is held: storing a device (`Manager.save`), deleting one, reading and saving a binding set, and replacing the
+  database. Each write stores the record as it is in memory at that moment, so writes cannot land out of order.
+  The arena loop never writes: transports (a new pending device, a counter total, going offline) and the pages
+  do. Deferred work may store devices, so code that holds `storeMu` releases it before it runs that work
+  (`unlockStore`).
 - Transports call the `Sink` methods from their own goroutines, in the order each device's messages arrived (MQTT
   hands every message to the manager on the publishing client's goroutine).
 - Score changes go to `Arena.ApplyScoreChange`. In the arena the manager is built with `DeferScoring`: it keeps
@@ -726,6 +758,58 @@ opens a port; `LoadSettings` applies the profile and restarts the broker if its 
   a per-port lock keeps what the manager hears about a device in order, whether it comes from the port or from an
   access change.
 - The PLC is read on the arena goroutine (`UpdatePlc`), where the arena reads it anyway.
+
+### A replaced database
+
+Restoring a backup gives the manager another database while devices are connected and a match may be loaded.
+`Manager.Configure` (`device/manager_database.go`) is given the database, the field profile and the game. It
+reads the new database's devices and the binding set of that profile and game, and then, in one step under
+`mu`, replaces the registry and puts that binding set in force. These are the rules, and why.
+
+**Devices.**
+
+| The device is | What happens |
+|---------------|--------------|
+| in the new database | It is what that database says: state, token, name, notes, required. Its connections, last inputs, outputs and heartbeat are kept. |
+| connected, and not in the new database | It becomes pending again, as a new device would, and is stored. It keeps the token it connected with, which approving it pins. `device.pending` is published. |
+| neither | It is forgotten and its outputs are cleared. |
+| only in the new database | It is there, offline. |
+
+- A database knows who is approved, and the manager knows who is connected. Neither overrules the other: a
+  connection does not make a device approved, and a restore does not disconnect a device that may stay.
+- A connected device keeps the manifest it sent, which is newer than a backup's, and the new database is told.
+- A counter's running total is that of whoever heard the device last: the manager if the device is connected or
+  was last seen by it, otherwise the backup. Going back to an older total would count the difference again, in
+  the middle of a match.
+- A device whose state or token is no longer what it connected with is reported to the transports
+  (`AccessChanged`), which make it connect again. One whose pinned token is another now is refused when it does.
+- The PLC is not stored and stays as it is.
+
+**Stops and faults.** A restore must not let go of a stop.
+- The level of a stop binding that is unchanged is carried over; a new or changed one is read again from what
+  its channel last reported. This is what saving a binding set has always done.
+- Faults are kept. A fault stays on its stop binding if the restored set has that binding, by id. If the restored
+  set has the stop under another id, on the same channel of the same device, the fault is latched on that
+  binding with the reason and time it had (`restoreFaults`). Only a fault whose channel is bound to no stop at
+  all in the restored set goes, and `device.fault_cleared` is published for it: there is no stop left to hold.
+- A device that was approved and no longer is (pending again, blocked, or forgotten) gets a fault on every stop
+  bound to it, as blocking it does. Nothing it reports counts any more, so its stops are held until an operator
+  has approved it and cleared them.
+
+**One step.** The restored event may use another field profile and another game. The manager is given all
+three together and reads the binding set once, for the profile and the game now in use. A set put in force on
+the way, such as the old game's in the new database, would drop the faults of the stops it does not have. For
+this, `LoadSettings` settles the game before it configures the devices, and `refreshGame` passes the database
+and the profile along with a new game. With a match on the field the game stays until the match is over, as for
+any change of settings; the manager then gets the new database with the game still being played.
+
+**A database that cannot be read** changes nothing in the manager: not the devices, and not the profile or the
+game, so the bindings in force keep their stops and faults. The error is shown on the settings page, and the
+next `LoadSettings` tries again.
+
+**In between.** The old database is closed a moment before the manager is given the new one. A device stored in
+that moment is logged as `Failed to store device`; nothing is lost, because the registry in memory is what is
+carried over, and what changed is stored in the new database.
 
 ### Plugging in
 
@@ -764,6 +848,11 @@ Package `lighting` drives the fixtures set on the Lighting page ([devices.md](de
   `recover`.
 - **Storage.** `model.LightingFixture` and `model.LightingScenes`, keyed by profile id. Deleting a profile
   deletes its lighting.
+- **A replaced database.** `Engine.SetDatabase(db, game)` swaps the database under `storeMu` and reloads before
+  it returns, rather than at the next tick, so that the page shows the restored lighting at once. The claim
+  that ends every reload lets go of, and clears, the fixtures the new database does not have. The arena calls it
+  after the device manager has the database and the game is settled, because lighting is compiled against the
+  manager's devices and claims channels around its bindings.
 - **Expressions** see what bindings see, through `device.OutputRoots` and `Manager.OutputExtraRoots`.
 - **The page's feed** is a WebSocket: the engine pushes what every fixture shows when it changes, and the browser
   animates it with `LedPatterns` on the server's clock.

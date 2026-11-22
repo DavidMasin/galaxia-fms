@@ -654,6 +654,26 @@ starts with one profile, `default`.
 Added: a profile's name is free text, unique; renaming a profile keeps its bindings, and the active profile cannot
 be deleted. Binding sets are stored as the YAML the Bindings page exports.
 
+## Restoring a backup
+
+Devices, binding sets and lighting are part of the event database, so restoring a backup (Setup → Settings)
+replaces them. The Devices, Bindings and Lighting pages show the restored event at once, and save to it. The FMS
+does not need a restart.
+
+- A device the backup has is what the backup says: approved, pending or blocked, with its token, name and notes.
+  If it is connected and nothing about its rights changed, it stays connected. If its rights changed it is made
+  to connect again, and it is refused if the backup blocks it or pins another token for it.
+- A connected device the backup does not have is **pending again**, like a new device. Approve it on the
+  Devices page. A device that is neither connected nor in the backup is forgotten.
+- Counters go on counting from the last total the FMS heard, so nothing is scored twice.
+- Stops stay as they are. A stop that is pressed stays pressed, and a latched fault stays latched, as long as
+  the restored bindings still bind that channel to a stop. A fault whose stop the restored bindings do not have
+  is cleared, and `device.fault_cleared` says so.
+- A stop device that loses its approval in the restore faults every stop bound to it. Approve it, and clear the
+  faults once it reports safe.
+- The bindings and the lighting in force are the backup's, for the field profile and the game the restored event
+  uses. Fixtures the backup does not have are switched off.
+
 ## Events
 
 Devices publish on the event bus:
@@ -669,7 +689,7 @@ Devices publish on the event bus:
 | `device.refused` | `id`, `binding`, `reason`: an input the FMS would not apply |
 
 Added: `device.pending` is published when an unknown device first connects, with its id as its name (the manifest
-comes later). `device.input` is published for every input message, and for a heartbeat's channel only when its
+comes later), and when restoring a backup makes a connected device pending again. `device.input` is published for every input message, and for a heartbeat's channel only when its
 value changes; `conf` is left out when the input had none. `device.output` is published for every command sent,
 including clearing (a null command). `device.refused` also covers a malformed message, a manifest that is refused
 and a field action that failed (`binding` is empty when no binding was involved); it is published at most once a

@@ -3,7 +3,6 @@
 package device
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/DavidMasin/galaxia-fms/bus"
 	"github.com/DavidMasin/galaxia-fms/gamedef"
@@ -24,7 +23,8 @@ type Scorer interface {
 
 // Options are what a manager is built with.
 type Options struct {
-	Database *model.Database  // Where devices and binding sets are stored. Nil keeps everything in memory (tests).
+	// Where devices and binding sets are stored. Nil keeps everything in memory (tests). Configure replaces it.
+	Database *model.Database
 	Bus      *bus.Bus         // Where device events are published. May be nil.
 	Scorer   Scorer           // Where score actions go. May be nil, in which case they are refused.
 	Now      func() time.Time // The clock; time.Now if nil. Tests replace it.
@@ -50,14 +50,16 @@ type MatchInfo struct {
 // Threading: mu guards everything below it. Transports call the Sink methods from their own goroutines, the arena
 // calls Tick, Stops, StartConditions, TakeFieldActions and UpdateOutputs from its loop, and the web layer calls the
 // rest. Nothing slow happens under mu: work that talks to the score, the bus, the transports or the database is
-// collected while it is held and carried out after it is released (see unlock). Database writes are serialised by
-// storeMu, which is always taken before mu and never while mu is held.
+// collected while it is held and carried out after it is released (see unlock). Everything that reads or writes
+// the database holds storeMu, which is always taken before mu and never while mu is held.
 type Manager struct {
-	db      *model.Database
 	bus     *bus.Bus
 	scorer  Scorer
 	now     func() time.Time
 	storeMu sync.Mutex
+	// The database in use. Restoring a backup replaces it (Configure), with storeMu and mu both held, so either is
+	// enough to read it; whoever uses it holds storeMu, which keeps it in use until they are done.
+	db *model.Database
 
 	// Score changes waiting for ApplyScoreChanges, when scoring is deferred. scoreMu guards only the queue; it is
 	// never held together with mu, nor while the scorer is called.
@@ -187,7 +189,7 @@ func NewManager(options Options) (*Manager, error) {
 	m := &Manager{
 		db: options.Database, bus: options.Bus, scorer: options.Scorer, now: options.Now,
 		deferScoring: options.DeferScoring,
-		devices:      make(map[string]*device), faults: make(map[string]*Fault), claims: make(map[ChannelRef]string),
+		faults:       make(map[string]*Fault), claims: make(map[ChannelRef]string),
 		refusalTimes: make(map[string]time.Time), errorsLogged: make(map[string]bool),
 		startErrors: make(map[string]string), profile: model.DefaultFieldProfile, source: &BindingSet{},
 	}
@@ -195,21 +197,9 @@ func NewManager(options Options) (*Manager, error) {
 		m.now = time.Now
 	}
 	m.set = compile(m.source, Environment{}, nil)
-	if m.db != nil {
-		records, err := m.db.GetAllDevices()
-		if err != nil {
-			return nil, fmt.Errorf("failed to load the devices: %w", err)
-		}
-		for _, record := range records {
-			dev := newDevice(record)
-			if record.Manifest != "" {
-				manifest := new(Manifest)
-				if err := json.Unmarshal([]byte(record.Manifest), manifest); err == nil && manifest.Validate() == nil {
-					dev.manifest = manifest
-				}
-			}
-			m.devices[record.DeviceId] = dev
-		}
+	var err error
+	if m.devices, err = storedDevices(m.db); err != nil {
+		return nil, err
 	}
 	return m, nil
 }
@@ -365,13 +355,15 @@ func (m *Manager) refuse(deviceID, bindingID, reason string) {
 	m.emit("device.refused", map[string]any{"id": deviceID, "binding": bindingID, "reason": reason})
 }
 
-// save writes one device to the database as it is in memory now. It is called without mu held.
+// save writes one device to the database as it is in memory now. It is called without mu held. A write asked for
+// before the database was replaced stores the device as it is in the new one, or nothing if it went with the old.
 func (m *Manager) save(id string) error {
-	if m.db == nil {
-		return nil
-	}
 	m.storeMu.Lock()
 	defer m.storeMu.Unlock()
+	db := m.db
+	if db == nil {
+		return nil
+	}
 
 	m.mu.Lock()
 	dev := m.devices[id]
@@ -384,9 +376,9 @@ func (m *Manager) save(id string) error {
 	m.mu.Unlock()
 
 	if record.Id != 0 {
-		return m.db.UpdateDevice(&record)
+		return db.UpdateDevice(&record)
 	}
-	if err := m.db.CreateDevice(&record); err != nil {
+	if err := db.CreateDevice(&record); err != nil {
 		return err
 	}
 	m.mu.Lock()

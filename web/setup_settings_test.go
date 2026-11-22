@@ -5,12 +5,14 @@ package web
 
 import (
 	"bytes"
+	"github.com/DavidMasin/galaxia-fms/device"
 	"github.com/DavidMasin/galaxia-fms/field"
 	"github.com/DavidMasin/galaxia-fms/gamedef"
 	"github.com/DavidMasin/galaxia-fms/model"
 	"github.com/DavidMasin/galaxia-fms/scoring"
 	"github.com/DavidMasin/galaxia-fms/tournament"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -482,6 +484,124 @@ func TestSetupSettingsBackupRestoreDb(t *testing.T) {
 	// Check restoring with the backup retrieved before.
 	recorder = web.postFileHttpResponse("/setup/db/restore", "databaseFile", backupBody)
 	assert.Equal(t, "Chezy Champs", web.arena.EventSettings.Name)
+}
+
+// After a backup is restored, the Devices, Bindings and Lighting pages show what the restored database holds and
+// save to it, with no restart in between.
+func TestSetupSettingsRestoreDbDevicesBindingsAndLighting(t *testing.T) {
+	saveBindings := func(web *Web, id, action string) {
+		recorder := web.requestWithBody("POST", "/setup/bindings/save",
+			`{"inputs":[{"id":"`+id+`","device":"goal","channel":"beam","action":{"field":"`+action+`"}}]}`)
+		require.Equal(t, 200, recorder.Code, recorder.Body.String())
+	}
+	saveFixture := func(web *Web, channel, kind string) {
+		code, response := postLighting(t, web, "/setup/lighting/fixtures", map[string]any{
+			"create": true, "fixture": map[string]any{"id": channel, "device": "goal", "channel": channel, "kind": kind},
+		})
+		require.Equal(t, http.StatusOK, code, "%v", response)
+	}
+
+	// The event that is backed up: a device made on the Devices page, a binding of the goal's beam, and the goal's
+	// horn as a lighting fixture.
+	web, _ := setupLightingWeb(t)
+	code, response := postDevicesPage(t, web, "/setup/devices/create", map[string]string{
+		"id": "arcade-1", "name": "Arcade button",
+	})
+	require.Equal(t, 200, code, response)
+	saveBindings(web, "backed-up", "start_match")
+	saveFixture(web, "horn", "relay")
+	recorder := web.getHttpResponse("/setup/db/save")
+	require.Equal(t, 200, recorder.Code)
+	backup := recorder.Body
+
+	// The event it is restored over has other things: another device, another binding, the goal's strip as a fixture,
+	// which is lit, and a connected device the backup has never seen.
+	web, goal := setupLightingWeb(t)
+	code, response = postDevicesPage(t, web, "/setup/devices/create", map[string]string{"id": "old-1"})
+	require.Equal(t, 200, code, response)
+	saveBindings(web, "not-backed-up", "field_reset")
+	saveFixture(web, "strip", "led_strip")
+	_, err := web.arena.DeviceVirtual.Connect(&device.Manifest{Proto: 1, ID: "extra", Channels: []*device.Channel{
+		{ID: "button", Dir: device.DirIn, Type: device.TypeDigital},
+	}})
+	require.Nil(t, err)
+	require.Nil(t, web.arena.Devices.Approve("extra"))
+	for i := 0; i < 5; i++ {
+		web.arena.Update()
+	}
+	require.NotNil(t, goal.Output("strip"))
+	replaced := web.arena.Database
+
+	recorder = web.postFileHttpResponse("/setup/db/restore", "databaseFile", backup)
+	require.Equal(t, 303, recorder.Code, recorder.Body.String())
+	require.NotSame(t, replaced, web.arena.Database)
+
+	// The Devices page: the backup's devices. The goal is in both and stays connected and approved; the device the
+	// backup does not have is still connected, and waits for approval again.
+	type shown struct {
+		state  string
+		online bool
+	}
+	devices := make(map[string]shown)
+	for _, info := range getDevicesPageState(t, web).Devices {
+		devices[info.ID] = shown{info.State, info.Online}
+	}
+	assert.Equal(t, map[string]shown{
+		"arcade-1": {"approved", false}, "goal": {"approved", true}, "extra": {"pending", true},
+	}, devices)
+
+	// The Bindings page: the backup's set.
+	recorder = web.getHttpResponse("/setup/bindings/state")
+	require.Equal(t, 200, recorder.Code)
+	bindings := decodeBindingsPageSet(t, recorder.Body.Bytes())
+	if assert.Equal(t, 1, len(bindings.Set.Inputs)) {
+		assert.Equal(t, "backed-up", bindings.Set.Inputs[0].ID)
+	}
+	assert.Empty(t, bindings.Problems)
+
+	// The Lighting page: the backup's fixture, in force, and the strip let go of.
+	data := getLightingData(t, web, "")
+	fixtures := data["config"].(map[string]any)["fixtures"].([]any)
+	if assert.Equal(t, 1, len(fixtures)) {
+		assert.Equal(t, "horn", fixtures[0].(map[string]any)["id"])
+	}
+	assert.Equal(t, map[string]any{"horn": true}, data["status"].(map[string]any)["claimed"])
+	assert.Nil(t, goal.Output("strip"))
+	for i := 0; i < 5; i++ {
+		web.arena.Update()
+	}
+	assert.NotNil(t, goal.Output("horn"))
+
+	// All three save, and to the restored database.
+	code, response = postDevicesPage(t, web, "/setup/devices/create", map[string]string{"id": "new-1"})
+	require.Equal(t, 200, code, response)
+	code, response = postDevicesPage(t, web, "/setup/devices/extra/approve", nil)
+	require.Equal(t, 200, code, response)
+	record, err := web.arena.Database.GetDeviceByDeviceId("new-1")
+	require.Nil(t, err)
+	assert.NotNil(t, record)
+	record, err = web.arena.Database.GetDeviceByDeviceId("extra")
+	require.Nil(t, err)
+	if assert.NotNil(t, record) {
+		assert.Equal(t, model.DeviceApproved, record.State)
+	}
+	saveBindings(web, "saved-after", "volunteers")
+	stored, err := web.arena.Database.GetBindingSet("ball-count", "default")
+	require.Nil(t, err)
+	if assert.NotNil(t, stored) {
+		assert.Contains(t, stored.Yaml, "saved-after")
+	}
+	code, response = postLighting(t, web, "/setup/lighting/cell", map[string]any{
+		"moment": "idle", "target": "horn", "look": map[string]any{"p": "blink"},
+	})
+	require.Equal(t, http.StatusOK, code, "%v", response)
+	profileId, err := web.arena.Database.GetLightingProfileId("default")
+	require.Nil(t, err)
+	scenes, err := web.arena.Database.GetLightingScenes("ball-count", profileId)
+	require.Nil(t, err)
+	if assert.NotNil(t, scenes) {
+		assert.Equal(t, "blink", scenes.Cells["idle"]["horn"].P)
+	}
 }
 
 func TestSetupSettingsPublishToTba(t *testing.T) {

@@ -36,6 +36,9 @@ jobs:
         run: go build ./...
       - name: Test
         run: go test ./...
+      - name: Test the browser code
+        # What displays do with the server's clock and the countdown, run under Node with no browser.
+        run: node --test static/js/countdown_display_test.js static/js/stream_displays_test.js
 
   race:
     name: Race detector

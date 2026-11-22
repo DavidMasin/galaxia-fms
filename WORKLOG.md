@@ -755,6 +755,91 @@ Nothing of mine is left running: the test copy is stopped and its ports are free
 
 **Next:** the countdown on the field (milestone 9), which David put after this.
 
+## 2026-11-22 10:42 - The device manager and the lighting engine follow a restored database
+
+Branch `claude/ecstatic-lalande-5168fa`, not pushed and not merged. This is the task proposed at the end of the
+previous entry.
+
+**What was wrong.** Restoring a backup (Setup → Settings) opens the uploaded file as a new `Arena.Database`. The
+device manager and the lighting engine kept the database they were built with. After a restore the Devices,
+Bindings and Lighting pages still showed the old event, and saving anything answered "database not open", until
+the FMS was restarted.
+
+**How it works now.** `LoadSettings`, which every restore ends with, settles the game and then gives both of
+them the database: `Manager.Configure` with the database, the field profile and the game, and
+`Engine.SetDatabase(db, game)`. With the database they already have, nothing changes. With another one they read
+it before returning, so the pages show the restored event as soon as the restore has answered. No restart.
+
+**Decisions.** They are written up in `docs/architecture.md` ("A restored database" under the arena's lock, "A
+replaced database" under Devices) and for operators in `docs/devices.md` ("Restoring a backup").
+- *Told, not asking.* The webhook dispatcher asks for the database each time it uses it. I did not copy that:
+  the pages must show the restored event at once, the arena loop must not be what notices and reads a database,
+  and the transports run without the arena's lock, where the shared copy of the pointer is not yet current.
+- *No generation counter.* Everything in the manager and the engine that touches the database holds their
+  `storeMu`, and so does the swap. Loading and saving a binding set did not hold it before; they do now.
+- *Devices.* One the backup has is what the backup says, and keeps its connections, inputs, outputs and
+  heartbeat. A connected one the backup does not have is pending again, with the token it connected with. One
+  that is neither is forgotten. A device whose state or token changed is reported to the transports, which make
+  it reconnect.
+- *Counters.* The running total is that of whoever heard the device last, which is the manager for a connected
+  device. Taking the backup's older total would have scored the difference a second time.
+- *Stops and faults.* Nothing is reset. A stop level is carried over or read again from the channel's last
+  value. A fault stays on its binding, or moves to the binding that reads the same channel if the backup has the
+  stop under another id. A fault goes only when the backup binds that channel to no stop, and
+  `device.fault_cleared` is published. A device that loses its approval in the restore faults every stop bound
+  to it, as blocking does.
+- *One step.* The manager gets the database, the profile and the game together and reads the binding set once.
+  For this `LoadSettings` now configures the devices after the game is settled, not before, and `refreshGame`
+  passes the database and the profile along with a new game. The arena no longer calls `SetGame` or `SetProfile`.
+- *Errors.* A database the manager cannot read changes nothing in it, and the settings page says so.
+
+**Two things I got wrong on the way and changed.**
+- My first version passed only the profile with the database, and left the game to change in a second step. A
+  restore that also selects another game would then have put the old game's bindings from the new database in
+  force for a moment, and dropped latched faults. I found it while writing the docs, not from a test.
+- For a database that cannot be read, I first kept the old database but took the new profile. A test I wrote for
+  it showed that this drops a fault as well. Now nothing changes.
+
+**Tests.** New, in four packages:
+- `device`: reading from and writing to the new database with the old one closed; six kinds of connected and
+  stored devices in one restore, with what the transports were told; counters, connected and offline; stops and
+  faults in six cases, one of them a restore that changes the game; a database that cannot be read; and a swap
+  back and forth while a device reports, the loop ticks and a page saves.
+- `lighting`: the restored lighting in force without a tick, the old fixture cleared, saving to the new
+  database; a database with no lighting; a swap while a page reads and reloads.
+- `web`: `TestSetupSettingsRestoreDbDevicesBindingsAndLighting` uploads a backup through the real handler, then
+  reads and saves through the three pages' own requests.
+- `field`: `TestLoadSettingsWithAnotherDatabase` swaps in the database of an event with another game and another
+  profile, and checks the devices, the bindings and the lighting the arena ends up with.
+
+With the arena wired as it was before (the profile and the game, never the database), the `web` and `field`
+tests both fail with the old symptoms: the old devices, and "database not open". I checked that on the final
+code and put the wiring back; the diff was identical afterwards.
+
+One of my new tests was wrong at first: it expected a note written by a background goroutine to be in the final
+database, which depends on timing. It failed once in a full run. It now writes the note after the goroutines
+have stopped.
+
+**Commands run**, all on the final code:
+- `go build`, `go vet -composites=false -hostport=false -structtag=false ./...`, `go run cmd/gofmt -l .` (no
+  output), `go test ./...`: all 19 packages with tests pass.
+- `go test -race ./...` with Zig as the C toolchain, as in `architecture.md`: 19 packages pass, no data race
+  reported. I added the `field` test after that run, and ran the detector on `field` again: it passes, no race.
+- The new tests of `device` and `lighting` 30 times over and the `web` one 10 times, before the last two changes.
+- `galaxia-fms game validate games` (3 ok) and `galaxia-fms game test games` (29 pass).
+
+Not done: nothing was pushed, so CI has not run on this. I did not try it in a browser; the web test goes
+through the same handler and the same page requests.
+
+**Found and not fixed.**
+- `replaceDatabase` assigns the result of `OpenDatabase` straight to `Arena.Database`. If opening the restored
+  file failed at that point, after the old file was removed, the arena would be left with no database. The file
+  has been opened once already as a check, so this is unlikely.
+- A restore is not refused while a match is running. It is now in the limits in `architecture.md`.
+- A fault names the device its binding had when it latched. If a binding keeps its id and is moved to another
+  device while faulted, the fault still names the old one. This is from milestone 5 and is the same after
+  `SaveBindings`.
+
 ## 2026-11-22 11:03 - The countdown on the field (milestone 9, first part)
 
 David answered "Yes, countdown". Built the server side of the countdown and joined it to the animation and sound
@@ -907,3 +992,25 @@ I put the time in without reading the clock.
 `refs/heads/claude/ecstatic-lalande-5168fa` (devices and lighting following a restored database) is still not
 merged. Both `main` and that branch have changed `field/arena.go` since, so the merge may now need more than
 the work log put right.
+
+## 2026-11-22 23:47 - Merged: devices and lighting follow a restored database
+
+David said to merge `refs/heads/claude/ecstatic-lalande-5168fa` (commit `c9a43d4`, the entry of 10:42 above)
+into `main`.
+
+- The only conflict was this file: both sides had added entries at its end. Both are kept, in order of their
+  time, so the 10:42 entry now sits before the countdown's.
+- Everything else merged by itself, including `field/arena.go`, which the 2025 game's work had also changed.
+- I read the merged code before committing, which I had not done when I first reported the branch: the manager's
+  `Configure`, the lighting engine's `SetDatabase`, and where the arena calls them. `LoadSettings` now gives the
+  devices and the lighting the database after the game is settled, and reports a database they cannot read
+  alongside a game that cannot be used.
+
+**Commands run on the merged tree.** `go build ./...`, `go vet` (three analyzers off as before),
+`go run cmd/gofmt -l` on the packages (clean), `go test ./...` (20 packages pass), the race detector over every
+package (20 pass, no data race), `node --test` on the browser tests (13 pass), `game validate games` (4 games)
+and `game test games` (60 examples pass). The binary for the game commands was built into the scratch folder,
+not over the one David runs from.
+
+**Not checked:** a restore in a browser. The branch's own tests restore through the web handler; nobody has
+clicked it.

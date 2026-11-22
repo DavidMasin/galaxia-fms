@@ -6,6 +6,7 @@
 package field
 
 import (
+	"errors"
 	"fmt"
 	"github.com/DavidMasin/galaxia-fms/bus"
 	"github.com/DavidMasin/galaxia-fms/device"
@@ -303,7 +304,6 @@ func (arena *Arena) LoadSettings() error {
 		sccDownCommands,
 	)
 	arena.Plc.SetAddress(settings.PlcAddress)
-	arena.applyDeviceSettings()
 	arena.TbaClient = partner.NewTbaClient(settings.TbaEventCode, settings.TbaSecretId, settings.TbaSecret)
 	arena.NexusClient = partner.NewNexusClient(settings.TbaEventCode, settings.NexusAutoQueueKey)
 	arena.BlackmagicClient = partner.NewBlackmagicClient(settings.BlackmagicAddresses)
@@ -370,6 +370,11 @@ func (arena *Arena) LoadSettings() error {
 		return gameErr
 	}
 
+	// The devices and the lighting come after the game: they are given the database, the profile and the game
+	// together, and the lighting is compiled against the devices. A database they cannot be read from is reported
+	// like a game that cannot be used, after everything else is set up.
+	storeErr := errors.Join(arena.applyDeviceSettings(), arena.applyLightingDatabase())
+
 	// Reconstruct the playoff tournament in memory.
 	if err = arena.CreatePlayoffTournament(); err != nil {
 		return err
@@ -378,7 +383,7 @@ func (arena *Arena) LoadSettings() error {
 		return err
 	}
 
-	return gameErr
+	return errors.Join(gameErr, storeErr)
 }
 
 // Constructs an empty playoff tournament in memory, based only on the number of alliances.

@@ -33,7 +33,7 @@ const (
 // Options are what an engine is built with.
 type Options struct {
 	Devices  *device.Manager
-	Database *model.Database
+	Database *model.Database  // Where the lighting is stored. SetDatabase replaces it.
 	Bus      *bus.Bus         // For the winner of each posted match and new manifests. May be nil.
 	Field    func() FieldInfo // Called on the arena goroutine on every output tick. May be nil.
 	Now      func() time.Time // The clock for Test and Identify; time.Now if nil. Tests replace it.
@@ -48,7 +48,7 @@ type Options struct {
 // arena loop never waits for the database. The manager is only called without mu held.
 type Engine struct {
 	devices *device.Manager
-	db      *model.Database
+	db      *model.Database // Guarded by storeMu: restoring a backup replaces it (SetDatabase).
 	field   func() FieldInfo
 	now     func() time.Time
 	events  *bus.Subscription
@@ -176,6 +176,31 @@ func NewEngine(options Options) *Engine {
 func (e *Engine) Reload(game *gamedef.Game) error {
 	e.storeMu.Lock()
 	defer e.storeMu.Unlock()
+	return e.reload(game)
+}
+
+// SetDatabase makes db the database the lighting is read from and stored in. With the one the engine already has,
+// nothing happens. With another one, because a backup was restored, the lighting that database holds for the
+// active profile and the given game is in force when it returns: it is read at once rather than at the next tick,
+// so that the page shows the restored lighting as soon as the restore has answered. The fixtures of the old
+// database that the new one does not have are let go of, and cleared, by the claim that follows every reload.
+//
+// The device manager must have been given the database first (device.Manager.Configure): the lighting is
+// compiled against its devices and claims its channels around its bindings. The caller may hold the arena's lock.
+func (e *Engine) SetDatabase(db *model.Database, game *gamedef.Game) error {
+	// storeMu is held from the swap to the end of the reload: every use of the database holds it, so none of them
+	// sees one database for part of its work and the other for the rest.
+	e.storeMu.Lock()
+	defer e.storeMu.Unlock()
+	if db == e.db {
+		return nil
+	}
+	e.db = db
+	return e.reload(game)
+}
+
+// reload does what Reload says. The caller holds storeMu.
+func (e *Engine) reload(game *gamedef.Game) error {
 	profile := e.devices.Profile()
 	config, loadErr := &Config{Profile: profile, Scenes: Scenes{}}, error(nil)
 	if game != nil && e.db != nil {

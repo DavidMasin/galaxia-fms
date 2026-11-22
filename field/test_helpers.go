@@ -13,13 +13,16 @@ import (
 )
 
 // SetupTestArena creates an arena on a scratch database. It plays the example games in the repository's games
-// directory, and starts with the default one selected.
+// directory, and starts with the default one selected. Matches start without a countdown, so that a test need not
+// wait for one; a test of the countdown turns it back on in the event's settings.
 func SetupTestArena(t *testing.T) *Arena {
 	model.BaseDir = ".."
 	dbDir := t.TempDir()
 	dbPath := filepath.Join(dbDir, "test.db")
 	arena, err := NewArena(dbPath)
 	assert.Nil(t, err)
+	arena.EventSettings.CountdownMode = model.CountdownOff
+	assert.Nil(t, arena.Database.UpdateEventSettings(arena.EventSettings))
 	t.Cleanup(
 		func() {
 			arena.Database.Close()

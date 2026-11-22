@@ -33,6 +33,7 @@ type settingsGame struct {
 	Selected    bool
 	Selectable  bool
 	Problem     string // Why the game cannot be selected, if it cannot.
+	Countdown   string // What the game counts before a match starts, in words.
 	Params      []settingsGameParam
 }
 
@@ -115,6 +116,19 @@ func (web *Web) settingsPostHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		mqttPorts[i] = value
+	}
+	// The countdown, likewise left alone by a form without the field.
+	countdownMode := eventSettings.CountdownMode
+	if r.PostForm.Has("countdownMode") {
+		countdownMode = r.PostFormValue("countdownMode")
+		if countdownMode != model.CountdownGame && countdownMode != model.CountdownQuick &&
+			countdownMode != model.CountdownOff {
+			web.renderSettingsWithStatus(
+				w, r, "The countdown is played as the game says, quick, or not at all.", activeSettingsTab,
+				http.StatusOK,
+			)
+			return
+		}
 	}
 	if mqttPorts[0] != 0 && mqttPorts[0] == mqttPorts[1] {
 		web.renderSettingsWithStatus(
@@ -233,6 +247,7 @@ func (web *Web) settingsPostHandler(w http.ResponseWriter, r *http.Request) {
 	eventSettings.SCCDownCommands = r.PostFormValue("sccDownCommands")
 	eventSettings.PlcAddress = r.PostFormValue("plcAddress")
 	eventSettings.DeviceMqttPort, eventSettings.DeviceMqttWsPort = mqttPorts[0], mqttPorts[1]
+	eventSettings.CountdownMode = countdownMode
 	if fieldProfile != eventSettings.FieldProfile {
 		profile, err := web.arena.Database.GetFieldProfileByName(fieldProfile)
 		if err != nil {
@@ -389,6 +404,28 @@ func parseGameParam(param *gamedef.Param, raw string) (float64, error) {
 	return value, nil
 }
 
+// describeCountdown says in words what a game counts before a match starts.
+func describeCountdown(g *gamedef.Game) string {
+	countdown := g.Match.Countdown
+	if !countdown.Enabled || countdown.Beats <= 0 {
+		return "This game starts its matches without a countdown."
+	}
+	count := func(beats int) string {
+		if beats == 1 {
+			return "one beat"
+		}
+		return fmt.Sprintf("%d beats", beats)
+	}
+	line := ""
+	if countdown.Voice != "" {
+		line = " after a spoken line"
+	}
+	return fmt.Sprintf(
+		"This game counts %s%s before a match starts. Its quick countdown is %s.", count(countdown.Beats), line,
+		count(countdown.QuickBeats),
+	)
+}
+
 // buildSettingsGames lists every game definition for the settings page: which one is selected, which ones cannot be
 // and why, and each game's parameters with the event's overrides of the selected one.
 func (web *Web) buildSettingsGames() []settingsGame {
@@ -415,6 +452,7 @@ func (web *Web) buildSettingsGames() []settingsGame {
 			listed.Selectable = true
 		}
 		if g != nil {
+			listed.Countdown = describeCountdown(g)
 			for _, param := range g.Params {
 				listedParam := settingsGameParam{Id: param.ID, Name: param.Name, Type: param.Type}
 				if listedParam.Name == "" {

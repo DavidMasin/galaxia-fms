@@ -754,3 +754,62 @@ database (see the previous entry, "Found and not fixed").
 Nothing of mine is left running: the test copy is stopped and its ports are free.
 
 **Next:** the countdown on the field (milestone 9), which David put after this.
+
+## 2026-11-22 11:03 - The countdown on the field (milestone 9, first part)
+
+David answered "Yes, countdown". Built the server side of the countdown and joined it to the animation and sound
+made on 2026-11-13. Report: [docs/milestones/09-countdown.md](docs/milestones/09-countdown.md).
+
+**Decisions I made**
+- The transitional `StartMatch` state became a real `Countdown` state. Pressing Start fixes the moment the match
+  will start; the arena loop starts the match, and enables the robots, in the pass that reaches that moment. A
+  match without a countdown passes through the state in one pass, as it always did.
+- The loop shortens its sleep when the start is less than a period away, so the start is not up to 10 ms late.
+- The bookkeeping that touches files (team logs) moved from Start to the start of the match, after the enable
+  packet. The database write stays at Start, with the match's start time put back if the start is called off.
+- A team's E-stop during the countdown calls the start off, as a field stop and Abort do.
+- The event setting is `CountdownMode`: as the game says (the default, so existing events get the countdown),
+  quick, or off. The test arena turns it off so that tests need not wait six seconds.
+- Displays measure the server's clock over `GET /api/v1/time` (now answered without the arena's lock, and with
+  microseconds), not over their WebSocket: display sockets only send.
+- Devices learn the moment from `field/state` (`t0`, `beats`), not from a new topic.
+- Lighting got three moments (`countdown`, `countdown_beat`, `countdown_go`) and starting looks for them.
+- The API's state name `starting` is now `countdown`.
+
+**Found by measuring, and fixed**
+- The in-app browser draws about one frame a second while its pane is hidden, so it cannot time anything. I
+  installed `puppeteer-core` in the scratchpad and drove headless Chrome 158 (with the graphics card) instead.
+- "GO!" held a frame for about 0.22 s on every countdown: the browser drew the large glowing text afresh. The
+  numerals are now drawn once into bitmaps and only moved, scaled and faded.
+- The first countdown after a page load stalled for about 0.6 s in its first beat on first-time work. A display
+  now plays one countdown invisibly when it loads.
+- Switching the countdown's layers in held a frame for 0.2 to 0.45 s on the audience display. The layers now stay
+  in place, faded out, and the two full-screen gradients are drawn at a twentieth of the size and stretched.
+
+**Measured** (this laptop, headless Chrome at 1920×1080, real audience display of a test copy)
+- The arena loop started the match a median 0.67 ms after its moment over 13 starts; worst 4.8 ms while two
+  browser windows were drawing in software.
+- In tests, a driver station on the same computer heard "enabled" 0.5 to 1.1 ms after the moment, never before.
+- Second countdown with three displays open: 411 frames a window, 99% within 18.8 ms, longest 19.3 ms. Headless
+  Chrome paces an empty page at 17.9 ms a frame, so this is the rate the browser allows, not 60 a second.
+- Two windows' clocks agreed within 0.43 ms; their first frame after a beat differed by at most 13 ms.
+
+**Checked in a browser** on the test copy (port 8090, its own database, broker ports 18840 and 18841; nothing of
+David's was running or touched): countdowns to the start on the audience display and the alliance station
+display, a start called off with Abort and started again, the API's `countdown` during it, the new section on
+the settings page. Pictures of several moments looked as intended after the changes.
+
+**Not checked:** the sound (I cannot listen; the start cue's sound and "GO!" play together with the example
+games), a real screen at 60 frames a second, OBS, devices on hardware.
+
+**Also changed:** CI runs the browser-code tests under Node. `sdk/python` and `sdk/micropython` give `t0` and
+`beats` on the field state.
+
+**Commands run.** `go build`, `go vet` (three analyzers off as before), `go run cmd/gofmt -l` on the packages
+(clean), `go test ./...` (19 packages pass), `node --test` on the two browser test files (13 pass),
+`pytest sdk/python` (85 pass) and `sdk/micropython/tests` (15 pass), `galaxia-fms game validate games`,
+`galaxia-fms game test games`, and the race detector over every package.
+
+Nothing of mine is left running: the test copy is stopped and its ports are free.
+
+**Left of milestone 9:** OBS automation, camera recording, theming.

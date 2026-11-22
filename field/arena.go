@@ -52,7 +52,7 @@ type MatchState int
 
 const (
 	PreMatch      MatchState = iota // A match is loaded and has not started.
-	StartMatch                      // Transitional: set by StartMatch(), consumed by the next Update().
+	Countdown                       // Start was pressed and the match is about to begin; see countdown.go.
 	InMatch                         // A phase is running.
 	PostMatch                       // The match ended or was aborted; scores are pending.
 	TimeoutActive                   // A timeout or break is counting down.
@@ -89,6 +89,8 @@ type Arena struct {
 	lastPhaseIndex                    int
 	CurrentMatch                      *model.Match
 	MatchStartTime                    time.Time
+	countdown                         matchCountdown // The countdown last started; see countdown.go.
+	matchStartedLate                  time.Duration  // How long after its moment the last match started.
 	LastMatchTimeSec                  float64
 	TimeoutDurationSec                int
 	Score                             *MatchScore // Guarded by scoreMutex.
@@ -616,52 +618,49 @@ func (arena *Arena) publishMatchLoaded() {
 	)
 }
 
-// Starts the match if all conditions are met.
+// Starts the countdown to the match if all conditions are met. The match itself starts when the countdown ends, in
+// the arena loop; a game or an event without a countdown starts on the loop's next pass.
 func (arena *Arena) StartMatch() error {
 	err := arena.checkCanStartMatch()
 	if err == nil {
-		// Save the match start time to the database for posterity.
-		arena.CurrentMatch.StartedAt = time.Now()
-		if arena.CurrentMatch.Type != model.Test {
-			arena.Database.UpdateMatch(arena.CurrentMatch)
-		}
-		arena.updateCycleTime(arena.CurrentMatch.StartedAt)
-
-		for _, allianceStation := range arena.AllianceStations {
-			if allianceStation.Team != nil {
-				err = allianceStation.startTeamMatchLog(arena.CurrentMatch)
-				if err != nil {
-					log.Println(err)
-				}
-			}
-			if allianceStation.DsConn != nil {
-				allianceStation.DsConn.MissedPacketCount = 0
-			}
-
-			// Save the teams that have successfully connected to the field.
-			if allianceStation.Team != nil && !allianceStation.Team.HasConnected && allianceStation.DsConn != nil &&
-				allianceStation.DsConn.RobotLinked {
-				allianceStation.Team.HasConnected = true
-				arena.Database.UpdateTeam(allianceStation.Team)
-			}
-		}
-
-		arena.lastTeamLogTime = time.Time{}
-
-		arena.MatchState = StartMatch
-		arena.refreshBusContext()
-
-		if arena.EventSettings.NexusAutoQueueEnabled && arena.CurrentMatch.Type != model.Test {
-			go arena.NexusClient.MatchStarted(arena.CurrentMatch.LongName, arena.CurrentMatch.TypeOrder)
-		}
+		arena.startCountdown()
 	}
 	return err
 }
 
-// Kills the current match or timeout if it is underway.
+// openMatchRecords does the bookkeeping of a match that has just started. It runs in the pass of the arena loop that
+// starts the match, after the robots have been enabled, so that none of it delays them.
+func (arena *Arena) openMatchRecords() {
+	arena.updateCycleTime(arena.CurrentMatch.StartedAt)
+	for _, allianceStation := range arena.AllianceStations {
+		if allianceStation.Team != nil {
+			if err := allianceStation.startTeamMatchLog(arena.CurrentMatch); err != nil {
+				log.Println(err)
+			}
+		}
+		if allianceStation.DsConn != nil {
+			allianceStation.DsConn.MissedPacketCount = 0
+		}
+	}
+	arena.lastTeamLogTime = time.Time{}
+	if arena.EventSettings.NexusAutoQueueEnabled && arena.CurrentMatch.Type != model.Test {
+		go arena.NexusClient.MatchStarted(arena.CurrentMatch.LongName, arena.CurrentMatch.TypeOrder)
+	}
+}
+
+// Kills the current match or timeout if it is underway, or calls off the countdown to a match.
 func (arena *Arena) AbortMatch() error {
 	if arena.MatchState == PreMatch || arena.MatchState == PostMatch || arena.MatchState == PostTimeout {
 		return fmt.Errorf("cannot abort match when it is not in progress")
+	}
+
+	if arena.MatchState == Countdown {
+		reason := arena.countdownStopReason()
+		if reason == "" {
+			reason = "the start was aborted"
+		}
+		arena.cancelCountdown(reason)
+		return nil
 	}
 
 	if arena.MatchState == TimeoutActive {
@@ -790,19 +789,24 @@ func (arena *Arena) update() {
 
 	// Work out where in the match we are.
 	sendDsPacket := false
+	matchStarted := false
 	matchTimeSec := arena.MatchTimeSec()
 	switch arena.MatchState {
-	case StartMatch:
-		arena.SetAudienceDisplayMode("match")
-		arena.SetAllianceStationDisplayMode("match")
-		go arena.BlackmagicClient.StartRecording()
+	case Countdown:
+		// A stop pressed during the countdown calls the start off: whatever it is about, nobody should be surprised
+		// by robots that move. The field stops do the same through AbortMatch, further down.
+		if reason := arena.countdownStopReason(); reason != "" {
+			arena.cancelCountdown(reason)
+			break
+		}
+		if !arena.advanceCountdown(time.Now()) {
+			break
+		}
 		go arena.CompanionClient.SendEvent(partner.EventMatchStart)
-		arena.Plc.ResetMatch()
-		arena.FieldVolunteers = false
-		arena.FieldReset = false
-		arena.beginMatch()
+		arena.beginMatch(arena.finishCountdown())
 		matchTimeSec = 0
 		sendDsPacket = true
+		matchStarted = true
 	case InMatch:
 		if arena.advancePhases(matchTimeSec) {
 			sendDsPacket = true
@@ -854,6 +858,9 @@ func (arena *Arena) update() {
 		auto, enabled := arena.robotMode()
 		arena.sendDsPacket(auto, enabled)
 		arena.ArenaStatusNotifier.Notify()
+	}
+	if matchStarted {
+		arena.openMatchRecords()
 	}
 
 	// Field devices: their timers and the field actions they asked for, before the stops so that a device stop is
@@ -994,6 +1001,7 @@ func (arena *Arena) Run() {
 		loopStartTime := time.Now()
 		arena.update()
 		loopDuration := time.Since(loopStartTime)
+		delay := arena.passDelay()
 		arena.Unlock()
 		if loopDuration.Milliseconds() > arenaLoopWarningMs {
 			log.Printf("Warning: Arena loop iteration took a long time: %dms", loopDuration.Milliseconds())
@@ -1003,7 +1011,7 @@ func (arena *Arena) Run() {
 			go arena.runPeriodicTasks()
 		}
 
-		time.Sleep(time.Millisecond * arenaLoopPeriodMs)
+		time.Sleep(delay)
 	}
 }
 
@@ -1477,7 +1485,7 @@ func (arena *Arena) handlePlcInputOutput() {
 		}
 		scoreReady := arena.RefereeScoreReady() && arena.scoringPanelsReady()
 		arena.Plc.SetStackLights(false, false, !scoreReady, false)
-	case InMatch:
+	case Countdown, InMatch:
 		arena.Plc.SetStackBuzzer(false)
 		arena.Plc.SetStackLights(!redAllianceReady, !blueAllianceReady, false, true)
 	}

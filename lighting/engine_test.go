@@ -22,13 +22,14 @@ func TestMoments(t *testing.T) {
 		ids = append(ids, moment.ID)
 	}
 	assert.Equal(t, []string{
-		"estop", "fault", "cue.endgame", "phase.auto", "phase.pause", "phase.teleop", "score_posted", "match_end",
-		"field_reset", "volunteers", "teams_ready", "awards", "idle",
+		"estop", "fault", "countdown_go", "countdown_beat", "cue.endgame", "phase.auto", "phase.pause",
+		"phase.teleop", "countdown", "score_posted", "match_end", "field_reset", "volunteers", "teams_ready",
+		"awards", "idle",
 	}, ids)
 	moments := Moments(h.game)
-	assert.Equal(t, "Cue: Endgame", moments[2].Name)
-	assert.Equal(t, "For 2 seconds after the cue fires (Teleop, 20 s left)", moments[2].When)
-	assert.Equal(t, "Teleop", moments[5].Name)
+	assert.Equal(t, "Cue: Endgame", moments[4].Name)
+	assert.Equal(t, "For 2 seconds after the cue fires (Teleop, 20 s left)", moments[4].When)
+	assert.Equal(t, "Teleop", moments[7].Name)
 }
 
 func TestStartingScenes(t *testing.T) {
@@ -49,14 +50,17 @@ func TestStartingScenes(t *testing.T) {
 	assert.Equal(t, 10, config.Fixtures[0].Pixels, "taken from the manifest")
 	assert.Equal(t, "goal", config.Fixtures[0].Name, "named after its id")
 	assert.Equal(t, Scenes{
-		"estop":        {"goal": {P: "blink", C: []string{"#ff0000"}}, "lamp": {P: "blink"}},
-		"fault":        {"goal": {P: "blink", C: []string{"#ff8000"}}, "lamp": {P: "blink"}},
-		"phase.auto":   {"goal": {P: "solid", C: []string{"alliance"}}, "lamp": {P: "solid"}},
-		"phase.pause":  {"goal": {P: "solid", C: []string{"alliance"}}, "lamp": {P: "solid"}},
-		"phase.teleop": {"goal": {P: "solid", C: []string{"alliance"}}, "lamp": {P: "solid"}},
-		"field_reset":  {"goal": {P: "solid", C: []string{"#00ff00"}}, "lamp": {P: "solid"}},
-		"volunteers":   {"goal": {P: "solid", C: []string{"#8000ff"}}, "lamp": {P: "solid"}},
-		"idle":         {"goal": {P: "solid", C: []string{"#ffffff"}}, "lamp": {P: "solid"}},
+		"estop":          {"goal": {P: "blink", C: []string{"#ff0000"}}, "lamp": {P: "blink"}},
+		"fault":          {"goal": {P: "blink", C: []string{"#ff8000"}}, "lamp": {P: "blink"}},
+		"countdown_go":   {"goal": {P: "solid", C: []string{"#00ff00"}}, "lamp": {P: "solid"}},
+		"countdown_beat": {"goal": {P: "solid", C: []string{"#ffffff"}}, "lamp": {P: "solid"}},
+		"phase.auto":     {"goal": {P: "solid", C: []string{"alliance"}}, "lamp": {P: "solid"}},
+		"phase.pause":    {"goal": {P: "solid", C: []string{"alliance"}}, "lamp": {P: "solid"}},
+		"phase.teleop":   {"goal": {P: "solid", C: []string{"alliance"}}, "lamp": {P: "solid"}},
+		"countdown":      {"goal": {P: "off"}, "lamp": {P: "off"}},
+		"field_reset":    {"goal": {P: "solid", C: []string{"#00ff00"}}, "lamp": {P: "solid"}},
+		"volunteers":     {"goal": {P: "solid", C: []string{"#8000ff"}}, "lamp": {P: "solid"}},
+		"idle":           {"goal": {P: "solid", C: []string{"#ffffff"}}, "lamp": {P: "solid"}},
 	}, config.Scenes)
 
 	h.idle()
@@ -743,4 +747,77 @@ func TestReloadInTheBackground(t *testing.T) {
 	assert.Equal(t, "tent", h.engine.Status().Profile)
 	assert.Empty(t, h.devices.Claims())
 	assertOutput(t, nil, goal, "strip")
+}
+
+const countdownConfig = `
+fixtures:
+  - { id: goal, device: goal, channel: strip, kind: led_strip, pixels: 10, alliance: red }
+scenes:
+  idle: { goal: { p: solid, c: ["#ffffff"] } }
+  teams_ready: { goal: { p: solid, c: ["#00ff00"] } }
+  countdown: { goal: { p: solid, c: ["#000040"] } }
+  countdown_beat: { goal: { p: solid, c: ["#ffff00"] } }
+  countdown_go: { goal: { p: solid, c: ["#00ffff"] } }
+  phase.teleop: { goal: { p: solid, c: [alliance] } }
+`
+
+func TestCountdownMoments(t *testing.T) {
+	h := newHarness(t)
+	goal := h.connectGoal()
+	h.load(countdownConfig)
+	live := func() Live { return h.engine.Live() }
+	countdown := func(events ...string) {
+		h.tick(h.snapshot("countdown", "", 0, events...))
+	}
+
+	h.info.TeamsReady = true
+	h.idle()
+	assertOutput(t, solid("#00ff00"), goal, "strip")
+
+	// The countdown has a look of its own. That the teams are ready is no longer the news.
+	countdown("countdown.start")
+	assertOutput(t, solid("#000040"), goal, "strip")
+	assert.Equal(t, []string{"countdown", "idle"}, live().Active)
+
+	// Each beat flashes over it for three tenths of a second.
+	h.clock.Advance(time.Second)
+	countdown("countdown.beat")
+	assertOutput(t, solid("#ffff00"), goal, "strip")
+	assert.Equal(t, []string{"countdown_beat", "countdown", "idle"}, live().Active)
+	h.clock.Advance(299 * time.Millisecond)
+	countdown()
+	assertOutput(t, solid("#ffff00"), goal, "strip")
+	h.clock.Advance(time.Millisecond)
+	countdown()
+	assertOutput(t, solid("#000040"), goal, "strip")
+	h.clock.Advance(700 * time.Millisecond)
+	countdown("countdown.beat")
+	assertOutput(t, solid("#ffff00"), goal, "strip")
+
+	// The start shows for a second over the first phase, which has no look of its own here.
+	h.clock.Advance(time.Second)
+	h.running("auto", 0, "countdown.go", "match.start", "phase.auto.start")
+	assertOutput(t, solid("#00ffff"), goal, "strip")
+	assert.Equal(t, []string{"countdown_go", "phase.auto", "idle"}, live().Active)
+	h.clock.Advance(999 * time.Millisecond)
+	h.running("auto", 1)
+	assertOutput(t, solid("#00ffff"), goal, "strip")
+	h.clock.Advance(time.Millisecond)
+	h.running("auto", 1)
+	assertOutput(t, solid("#ffffff"), goal, "strip")
+
+	// A countdown that is called off leaves nothing behind: the beat that was showing stops with it.
+	h.tick(h.snapshot("post", "", 0, "match.abort"))
+	h.idle()
+	countdown("countdown.start")
+	countdown("countdown.beat")
+	assertOutput(t, solid("#ffff00"), goal, "strip")
+	h.idle("countdown.cancel")
+	assertOutput(t, solid("#00ff00"), goal, "strip")
+	assert.Equal(t, []string{"teams_ready", "idle"}, live().Active)
+
+	// A match that starts without a countdown shows no start: there was nothing to count down to.
+	h.clock.Advance(time.Minute)
+	h.running("teleop", 0, "match.start")
+	assertOutput(t, solid(red), goal, "strip")
 }

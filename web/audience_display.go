@@ -17,9 +17,12 @@ func (web *Web) audienceDisplayHandler(w http.ResponseWriter, r *http.Request) {
 		w,
 		r,
 		map[string]string{
+			"audioLatencyMs":  "0",
 			"background":      "#0f0",
+			"countdown":       "overlay",
 			"overlayLocation": "bottom",
 			"reversed":        "false",
+			"sound":           "true",
 			"zoomFactor":      "1",
 		},
 	) {
@@ -64,6 +67,7 @@ func (web *Web) audienceDisplayWebsocketHandler(w http.ResponseWriter, r *http.R
 		display.Notifier,
 		web.arena.GameNotifier,
 		web.arena.AudienceDisplayModeNotifier,
+		web.arena.CountdownNotifier,
 		web.arena.MatchLoadNotifier,
 		web.arena.MatchTimeNotifier,
 		web.arena.RealtimeScoreNotifier,

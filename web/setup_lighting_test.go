@@ -211,7 +211,8 @@ func TestLightingExportAndImport(t *testing.T) {
 	assert.Equal(t, "goal", config.Fixtures[0].ID)
 	assert.Equal(t, "#ffffff", config.Scenes["idle"]["goal"].C[0])
 
-	edited := strings.Replace(exported, "'#ffffff'", "'#123456'", 1)
+	// White is the colour at idle and of the flash on each beat of the countdown.
+	edited := strings.ReplaceAll(exported, "'#ffffff'", "'#123456'")
 	assert.NotEqual(t, exported, edited)
 	recorder = web.requestWithBody("POST", "/setup/lighting/import", edited)
 	assert.Equal(t, 200, recorder.Code, recorder.Body.String())

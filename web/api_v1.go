@@ -20,10 +20,15 @@ import (
 // When the server started, for the health endpoint.
 var serverStartTime = time.Now()
 
-// apiTimeHandler returns the server's clock, so devices and displays can measure how far theirs is off.
+// apiTimeHandler returns the server's clock, so devices and displays can measure how far theirs is off. It runs
+// without the arena's lock, which it has no use for: a wait for the lock would be counted as part of the trip.
 func (web *Web) apiTimeHandler(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
-	writeJson(w, http.StatusOK, map[string]any{"t": now.UnixMilli(), "iso": now.Format(time.RFC3339Nano)})
+	writeJson(
+		w,
+		http.StatusOK,
+		map[string]any{"t": now.UnixMilli(), "us": now.UnixMicro(), "iso": now.Format(time.RFC3339Nano)},
+	)
 }
 
 // apiHealthHandler reports whether the server is up and what it is doing.
@@ -47,8 +52,8 @@ func matchStateName(state field.MatchState) string {
 	switch state {
 	case field.PreMatch:
 		return "pre_match"
-	case field.StartMatch:
-		return "starting"
+	case field.Countdown:
+		return "countdown"
 	case field.InMatch:
 		return "in_match"
 	case field.PostMatch:
@@ -219,6 +224,9 @@ func (web *Web) apiCurrentMatchHandler(w http.ResponseWriter, r *http.Request) {
 		"phaseRemainingSec":  matchTime.PhaseRemainingSec,
 		"timeoutDurationSec": matchTime.TimeoutDurationSec,
 		"score":              arena.RealtimeScoreSnapshot(),
+	}
+	if countdown := arena.CountdownInfo(); countdown != nil {
+		response["countdown"] = map[string]any{"t0": countdown.GoAt.UnixMilli(), "beats": countdown.Beats}
 	}
 	if arena.CurrentMatch != nil {
 		match := arena.CurrentMatch

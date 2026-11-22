@@ -12,24 +12,29 @@ import (
 // The moments every game has. A game adds cue.<id> for each of its cues that has an id and phase.<id> for each of
 // its phases.
 const (
-	MomentEStop       = "estop"
-	MomentFault       = "fault"
-	MomentScorePosted = "score_posted"
-	MomentMatchEnd    = "match_end"
-	MomentFieldReset  = "field_reset"
-	MomentVolunteers  = "volunteers"
-	MomentTeamsReady  = "teams_ready"
-	MomentAwards      = "awards"
-	MomentIdle        = "idle"
+	MomentEStop         = "estop"
+	MomentFault         = "fault"
+	MomentCountdownGo   = "countdown_go"
+	MomentCountdownBeat = "countdown_beat"
+	MomentCountdown     = "countdown"
+	MomentScorePosted   = "score_posted"
+	MomentMatchEnd      = "match_end"
+	MomentFieldReset    = "field_reset"
+	MomentVolunteers    = "volunteers"
+	MomentTeamsReady    = "teams_ready"
+	MomentAwards        = "awards"
+	MomentIdle          = "idle"
 
 	cuePrefix   = "cue."
 	phasePrefix = "phase."
 )
 
-// How long a cue and a posted score hold their moment.
+// How long a cue, a posted score, a beat of the countdown and the start it ends with hold their moment.
 const (
-	CueDuration         = 2 * time.Second
-	ScorePostedDuration = 10 * time.Second
+	CueDuration           = 2 * time.Second
+	ScorePostedDuration   = 10 * time.Second
+	CountdownBeatDuration = 300 * time.Millisecond
+	CountdownGoDuration   = time.Second
 )
 
 // Kinds of moment, for the page.
@@ -47,12 +52,20 @@ type Moment struct {
 	When string `json:"when"` // When it applies, in words.
 }
 
-// Moments returns every moment of a game, highest priority first: estop, fault, the cues, the phases,
-// score_posted, match_end, field_reset, volunteers, teams_ready, awards and idle.
+// Moments returns every moment of a game, highest priority first: estop, fault, countdown_go, countdown_beat, the
+// cues, the phases, countdown, score_posted, match_end, field_reset, volunteers, teams_ready, awards and idle.
 func Moments(game *gamedef.Game) []Moment {
 	moments := []Moment{
 		{ID: MomentEStop, Name: "E-stop", Kind: MomentKindField, When: "Any station E-stop or the field stop is active"},
 		{ID: MomentFault, Name: "Device fault", Kind: MomentKindField, When: "A device fault is latched"},
+		{
+			ID: MomentCountdownGo, Name: "Go", Kind: MomentKindField,
+			When: "For 1 second from the start of a match that was counted down to",
+		},
+		{
+			ID: MomentCountdownBeat, Name: "Countdown beat", Kind: MomentKindField,
+			When: "For 0.3 seconds from each beat of the countdown to a match",
+		},
 	}
 	if game != nil {
 		seen := make(map[string]bool)
@@ -76,6 +89,10 @@ func Moments(game *gamedef.Game) []Moment {
 		}
 	}
 	return append(moments,
+		Moment{
+			ID: MomentCountdown, Name: "Countdown", Kind: MomentKindField,
+			When: "From Start being pressed until the match starts",
+		},
 		Moment{
 			ID: MomentScorePosted, Name: "Score posted", Kind: MomentKindField,
 			When: "For 10 seconds after a score is posted",
@@ -121,11 +138,14 @@ func cueTime(cue *gamedef.Cue) string {
 }
 
 // fieldMoments is what the engine keeps between output ticks to work out the moments: when each cue fired, when the
-// last score was posted, and whether it was posted since the match ended. Only the arena goroutine touches it.
+// last score was posted and whether that was since the match ended, and when the countdown last beat and ended.
+// Only the arena goroutine touches it.
 type fieldMoments struct {
 	cueTimes       map[string]time.Time // By moment id.
 	postedAt       time.Time
 	postedSinceEnd bool
+	beatAt         time.Time
+	goAt           time.Time
 }
 
 // FieldInfo is what the engine needs to know about the field beyond the device snapshot. The arena fills it in on

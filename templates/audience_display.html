@@ -12,6 +12,7 @@ Display shown on the audience screen overlayed over the video.
     <link rel="stylesheet" href="/static/css/lib/bootstrap.min.css"/>
     <link rel="stylesheet" href="/static/css/cheesy-arena.css"/>
     <link rel="stylesheet" href="/static/css/audience_display.css"/>
+    <link rel="stylesheet" href="/static/css/countdown.css"/>
   </head>
   <body>
     <div id="overlayCentering">
@@ -172,6 +173,7 @@ Display shown on the audience screen overlayed over the video.
       <h1>{{"{{Subtitle}}"}}</h1>
       </div>
     </script>
+    <div id="countdown"></div>
     {{range $sound := .MatchSounds}}
     <audio id="sound-{{$sound}}" src="/static/audio/{{$sound}}.wav" preload="auto"></audio>
     {{end}}
@@ -185,6 +187,9 @@ Display shown on the audience screen overlayed over the video.
     <script src="/static/js/game_view.js"></script>
     <script src="/static/js/match_timing.js"></script>
     <script src="/static/js/display_shared.js"></script>
+    <script src="/static/js/clock_sync.js"></script>
+    <script src="/static/js/countdown.js"></script>
+    <script src="/static/js/countdown_display.js"></script>
     <script src="/static/js/audience_display.js"></script>
   </body>
 </html>

@@ -46,7 +46,7 @@ const handleArenaStatus = function (data) {
     location.reload();
   }
 
-  const inMatch = currentMatchState === "START_MATCH" || currentMatchState === "IN_MATCH";
+  const inMatch = currentMatchState === "COUNTDOWN" || currentMatchState === "IN_MATCH";
 
   $.each(data.AllianceStations, function (station, stationStatus) {
     let teamElementPrefix;
@@ -350,7 +350,7 @@ const handleMatchTime = function (data) {
   if (clock === null) {
     return;
   }
-  if (currentMatchState === "PRE_MATCH" && (clock.state === "START_MATCH" || clock.state === "IN_MATCH")) {
+  if (currentMatchState === "PRE_MATCH" && (clock.state === "COUNTDOWN" || clock.state === "IN_MATCH")) {
     // A match is starting: forget the lowest battery voltages seen before it.
     for (const stationId in minBatteryTracker) {
       minBatteryTracker[stationId] = null;

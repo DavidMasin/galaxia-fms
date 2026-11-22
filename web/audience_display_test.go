@@ -22,6 +22,9 @@ func TestAudienceDisplay(t *testing.T) {
 	assert.Contains(t, recorder.Header().Get("Location"), "reversed=false")
 	assert.Contains(t, recorder.Header().Get("Location"), "overlayLocation=bottom")
 	assert.Contains(t, recorder.Header().Get("Location"), "zoomFactor=1")
+	assert.Contains(t, recorder.Header().Get("Location"), "countdown=overlay")
+	assert.Contains(t, recorder.Header().Get("Location"), "sound=true")
+	assert.Contains(t, recorder.Header().Get("Location"), "audioLatencyMs=0")
 
 	recorder = web.getHttpResponse(
 		"/displays/audience?displayId=1&background=%23000&reversed=false&overlayLocation=top",
@@ -31,9 +34,11 @@ func TestAudienceDisplay(t *testing.T) {
 	assert.Contains(t, recorder.Header().Get("Location"), "zoomFactor=1")
 
 	recorder = web.getHttpResponse(
-		"/displays/audience?displayId=1&background=%23000&reversed=false&overlayLocation=top&zoomFactor=1.5",
+		"/displays/audience?displayId=1&background=%23000&reversed=false&overlayLocation=top&zoomFactor=1.5" +
+			"&countdown=full&sound=false&audioLatencyMs=-40",
 	)
 	assert.Equal(t, 200, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "/static/js/countdown_display.js")
 	assert.Contains(t, recorder.Body.String(), "Audience Display - Untitled Event - Galaxia FMS")
 	assert.Contains(t, recorder.Body.String(), "finalTiebreakReason")
 }
@@ -52,6 +57,9 @@ func TestAudienceDisplayWebsocket(t *testing.T) {
 	readWebsocketType(t, ws, "displayConfiguration")
 	readWebsocketType(t, ws, "game")
 	readWebsocketType(t, ws, "audienceDisplayMode")
+	assert.Equal(t, map[string]any{
+		"state": "idle", "goAt": 0.0, "beats": 0.0, "intro": false, "voice": "", "sound": false,
+	}, readWebsocketType(t, ws, "countdown"))
 	readWebsocketType(t, ws, "matchLoad")
 	readWebsocketType(t, ws, "matchTime")
 	readWebsocketType(t, ws, "realtimeScore")

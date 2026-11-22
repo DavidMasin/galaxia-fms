@@ -99,7 +99,7 @@ Every topic starts with `galaxia/v1/`. `{id}` is the device id, `{ch}` a channel
 | `dev/{id}/out/{ch}` | FMS → device | yes | An output command, below |
 | `dev/{id}/cmd` | FMS → device | no | `{"do":"identify"}`, `{"do":"reboot"}` |
 | `field/clock` | FMS → all | no | `{"t":1794510000123}`: UTC milliseconds, every second |
-| `field/state` | FMS → all | yes | `{"state":"running","phase":"teleop","phase_remaining":93.4,"match_remaining":120.1,"scores":{"red":41,"blue":38}}` on every change and once a second |
+| `field/state` | FMS → all | yes | `{"state":"running","phase":"teleop","phase_remaining":93.4,"match_remaining":120.1,"scores":{"red":41,"blue":38}}` on every change and once a second. During the countdown to a match: `"state":"countdown","t0":1794510003000,"beats":[-3000,-2000,-1000,0]` |
 
 What a device may do:
 
@@ -122,6 +122,15 @@ Added:
 - `field/state` is published when the state, the phase or a score changes, and once a second otherwise; the
   remaining times alone do not count as a change. When the broker (re)starts it publishes every output in force and
   the last field state again.
+- `state` is `idle`, `countdown`, `running`, `post` or `timeout`. While it is `countdown`, between Start being
+  pressed and the match starting:
+  - `t0` is the moment the match starts, in UTC milliseconds on the clock `field/clock` tells;
+  - `beats` is when each beat of the countdown falls relative to `t0`, in milliseconds, ending with the start
+    itself at 0.
+
+  A device that keeps the field clock can act on the beat by itself; one that does not lets the FMS do the timing
+  with an output bound to `countdown.beat` or `countdown.go`. If the start is called off the state goes back to
+  `idle`. A match that starts without a countdown goes from `idle` straight to `running`.
 
 The fields the payloads above leave open (added; this is what the FMS and all three SDKs do):
 - **`seq` in `in`** is one counter per device, across all its input channels, counting from 1 when the device
@@ -510,7 +519,10 @@ outputs:
   `estop`, `astop`, `bypass`), `field_reset`, `volunteers` and `fault`.
 - `alliance` sets `own`. The colour `"alliance"` means that alliance's colour from the game.
 - `on` fires a pulse on an event instead: `match.start`, `match.end`, `match.abort`, `phase.<id>.start`,
-  `phase.<id>.end`, `cue.<id>`, `score.posted`. `pulse_ms` is how long the output stays on.
+  `phase.<id>.end`, `cue.<id>`, `score.posted`, and from the countdown to a match `countdown.start`,
+  `countdown.beat` (each beat), `countdown.go` (the start it ends with) and `countdown.cancel` (it was called off).
+  `pulse_ms` is how long the output stays on. Outputs are evaluated every 50 ms, so a pulse follows its event by
+  up to that.
 - `digital`, `relay` and `pwm` outputs take `when` (on/off) or `value` (an expression giving 0 to 1 for `pwm`).
   The FMS blinks a digital output itself when its look says `blink`.
 - An output channel can be driven by one binding, or by the Lighting page, not both.
@@ -556,8 +568,11 @@ LEDs and stack lights are configured on Setup → Lighting, without writing bind
   |--------|------|
   | `estop` | Any station E-stop or the field stop is active |
   | `fault` | A device fault is latched |
+  | `countdown_go` | For 1 second from the start of a match that was counted down to |
+  | `countdown_beat` | For 0.3 seconds from each beat of the countdown to a match |
   | `cue.<id>` | For 2 seconds after the cue fires |
   | `phase.<id>` | While that phase runs |
+  | `countdown` | From Start being pressed until the match starts |
   | `score_posted` | For 10 seconds after a score is posted |
   | `match_end` | After the match, until the score is posted |
   | `field_reset` | Field reset signalled |
@@ -566,12 +581,12 @@ LEDs and stack lights are configured on Setup → Lighting, without writing bind
   | `awards` | The alliance station displays show the logo |
   | `idle` | Otherwise |
 
-  The countdown moments (`countdown.beat`, `countdown.go`) arrive with the countdown in milestone 9.
 - A cell left empty falls through to the next moment down that has a look for it.
 - **Preview** shows each fixture as a simulated strip. **Test** sends a scene to the hardware. **Identify**
   flashes one fixture.
-- A new fixture gets a starting set of scenes: alliance colour during the match, green on field reset, purple for
-  volunteers, red blinking on E-stop, orange blinking on a fault, white at idle.
+- A new fixture gets a starting set of scenes: off during the countdown with a white flash on each beat and green
+  for a second at the start, alliance colour during the match, green on field reset, purple for volunteers, red
+  blinking on E-stop, orange blinking on a fault, white at idle.
 
 Added:
 - **Targets and fall-through.**
@@ -585,7 +600,12 @@ Added:
   - `fault` is any latched device fault.
   - Of several cues, the most recent comes first.
   - `match_end` lasts until a score is posted after the match.
-  - `teams_ready` applies only before a match, when every station the game uses is ready.
+  - `teams_ready` applies only before a match, when every station the game uses is ready. It stops applying when
+    Start is pressed.
+  - The three countdown moments exist only for a match that is counted down to. `countdown_go` and
+    `countdown_beat` come before the cues so that the start shows even over a cue of the first phase. A fixture
+    set up before these moments existed has no look for them and shows its idle look during the countdown;
+    give it looks on the Lighting page.
 - **Colours.**
   - The choices are `#rrggbb`, `alliance`, `winner` and `off`, with at most two per look.
   - `alliance` is the alliance of the LEDs the look is drawn on: the segment's, else the fixture's. It is white

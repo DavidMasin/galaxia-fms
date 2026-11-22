@@ -100,6 +100,20 @@ match:
   ds_game_data: "field.gate_open ? 'G' : ''"
 ```
 
+- `countdown` is what is counted between Start being pressed and the match starting. Robots are enabled at
+  the end of it, never before.
+  - `enabled: false`, or leaving it out, starts matches the moment Start is pressed.
+  - `beats` (3 if not given) is how many are counted, one a second, before the start.
+  - `voice` names the line spoken, and shown, before the first beat: a sound of
+    `static/audio/countdown/countdown.json`, and its `intro` if it has none of that name. Leave it out for a
+    count with nothing said first.
+  - `quick_beats` (1 if not given) is the count of the quick countdown, which an event can choose on Setup →
+    Settings and which has nothing said first.
+
+  From Start to the match is 0.4 s, then 2.6 s for the line or 0.4 s without one, then a second for each beat:
+  6.0 s for three beats after a line. An abort or an emergency stop during the countdown calls the start off.
+  The start itself has a sound of its own, so a first phase whose `at: start` cue also plays one is heard
+  together with it.
 - Any number of phases in any order. A `disabled` phase is a pause.
 - A cue fires at `at: start`, `at: end`, `remaining: <seconds>` or `elapsed: <seconds>`. It can play a `sound`.
   Give it an `id` to let triggers and device outputs react to it.

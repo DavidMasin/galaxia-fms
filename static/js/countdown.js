@@ -13,6 +13,10 @@
 //
 // Sounds are scheduled on the Web Audio clock, mapped to the page's clock with getOutputTimestamp(), so they are
 // timed by the audio hardware rather than by when JavaScript happens to run.
+//
+// The numerals are drawn once each, glow and all, into bitmaps of their own (see sprite), and from then on are only
+// moved, scaled and faded. Live text with a glow is drawn afresh by the browser whenever it changes or changes size,
+// which on "GO!" took a fifth of a second: the one moment that must not stutter.
 
 const GalaxiaCountdown = (function () {
   const BEAT_MS = 1000;
@@ -20,6 +24,14 @@ const GalaxiaCountdown = (function () {
   const GO_HOLD_MS = 650;       // How long "GO!" holds before resolving.
   const RESOLVE_MS = 650;       // How long it takes to resolve into the match timer.
   const PARTICLES = 260;
+  const GO_TEXT = "GO!";
+  const NUMERAL_FONT = "\"FuturaLTBold\", \"Futura\", \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif";
+  // Sizes of the numerals, in units (hundredths of the shorter side of the container).
+  const NUMERAL_SIZE = 40;
+  const NUMERAL_PADDING = 10;   // Room around a numeral for its glow.
+  const GLOW_NEAR = 2;
+  const GLOW_FAR = 7;
+  const GHOST_BLUR = 0.7;
 
   const clamp01 = function (t) {
     return t < 0 ? 0 : t > 1 ? 1 : t;
@@ -171,6 +183,10 @@ const GalaxiaCountdown = (function () {
     this.frozenAt = null;
     this.lastFrame = 0;
     this.lite = this.options.lite === true;
+    this.sprites = {};
+    this.spriteKey = "";
+    this.shownSprite = null;
+    this.fontReady = false;
     this.build();
     const that = this;
     this.resizeObserver = new ResizeObserver(function () {
@@ -190,9 +206,7 @@ const GalaxiaCountdown = (function () {
       "  <div class='gc-panel gc-panel-right'></div>" +
       "  <canvas class='gc-canvas'></canvas>" +
       "  <div class='gc-title'></div>" +
-      "  <div class='gc-numeral-wrap'>" +
-      "    <div class='gc-ghost'></div><div class='gc-ghost'></div><div class='gc-numeral'></div>" +
-      "  </div>" +
+      "  <div class='gc-numeral-wrap'></div>" +
       "</div>" +
       "<div class='gc-flash'></div>";
     this.container.appendChild(root);
@@ -204,9 +218,141 @@ const GalaxiaCountdown = (function () {
     this.canvas = root.querySelector(".gc-canvas");
     this.context2d = this.canvas.getContext("2d");
     this.title = root.querySelector(".gc-title");
-    this.numeral = root.querySelector(".gc-numeral");
-    this.ghosts = root.querySelectorAll(".gc-ghost");
+    this.numeralWrap = root.querySelector(".gc-numeral-wrap");
     this.flash = root.querySelector(".gc-flash");
+
+    // The numerals are drawn in the page's own typeface, which has to have arrived before they can be.
+    const that = this;
+    const fontsLoaded = document.fonts && document.fonts.load ?
+      document.fonts.load("10px " + NUMERAL_FONT).catch(function () {
+      }) : Promise.resolve();
+    this.fontLoaded = fontsLoaded.then(function () {
+      that.fontReady = true;
+    });
+  };
+
+  // Draws the numerals a countdown of the given number of beats will show, ahead of time, so that nothing is left
+  // to draw when it is armed. colors are the two alliance colours, whose mix the glow takes. A display calls this
+  // when it learns the game; a countdown armed without it draws them then.
+  Countdown.prototype.prepare = function (beats, colors) {
+    const that = this;
+    return this.fontLoaded.then(function () {
+      that.prepareSprites(beats, rgba(that.mixOf((colors || ["#d32f2f", "#1565c0"]).map(parseColor)), 0.55));
+    });
+  };
+
+  // Plays a whole countdown once where nobody can see or hear it. The first time a browser draws something it has
+  // work to do that it does not have the second time (compiling the graphics card's programs, sending pictures to
+  // it, deciding how to draw the canvas), and a display's first countdown would stutter on its first beat for it. A
+  // display calls this once it has prepared; a countdown that is armed meanwhile takes over.
+  Countdown.prototype.warm = function (beats, colors) {
+    if (this.spec !== null) {
+      return;
+    }
+    const root = this.root;
+    const spec = {
+      goAt: this.serverNow() + beats * BEAT_MS + INTRO_LEAD_MS + 100, beats: beats, audio: false,
+      onDone: function () {
+        root.style.opacity = "1";
+      },
+    };
+    if (colors) {
+      spec.colors = colors;
+    }
+    this.arm(spec);
+    root.style.opacity = "0.004";
+  };
+
+  Countdown.prototype.prepareSprites = function (beats, glow) {
+    const key = [this.unit, this.pixelRatio, glow, this.lite, this.fontReady].join("|");
+    if (key !== this.spriteKey) {
+      // Drawn for another size of screen, or another glow: all of them go.
+      this.numeralWrap.innerHTML = "";
+      this.sprites = {};
+      this.shownSprite = null;
+      this.spriteKey = key;
+    }
+    const texts = [GO_TEXT];
+    for (let beat = 1; beat <= beats; beat++) {
+      texts.push(String(beat));
+    }
+    const that = this;
+    texts.forEach(function (text) {
+      if (!that.sprites[text]) {
+        that.sprites[text] = that.sprite(text, glow);
+      }
+    });
+  };
+
+  // Draws one numeral into bitmaps: the numeral with its glow, and, unless the light renderer is in use, two copies
+  // of a soft one that trail behind it as it slams in, standing in for motion blur.
+  Countdown.prototype.sprite = function (text, glow) {
+    const unit = this.unit;
+    const ratio = this.pixelRatio;
+    const size = NUMERAL_SIZE * unit;
+    const padding = NUMERAL_PADDING * unit;
+    const font = size * ratio + "px " + NUMERAL_FONT;
+
+    const measure = document.createElement("canvas").getContext("2d");
+    measure.font = font;
+    const metrics = measure.measureText(text);
+    const width = Math.ceil(metrics.width / ratio + 2 * padding);
+    const height = Math.ceil(size + 2 * padding);
+    // Where CSS would put the baseline of a line as tall as its type: the type's own height, centred in the line.
+    const ascent = metrics.fontBoundingBoxAscent || 0.8 * size * ratio;
+    const descent = metrics.fontBoundingBoxDescent || 0.2 * size * ratio;
+    const baseline = padding * ratio + (size * ratio - (ascent + descent)) / 2 + ascent;
+
+    const make = function (scale, className, draw) {
+      const canvas = document.createElement("canvas");
+      canvas.className = className;
+      canvas.width = Math.round(width * ratio * scale);
+      canvas.height = Math.round(height * ratio * scale);
+      canvas.style.width = width + "px";
+      canvas.style.height = height + "px";
+      const ctx = canvas.getContext("2d");
+      ctx.scale(scale, scale);
+      ctx.font = font;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "alphabetic";
+      draw(ctx);
+      return canvas;
+    };
+    const write = function (ctx) {
+      ctx.fillText(text, width * ratio / 2, baseline);
+    };
+
+    const main = make(1, "gc-numeral", function (ctx) {
+      ctx.fillStyle = "#ffffff";
+      ctx.shadowColor = glow;
+      ctx.shadowBlur = GLOW_FAR * unit * ratio;
+      write(ctx);
+      ctx.shadowColor = "rgba(255,255,255,0.75)";
+      ctx.shadowBlur = GLOW_NEAR * unit * ratio;
+      write(ctx);
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      write(ctx);
+    });
+    const ghosts = [];
+    if (!this.lite) {
+      // Soft already, so half the resolution is plenty; both copies are the same picture.
+      const soft = make(0.5, "gc-ghost", function (ctx) {
+        ctx.filter = "blur(" + GHOST_BLUR * unit * ratio + "px)";
+        ctx.fillStyle = "rgba(255,255,255,0.55)";
+        write(ctx);
+      });
+      const copy = make(0.5, "gc-ghost", function (ctx) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(soft, 0, 0);
+      });
+      ghosts.push(soft, copy);
+    }
+    const that = this;
+    ghosts.concat([main]).forEach(function (canvas) {
+      that.numeralWrap.appendChild(canvas);
+    });
+    return {main: main, ghosts: ghosts};
   };
 
   Countdown.prototype.resize = function () {
@@ -219,6 +365,10 @@ const GalaxiaCountdown = (function () {
     this.pixelRatio = ratio;
     this.canvas.width = Math.round(this.width * ratio);
     this.canvas.height = Math.round(this.height * ratio);
+    if (this.spec) {
+      // The numerals of the countdown that is running were drawn for another size.
+      this.prepareSprites(this.spec.beats, rgba(this.mixOf(this.colors), 0.55));
+    }
   };
 
   Countdown.prototype.preloadAudio = function (baseUrl) {
@@ -235,13 +385,15 @@ const GalaxiaCountdown = (function () {
     return serverMs - (this.spec.clockOffsetMs || 0) - performance.timeOrigin;
   };
 
-  // Starts the countdown. spec: {goAt, beats (default 3), intro (default true), clockOffsetMs (server minus local,
-  // default 0), colors: [first alliance, second alliance], title, subtitle, audio (play sound on this display),
-  // audioLatencyMs, resolveTarget (an element the "GO!" shrinks into), onGo, onDone}.
+  // Starts the countdown. spec: {goAt, beats (default 3), intro (default true), voice (which line is spoken before
+  // the first beat: a sound of countdown.json, "intro" if it has none of that name), clockOffsetMs (server minus
+  // local, default 0), colors: [first alliance, second alliance], title, subtitle, audio (play sound on this
+  // display), audioLatencyMs, resolveTarget (an element the "GO!" shrinks into), onGo, onDone}.
   Countdown.prototype.arm = function (spec) {
     this.cancel(true);
     this.spec = Object.assign({
-      beats: 3, intro: true, clockOffsetMs: 0, colors: ["#d32f2f", "#1565c0"], title: "DRIVERS BEHIND THE LINES",
+      beats: 3, intro: true, voice: "", clockOffsetMs: 0, colors: ["#d32f2f", "#1565c0"],
+      title: "DRIVERS BEHIND THE LINES",
       subtitle: "", audio: false, audioLatencyMs: 0, resolveTarget: null, onGo: null, onDone: null,
     }, spec);
     const spec_ = this.spec;
@@ -250,7 +402,16 @@ const GalaxiaCountdown = (function () {
     this.root.style.setProperty("--gc-b", spec_.colors[1]);
     this.root.style.setProperty("--gc-a-clear", rgba(this.colors[0], 0));
     this.root.style.setProperty("--gc-b-clear", rgba(this.colors[1], 0));
-    this.root.style.setProperty("--gc-glow", rgba(this.mixedGlow(), 0.55));
+    this.prepareSprites(spec_.beats, rgba(this.mixOf(this.colors), 0.55));
+    if (!this.fontReady) {
+      // Armed before the typeface arrived: the numerals are drawn again in it as soon as it does.
+      const that = this;
+      this.fontLoaded.then(function () {
+        if (that.spec === spec_) {
+          that.prepareSprites(spec_.beats, rgba(that.mixOf(that.colors), 0.55));
+        }
+      });
+    }
     this.title.innerHTML = "";
     this.title.appendChild(document.createTextNode(spec_.title));
     if (spec_.subtitle) {
@@ -270,6 +431,7 @@ const GalaxiaCountdown = (function () {
     this.lastFrame = 0;
     this.makeParticles();
     this.root.style.opacity = "1";
+    // A mark for whoever inspects the page; nothing is styled by it.
     this.root.classList.add("gc-active");
 
     if (spec_.audio) {
@@ -277,7 +439,7 @@ const GalaxiaCountdown = (function () {
       const goPerformance = this.toPerformance(spec_.goAt);
       const latency = spec_.audioLatencyMs;
       if (spec_.intro) {
-        this.audio.play("intro", goPerformance + this.introAt, latency);
+        this.audio.play(this.audio.buffers[spec_.voice] ? spec_.voice : "intro", goPerformance + this.introAt, latency);
       }
       for (let i = 0; i < spec_.beats; i++) {
         const number = String(spec_.beats - i);
@@ -317,11 +479,29 @@ const GalaxiaCountdown = (function () {
     cancelAnimationFrame(this.frameHandle);
     this.frameHandle = 0;
     this.root.classList.remove("gc-active");
+    this.clear();
     const done = this.spec && this.spec.onDone;
     this.spec = null;
     if (done) {
       done();
     }
+  };
+
+  // Leaves nothing on screen. The countdown's layers stay where they are, faded out.
+  Countdown.prototype.clear = function () {
+    if (this.shownSprite !== null) {
+      this.shownSprite.main.style.opacity = "0";
+      this.shownSprite.ghosts.forEach(function (ghost) {
+        ghost.style.opacity = "0";
+      });
+      this.shownSprite = null;
+    }
+    [this.dim, this.leftPanel, this.rightPanel, this.title, this.flash].forEach(function (element) {
+      element.style.opacity = "0";
+    });
+    this.stage.style.transform = "";
+    this.context2d.setTransform(1, 0, 0, 1, 0, 0);
+    this.context2d.clearRect(0, 0, this.canvas.width, this.canvas.height);
   };
 
   Countdown.prototype.isActive = function () {
@@ -356,9 +536,10 @@ const GalaxiaCountdown = (function () {
     };
   };
 
-  Countdown.prototype.mixedGlow = function () {
-    const a = this.colors[0];
-    const b = this.colors[1];
+  // The colour halfway between two, which the numerals glow in.
+  Countdown.prototype.mixOf = function (colors) {
+    const a = colors[0];
+    const b = colors[1];
     return [Math.round((a[0] + b[0]) / 2), Math.round((a[1] + b[1]) / 2), Math.round((a[2] + b[2]) / 2)];
   };
 
@@ -392,6 +573,8 @@ const GalaxiaCountdown = (function () {
       this.lite = true;
       this.root.classList.add("gc-lite");
       this.resize();
+      // The numerals are drawn again without their trailing copies, at the resolution of the light renderer.
+      this.prepareSprites(this.spec.beats, rgba(this.mixOf(this.colors), 0.55));
     }
   };
 
@@ -538,7 +721,7 @@ const GalaxiaCountdown = (function () {
       opacity = Math.min(1, local / 60) * (1 - exit);
       trail = 1 - slam;
     } else if (t >= 0) {
-      text = "GO!";
+      text = GO_TEXT;
       const slam = ease.outBack(progress(t, 0, 230));
       scale = 3.2 - 2.2 * slam;
       opacity = Math.min(1, t / 40);
@@ -557,22 +740,34 @@ const GalaxiaCountdown = (function () {
         opacity *= 1 - ease.inCubic(resolveProgress);
       }
     }
-    if (this.numeral.textContent !== text) {
-      this.numeral.textContent = text;
-      for (let i = 0; i < this.ghosts.length; i++) {
-        this.ghosts[i].textContent = text;
+    // Which numeral is showing; the one before it is put away.
+    const sprite = text === "" ? null : this.sprites[text] || null;
+    if (sprite !== this.shownSprite) {
+      if (this.shownSprite !== null) {
+        this.shownSprite.main.style.opacity = "0";
+        this.shownSprite.ghosts.forEach(function (ghost) {
+          ghost.style.opacity = "0";
+        });
       }
+      this.shownSprite = sprite;
+      this.shownText = text;
+    }
+    if (sprite === null) {
+      return;
     }
     const base = "translate(-50%,-50%) translate3d(" + translateX + "px," + translateY + "px,0) ";
-    this.numeral.style.transform = base + "scale(" + scale + ")";
-    this.numeral.style.opacity = String(opacity);
-    if (!this.lite) {
-      for (let i = 0; i < this.ghosts.length; i++) {
-        const lag = (i + 1) * 0.35 * trail;
-        this.ghosts[i].style.transform = base + "scale(" + scale * (1 + lag) + ")";
-        this.ghosts[i].style.opacity = String(opacity * trail * (0.45 - 0.15 * i));
-      }
+    sprite.main.style.transform = base + "scale(" + scale + ")";
+    sprite.main.style.opacity = String(opacity);
+    for (let i = 0; i < sprite.ghosts.length; i++) {
+      const lag = (i + 1) * 0.35 * trail;
+      sprite.ghosts[i].style.transform = base + "scale(" + scale * (1 + lag) + ")";
+      sprite.ghosts[i].style.opacity = String(opacity * trail * (0.45 - 0.15 * i));
     }
+  };
+
+  // The numeral on screen: "3", "2", "1", "GO!", or nothing. For a display's diagnostics and for tests.
+  Countdown.prototype.showing = function () {
+    return this.shownSprite === null ? "" : this.shownText;
   };
 
   // Where the "GO!" shrinks to: the centre of the match timer, relative to the centre of the countdown.
@@ -586,7 +781,7 @@ const GalaxiaCountdown = (function () {
     if (rect.width === 0 || rect.height === 0) {
       return null;
     }
-    const numeralHeight = this.unit * 40;
+    const numeralHeight = this.unit * NUMERAL_SIZE;
     return {
       x: rect.left + rect.width / 2 - container.left,
       y: rect.top + rect.height / 2 - container.top,

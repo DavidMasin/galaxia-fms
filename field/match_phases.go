@@ -66,7 +66,7 @@ func (arena *Arena) inAutoPhase() bool {
 // prepare its autonomous routine.
 func (arena *Arena) robotMode() (auto, enabled bool) {
 	switch arena.MatchState {
-	case PreMatch, StartMatch:
+	case PreMatch, Countdown:
 		phases := arena.Game.Match.Phases
 		return len(phases) > 0 && phases[0].Robots == gamedef.RobotsAuto, false
 	case InMatch:
@@ -84,7 +84,7 @@ func (arena *Arena) modeRemainingSec() float64 {
 	phases := arena.Game.Match.Phases
 	index, elapsed := 0, 0.0
 	switch arena.MatchState {
-	case PreMatch, StartMatch:
+	case PreMatch, Countdown:
 	case InMatch:
 		index, elapsed = arena.PhaseIndex, arena.PhaseTimeSec()
 	default:
@@ -179,17 +179,24 @@ func (arena *Arena) clock() scoring.Clock {
 		}
 	case TimeoutActive, PostTimeout:
 		return scoring.Clock{State: "timeout", MatchRemaining: arena.Game.Duration()}
+	case Countdown:
+		if arena.countdown.beats > 0 {
+			return scoring.Clock{State: "countdown", MatchRemaining: arena.Game.Duration()}
+		}
 	}
 	return scoring.Clock{State: "idle", MatchRemaining: arena.Game.Duration()}
 }
 
-// beginMatch starts the clock and enters the first phase.
-func (arena *Arena) beginMatch() {
-	arena.MatchStartTime = time.Now()
+// beginMatch starts the clock at the given moment, which is now or a moment ago, and enters the first phase.
+func (arena *Arena) beginMatch(startTime time.Time) {
+	arena.MatchStartTime = startTime
 	arena.LastMatchTimeSec = -1
 	arena.MatchState = InMatch
 	arena.matchAborted = false
-	arena.Bus.Publish("match.started", map[string]any{"time": arena.MatchStartTime.UTC()})
+	// lateMs is how long after its moment the match started: the time the arena loop took to get to it.
+	arena.matchStartedLate = time.Since(startTime)
+	lateMs := float64(arena.matchStartedLate.Microseconds()) / 1000
+	arena.Bus.Publish("match.started", map[string]any{"time": arena.MatchStartTime.UTC(), "lateMs": lateMs})
 	arena.recordDeviceEvent(device.EventMatchStart)
 	arena.enterPhase(0)
 }

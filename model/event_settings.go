@@ -13,6 +13,13 @@ import (
 // DefaultGameId is the game a new event starts with.
 const DefaultGameId = "rebuilt-style"
 
+// What an event does with the countdown its game describes: play it, play the short one, or start matches at once.
+const (
+	CountdownGame  = ""
+	CountdownQuick = "quick"
+	CountdownOff   = "off"
+)
+
 // The ports field devices reach the MQTT broker on, unless the settings say otherwise.
 const (
 	DefaultDeviceMqttPort   = 1883
@@ -124,6 +131,7 @@ type EventSettings struct {
 	DeviceMqttPort                   int                // TCP port of the device MQTT broker; 0 turns it off.
 	DeviceMqttWsPort                 int                // Port of MQTT over WebSocket for devices; 0 turns it off.
 	DeviceSerialPorts                string             // Ports devices are plugged into, comma-separated.
+	CountdownMode                    string             // CountdownGame, CountdownQuick or CountdownOff.
 }
 
 // SerialPorts returns the serial ports field devices are plugged into, which the FMS keeps open: none unless some

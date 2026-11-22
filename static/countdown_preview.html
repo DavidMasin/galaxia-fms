@@ -52,7 +52,9 @@ display. It is a static page, so it also works with nothing but a file server.
       <label>Colours <input type="color" id="colorA" value="#d32f2f"><input type="color" id="colorB" value="#1565c0"></label>
       <label>Audio latency <input type="number" id="latency" value="0" step="10"> ms</label>
     </div>
-    <div id="report">Press "Play countdown". Sound needs one click on this page first (a browser rule).</div>
+    <div id="report">Press "Play countdown". Sound needs one click on this page first (a browser rule).
+The first play after the page loads includes work a browser does only once, which a display
+does out of sight when it loads: play twice and read the numbers of the second.</div>
     <script src="/static/js/countdown.js"></script>
     <script>
       let countdown = null;

@@ -238,7 +238,7 @@ func TestSettingsSaveAllowed(t *testing.T) {
 		allowed    bool
 	}{
 		{field.PreMatch, true},
-		{field.StartMatch, false},
+		{field.Countdown, false},
 		{field.InMatch, false},
 		{field.PostMatch, false},
 		{field.TimeoutActive, true},
@@ -315,6 +315,48 @@ func TestSetupSettingsDeviceMqttPorts(t *testing.T) {
 	recorder = web.getHttpResponse("/setup/settings")
 	assert.Contains(t, recorder.Body.String(), `name="deviceMqttPort"`)
 	assert.Contains(t, recorder.Body.String(), `value="11883"`)
+}
+
+func TestSetupSettingsCountdown(t *testing.T) {
+	web := setupTestWeb(t)
+	assert.Equal(t, model.CountdownOff, web.arena.EventSettings.CountdownMode, "the test arena does without")
+
+	// A form without the field leaves the countdown as it is.
+	recorder := web.postHttpResponse("/setup/settings", "name=Countdown Event")
+	assert.Equal(t, 303, recorder.Code)
+	assert.Equal(t, model.CountdownOff, web.arena.EventSettings.CountdownMode)
+
+	recorder = web.postHttpResponse("/setup/settings", "countdownMode=quick")
+	assert.Equal(t, 303, recorder.Code)
+	assert.Equal(t, model.CountdownQuick, web.arena.EventSettings.CountdownMode)
+	recorder = web.getHttpResponse("/setup/settings")
+	assert.Contains(t, recorder.Body.String(), `<option value="quick" selected>`)
+	assert.Contains(
+		t, recorder.Body.String(),
+		"This game counts 3 beats after a spoken line before a match starts. Its quick countdown is one beat.",
+	)
+	assert.Contains(t, recorder.Body.String(), "/static/countdown_preview.html")
+
+	recorder = web.postHttpResponse("/setup/settings", "countdownMode=")
+	assert.Equal(t, 303, recorder.Code)
+	assert.Equal(t, model.CountdownGame, web.arena.EventSettings.CountdownMode)
+	settings, err := web.arena.Database.GetEventSettings()
+	assert.Nil(t, err)
+	assert.Equal(t, model.CountdownGame, settings.CountdownMode)
+
+	recorder = web.postHttpResponse("/setup/settings", "countdownMode=slow")
+	assert.Equal(t, 200, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "The countdown is played as the game says, quick, or not at all.")
+	assert.Equal(t, model.CountdownGame, web.arena.EventSettings.CountdownMode)
+
+	g := web.arena.Games.Get("ball-count")
+	g.Match.Countdown.Voice = ""
+	g.Match.Countdown.Beats = 1
+	assert.Equal(
+		t, "This game counts one beat before a match starts. Its quick countdown is one beat.", describeCountdown(g),
+	)
+	g.Match.Countdown.Enabled = false
+	assert.Equal(t, "This game starts its matches without a countdown.", describeCountdown(g))
 }
 
 func TestSetupSettingsFieldProfile(t *testing.T) {

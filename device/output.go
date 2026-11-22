@@ -25,8 +25,12 @@ type Snapshot struct {
 	FieldReset bool
 	Volunteers bool
 	// Events are the match events since the last snapshot: match.start, match.end, match.abort, phase.<id>.start,
-	// phase.<id>.end, cue.<id>, score.posted.
+	// phase.<id>.end, cue.<id>, score.posted, and countdown.start, countdown.beat, countdown.go and
+	// countdown.cancel.
 	Events []string
+	// While the clock's state is countdown: when the match starts, and how many beats are counted before it.
+	CountdownGoAt  time.Time
+	CountdownBeats int
 }
 
 // StationState is what output expressions see of a driver station, under stations.<id>.
@@ -54,6 +58,12 @@ func (s *Snapshot) fieldState() *FieldState {
 		State: s.Clock.State, Phase: s.Clock.Phase,
 		PhaseRemaining: round1(math.Max(0, s.Clock.PhaseDuration-s.Clock.PhaseElapsed)),
 		MatchRemaining: round1(s.Clock.MatchRemaining), Scores: make(map[string]float64, len(s.Scores)),
+	}
+	if s.Clock.State == "countdown" && !s.CountdownGoAt.IsZero() {
+		state.T0 = s.CountdownGoAt.UnixMilli()
+		for beat := s.CountdownBeats; beat >= 0; beat-- {
+			state.Beats = append(state.Beats, -1000*int64(beat))
+		}
 	}
 	for id, score := range s.Scores {
 		state.Scores[id] = score

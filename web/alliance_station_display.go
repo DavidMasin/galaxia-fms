@@ -13,7 +13,7 @@ import (
 
 // Renders the team number and status display shown above each alliance station.
 func (web *Web) allianceStationDisplayHandler(w http.ResponseWriter, r *http.Request) {
-	if !web.enforceDisplayConfiguration(w, r, map[string]string{"station": "R1"}) {
+	if !web.enforceDisplayConfiguration(w, r, map[string]string{"countdown": "full", "station": "R1"}) {
 		return
 	}
 
@@ -55,6 +55,7 @@ func (web *Web) allianceStationDisplayWebsocketHandler(w http.ResponseWriter, r 
 		web.arena.GameNotifier,
 		web.arena.AllianceStationDisplayModeNotifier,
 		web.arena.ArenaStatusNotifier,
+		web.arena.CountdownNotifier,
 		web.arena.MatchLoadNotifier,
 		web.arena.MatchTimeNotifier,
 		web.arena.RealtimeScoreNotifier,

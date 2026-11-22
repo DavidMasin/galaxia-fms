@@ -358,7 +358,7 @@
       let clock = null;
       translateMatchTime(data, function (matchState, matchStateText, countdownSec, phase) {
         const phaseName = phase === null ? "" : phase.name;
-        const robotsPhase = matchState === "START_MATCH" ? GameView.phaseAt(0) : phase;
+        const robotsPhase = matchState === "COUNTDOWN" ? GameView.phaseAt(0) : phase;
         clock = {
           state: matchState,
           stateText: matchStateText || "",

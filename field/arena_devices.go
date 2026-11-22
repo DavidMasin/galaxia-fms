@@ -162,6 +162,7 @@ func (arena *Arena) deviceSnapshot() *device.Snapshot {
 	return &device.Snapshot{
 		Time: time.Now(), Game: arena.Game, Clock: clock, Scores: scores, Stations: stations,
 		FieldReset: arena.FieldReset, Volunteers: arena.FieldVolunteers, Events: arena.takeDeviceEvents(),
+		CountdownGoAt: arena.countdown.goAt, CountdownBeats: arena.countdown.beats,
 		Eval: func(program *rules.Program, own string, extra map[string]any) (any, error) {
 			arena.scoreMutex.Lock()
 			defer arena.scoreMutex.Unlock()

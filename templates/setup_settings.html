@@ -266,6 +266,38 @@ UI for configuring event settings.
               </div>
               {{end}}
             </fieldset>
+            <fieldset class="mb-4">
+              <legend>Match start countdown</legend>
+              <p>Pressing Start begins a countdown on the audience and alliance station displays, on field devices
+                and on the lighting. The match starts, and the robots are enabled, at the end of the count.</p>
+              <div class="row mb-3">
+                <label class="col-lg-6 control-label" for="countdownMode">Countdown</label>
+                <div class="col-lg-6">
+                  <select class="form-select" id="countdownMode" name="countdownMode">
+                    <option value=""{{if eq .CountdownMode ""}} selected{{end}}>As the game says</option>
+                    <option value="quick"{{if eq .CountdownMode "quick"}} selected{{end}}>
+                      Quick: the game's quick countdown, with nothing said first
+                    </option>
+                    <option value="off"{{if eq .CountdownMode "off"}} selected{{end}}>
+                      Off: matches start the moment Start is pressed
+                    </option>
+                  </select>
+                </div>
+              </div>
+              {{range $game := .Games}}
+              <div class="game-details" data-game="{{$game.Id}}" style="display: none;">
+                {{if $game.Countdown}}<p class="form-text">{{$game.Countdown | html}}</p>{{end}}
+              </div>
+              {{end}}
+              <p class="form-text">
+                An abort or an emergency stop during the countdown calls the start off, and the match can be started
+                again. Sound plays on every audience display that has not been told otherwise: where several are
+                in one room, set <code>sound=false</code> on all but one on the
+                <a href="/setup/displays">Displays</a> page. To see and hear the countdown on a display, and to
+                measure how smoothly that display draws it, open the
+                <a href="/static/countdown_preview.html" target="_blank">countdown preview</a> on it.
+              </p>
+            </fieldset>
           </div>
           <div class="tab-pane" id="field" role="tabpanel">
             <fieldset class="mb-4">

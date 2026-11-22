@@ -135,6 +135,22 @@ $(function () {
   var urlParams = new URLSearchParams(window.location.search);
   station = urlParams.get("station");
 
+  // The drive teams see the countdown to the start of the match; the sound is the audience display's to play.
+  // The screen is dimmed behind it: this display turns white when the match starts, and the numerals are white.
+  CountdownDisplay.init({
+    container: document.getElementById("countdown"),
+    style: urlParams.get("countdown") || "full",
+    colors: function () {
+      const first = GameView.allianceAt(0);
+      const second = GameView.allianceAt(1);
+      return first === null || second === null ? null : [first.color, second.color];
+    },
+    // The timer is not on screen until the match starts, which is when the countdown looks for it.
+    resolveTarget: function () {
+      return document.getElementById("timeRemaining");
+    },
+  });
+
   // Draw the clock and the scores again when the game arrives or changes.
   GameView.onChange(function () {
     if (lastMatchTime !== null) {
@@ -152,6 +168,9 @@ $(function () {
     },
     arenaStatus: function (event) {
       handleArenaStatus(event.data);
+    },
+    countdown: function (event) {
+      CountdownDisplay.handle(event.data);
     },
     game: function (event) {
       handleGame(event.data);

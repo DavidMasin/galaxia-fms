@@ -55,7 +55,7 @@ Nothing outside `games/` may name a scoring element, phase or rule of a particul
 | Value | Name | Meaning |
 |-------|------|---------|
 | 0 | `PreMatch` | A match is loaded and has not started |
-| 1 | `StartMatch` | Transitional: set by `StartMatch()`, consumed by the next `Update()` |
+| 1 | `Countdown` | Start was pressed and the match begins at a moment already fixed; see [The countdown](#the-countdown-m9). A match without a countdown passes through in one pass of the loop |
 | 2 | `InMatch` | A phase is running; see `Arena.PhaseIndex` |
 | 3 | `PostMatch` | The match ended or was aborted; scores are pending |
 | 4 | `TimeoutActive` | A timeout or break is counting down |
@@ -66,7 +66,8 @@ Nothing outside `games/` may name a scoring element, phase or rule of a particul
   the match started while it is running, and seconds since the timeout started during `TimeoutActive` and
   `PostTimeout`; it is zero in every other state. `Arena.PhaseTimeSec()` is seconds into the current phase.
 - Robots are enabled when the phase's `robots` is `auto` or `teleop`, and told they are in autonomous when it
-  is `auto`. Before the match they are held disabled in the mode of the first phase. Station E-stop, A-stop
+  is `auto`. Before the match and during the countdown they are held disabled in the mode of the first phase.
+  Station E-stop, A-stop
   (autonomous phases only) and bypass mask the enable as before. An E-stop stays latched for as long as the
   state is `InMatch`.
 - On entering a phase: fire its `at: start` cues, run `phase_start` triggers, publish `match.phase_changed`.
@@ -95,6 +96,64 @@ Nothing outside `games/` may name a scoring element, phase or rule of a particul
 
 Timeouts, test matches, field reset and volunteer signals, bypass, and the pre-start checks are unchanged
 from Cheesy Arena. `Arena.TimeoutDurationSec` is the length of the timeout in progress.
+
+## The countdown (M9)
+
+Pressing Start does not start the match. `Arena.StartMatch()` checks that the match may start, then
+`startCountdown` (`field/countdown.go`) fixes the moment it will start and enters `Countdown`. Everything on the
+field is told that moment at once and counts down to it on its own clock, so the last beat lands for everyone at
+the same instant however long the news took to arrive.
+
+- **What is counted** comes from the game's `match.countdown` and the event's `CountdownMode` setting
+  (`model.CountdownGame`, `CountdownQuick`, `CountdownOff`; Setup → Settings → Game).
+
+  | | Beats | Line spoken first | From Start to the match |
+  |---|-------|-------------------|-------------------------|
+  | As the game says | `beats` | if it names a `voice` | 0.4 s + 2.6 s + one second a beat (6.0 s for three) |
+  | Without a `voice` | `beats` | no | 0.4 s + 0.4 s + one second a beat |
+  | Quick | `quick_beats` | no | 0.4 s + 0.4 s + one second a beat (1.8 s for one) |
+  | Off, or a game with `enabled: false` | none | no | the loop's next pass, as before |
+
+  The first 0.4 s is notice: time for the news to reach every display and device before anything is due.
+- **At the start of the countdown** the arena does what belongs to "nobody on the field any more": the audience
+  and alliance station displays go to the match screen, the PLC's match outputs are reset, field reset and
+  volunteers are cleared, and Blackmagic recording starts. `Match.StartedAt` is set to the moment the match will
+  start. The bus gets one `match.countdown` event, devices get `countdown.start`, and browsers the
+  [`countdown`](#countdown) message.
+- **During it** the loop fires a `countdown.beat` device event as each beat comes due. Robots stay disabled.
+  The match cannot be loaded, reset or started again; the live expressions' `match_state` is `countdown`.
+- **At its moment** the loop starts the match. `Arena.passDelay` shortens the loop's sleep so that a pass runs at
+  that moment rather than up to 10 ms after it. In that pass, in order: `beginMatch` (the clock is set to the
+  moment that was announced, not to when the loop got there), the driver station packet that enables the robots,
+  and only then the bookkeeping that touches files (`openMatchRecords`: cycle time, team logs, Nexus). So
+  robots are never enabled before the moment, and nothing slow stands between it and the packet.
+  `match.started` carries `lateMs`, how long after its moment the match started; more than 20 ms is logged.
+- **Calling it off.** `AbortMatch()` during the countdown, a field stop from the PLC or a device, or a team's
+  E-stop puts the arena back in `PreMatch` (`cancelCountdown`): `match.countdown_cancelled` with the reason,
+  the `countdown.cancel` device event, the abort sound, `Match.StartedAt` put back, recording stopped. Nothing
+  was played, so nothing is left to commit, and Start works again as soon as the stop is released.
+- **Browsers.** Three files in `static/js`:
+  - `clock_sync.js` (`GalaxiaClock`) measures how far the page's clock is from the server's. It asks
+    `GET /api/v1/time` six times at once and then every 5 s, and believes the answer with the shortest round
+    trip, whose error is at most half that trip. The route answers without the arena's lock
+    (`unlockedApiPaths`), since a wait for the lock would count as part of the trip.
+  - `countdown.js` (`GalaxiaCountdown`) draws. Every frame is a function of "milliseconds until the start" on
+    the server's clock, never of how many frames have passed, so displays agree and a dropped frame catches up.
+    Sound is scheduled on the Web Audio clock. The numerals are drawn once into bitmaps and then only moved,
+    scaled and faded, and the countdown's layers stay in place between countdowns; both are there because the
+    alternative held frames for a quarter of a second (see the milestone report for the measurements).
+  - `countdown_display.js` (`CountdownDisplay`) joins the two for a display: it arms the countdown when the
+    message says `armed`, stops it on `cancelled`, and also on `idle` if it is still counting down to a start
+    that has not come, which is how a display that was disconnected learns a start was called off. When the
+    game arrives it draws the numerals and plays one countdown invisibly, so that the first real one does not
+    pay for the browser's first-time work.
+- **Displays.** The audience display (`countdown=overlay|full|light|off`, `sound=true|false`,
+  `audioLatencyMs=<n>`) and the alliance station display (`countdown=`, no sound). `overlay` draws over whatever
+  is on screen and suits a keyed or transparent display, and is what the audience display starts with; `full`
+  dims the screen behind it, and is what the alliance station display starts with, because that display turns
+  white when the match starts; `light` leaves out the particles and trailing copies, and is also what a display
+  falls back to by itself when its first 30 frames run slow. `static/countdown_preview.html` plays the countdown
+  alone and reports frame times.
 
 ## Live score (M3b)
 
@@ -213,6 +272,19 @@ The old `matchTiming` message is gone: phase lengths are in the game view.
 `PhaseIndex` is -1 and `PhaseId` is empty outside `InMatch`. `TimeoutDurationSec` is the length of the timeout
 or break that is counting down (or of the last one); during `TimeoutActive`, `MatchTimeSec` counts up towards
 it. Sent once a second and on every state or phase change.
+
+### `countdown`
+
+```json
+{ "state": "armed", "goAt": 1794510003000, "beats": 3, "intro": true, "voice": "drivers_behind_lines",
+  "sound": true }
+```
+
+Sent to the audience and alliance station displays when a countdown starts, and `{"state":"cancelled"}` when it
+is called off. A display that connects gets the current one: `armed` during a countdown, otherwise
+`{"state":"idle"}`. `goAt` is the moment the match starts in UTC milliseconds on the server's clock, `intro`
+whether a line is spoken before the first beat and `voice` which, and `sound` is false when the match's sounds
+are muted. Nothing is sent at the start itself: every display already knows when it is.
 
 ### `realtimeScore`
 
@@ -403,7 +475,9 @@ screen.
 | Type | Data |
 |------|------|
 | `match.loaded` | `id`, `type`, `shortName`, `teams` (station id -> team number) |
-| `match.started` | `time` (UTC) |
+| `match.countdown` | `t0` (when the match starts, UTC milliseconds), `beats` (when each beat falls relative to it, in milliseconds, ending with 0), `intro`, `voice`. Not published for a match that starts without a countdown |
+| `match.countdown_cancelled` | `reason`, in words |
+| `match.started` | `time` (UTC), `lateMs` (how long after its moment the arena loop started the match) |
 | `match.phase_changed` | `phase`, `index`, `robots`, `duration` |
 | `match.cue` | `cue`, `sound`, `phase` |
 | `match.aborted`, `match.ended` | `matchTime` |
@@ -757,6 +831,10 @@ opens a port; `LoadSettings` applies the profile and restarts the broker if its 
 Package `lighting` drives the fixtures set on the Lighting page ([devices.md](devices.md#the-lighting-page)).
 - **Wiring.** `Arena.Lighting` (`field/arena_lighting.go`) hooks `OnOutputTick`. The arena supplies `FieldInfo`
   (field stop, teams ready, awards) on its goroutine, and the winner comes from the bus's `match.committed`.
+- **The countdown** reaches the engine as the snapshot's clock state `countdown` and the device events
+  `countdown.beat`, `countdown.go` and `countdown.cancel`, which it turns into the moments `countdown`,
+  `countdown_beat` and `countdown_go`. Output ticks come every 50 ms, so a beat reaches a fixture within that
+  of its moment; a device that needs to be closer reads `t0` from `field/state`.
 - **Compiling.** Configurations compile once per change of game, profile, configuration or manifest, in a
   background reload. The tick holds the outputs as they are until the reload is done.
 - **Locks.** `storeMu` (database writes and reloads, never taken by the tick), then `Engine.mu`. The manager is

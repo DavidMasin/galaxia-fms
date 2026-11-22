@@ -36,9 +36,10 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [t, iso]
+                required: [t, us, iso]
                 properties:
                   t: {type: integer, description: UTC milliseconds since 1970}
+                  us: {type: integer, description: The same moment in UTC microseconds since 1970}
                   iso: {type: string, format: date-time}
   /api/v1/health:
     get:
@@ -131,6 +132,13 @@ paths:
                   phaseTimeSec: {type: integer}
                   phaseRemainingSec: {type: integer}
                   timeoutDurationSec: {type: integer}
+                  countdown:
+                    type: object
+                    description: Present while the state is countdown and something is counted.
+                    required: [t0, beats]
+                    properties:
+                      t0: {type: integer, description: When the match starts, in UTC milliseconds since 1970}
+                      beats: {type: integer, description: How many beats are counted before it}
                   score:
                     type: object
                     description: The live score, in the shape of the realtimeScore message in docs/architecture.md
@@ -1014,7 +1022,10 @@ components:
               error: {type: string}
     MatchState:
       type: string
-      enum: [pre_match, starting, in_match, post_match, timeout, post_timeout, unknown]
+      description: >-
+        countdown is the time between Start being pressed and the match beginning; a match without a countdown
+        passes through it in a moment.
+      enum: [pre_match, countdown, in_match, post_match, timeout, post_timeout, unknown]
     MatchSummary:
       type: object
       required: [id, type, typeOrder, shortName, longName, status, teams]

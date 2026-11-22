@@ -81,7 +81,9 @@ body[data-mode=timeout] .mode#match {
 #preMatch, #inMatch {
   display: none;
 }
-#match[data-state=PRE_MATCH] #preMatch, #match[data-state=POST_MATCH] #preMatch {
+/* The team stays on the screen through the countdown, behind it, until the match starts. */
+#match[data-state=PRE_MATCH] #preMatch, #match[data-state=COUNTDOWN] #preMatch,
+#match[data-state=POST_MATCH] #preMatch {
   display: block;
 }
 #match[data-state=IN_MATCH] #inMatch, #match[data-state=TIMEOUT_ACTIVE] #inMatch,

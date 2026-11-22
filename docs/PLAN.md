@@ -922,6 +922,18 @@ publishes `match.countdown_cancelled` and returns to `Idle`.
   has an audio latency offset in its settings. Exactly one display is designated to play audio.
 - Devices get the same `t0` on `field/countdown` and the clock on `field/clock`.
 
+**As built (2026-11-22).** The countdown on the field is in; how it works is in
+[architecture.md](architecture.md#the-countdown-m9) and what was measured in
+[milestones/09-countdown.md](milestones/09-countdown.md). Differences from the text of this section:
+- The state is called `Countdown` in the code and `countdown` in the API, replacing the transitional `StartMatch`.
+- Displays measure their clock offset with `GET /api/v1/time`, not over their WebSocket: display sockets only
+  send, and a plain request is simpler to time. Six samples at once, then one every 5 s, keeping the fastest.
+- Devices are told the moment in `field/state` (`t0` and `beats` while the state is `countdown`), not on a topic
+  of its own, so there is nothing new to subscribe to.
+- A team's E-stop during the countdown calls the start off, as a field stop does.
+- Sound plays on every audience display unless that display is told `sound=false`; nothing enforces "exactly one".
+- The countdown is drawn with a 2D canvas and prepared bitmaps, not WebGL.
+
 **What "exactly" can mean.** The FMS sends the enable packet within about a millisecond of `t0`. The driver
 station then forwards it to the robot on its own 20 ms cycle, over Wi-Fi. So robots enable roughly 20 to
 60 ms after `t0`, the same as at an official event. It is never before `t0`.

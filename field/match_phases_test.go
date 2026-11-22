@@ -48,7 +48,7 @@ func TestArenaMatchFlow(t *testing.T) {
 	arena.AllianceStations["B2"].Bypass = true
 	arena.AllianceStations["B3"].DsConn.RobotLinked = true
 	assert.Nil(t, arena.StartMatch())
-	assert.Equal(t, StartMatch, arena.MatchState)
+	assert.Equal(t, Countdown, arena.MatchState)
 	arena.Update()
 	assert.Equal(t, InMatch, arena.MatchState)
 	assert.Equal(t, "auto", arena.CurrentPhase().ID)
@@ -145,7 +145,7 @@ func TestArenaStateEnforcement(t *testing.T) {
 	}
 	err = arena.StartMatch()
 	assert.Nil(t, err)
-	for _, state := range []MatchState{StartMatch, InMatch, PostMatch} {
+	for _, state := range []MatchState{Countdown, InMatch, PostMatch} {
 		arena.MatchState = state
 		err = arena.LoadMatch(new(model.Match))
 		if assert.NotNil(t, err) {
@@ -277,7 +277,9 @@ func TestMatchPhasesCuesAndEvents(t *testing.T) {
 	startTestMatch(t, arena)
 	received := expect(1, cue("", "match_start", "auto"), phaseChanged("auto", 0, "auto", 20))
 	assert.Equal(t, []string{"match.started", "match.cue", "match.phase_changed"}, eventTypes(received))
-	assert.Equal(t, map[string]any{"time": arena.MatchStartTime.UTC()}, received[0].Data)
+	started := received[0].Data.(map[string]any)
+	assert.Equal(t, arena.MatchStartTime.UTC(), started["time"])
+	assert.Less(t, started["lateMs"], 1000.0)
 	assert.Equal(t, "T", received[0].Match, "events carry the match they belong to")
 	assert.Equal(
 		t,
@@ -793,7 +795,7 @@ func TestSignalVolunteers(t *testing.T) {
 	defer events.Close()
 
 	// Test that SignalVolunteers only works in PreMatch and PostMatch states.
-	for _, state := range []MatchState{StartMatch, InMatch, PostTimeout} {
+	for _, state := range []MatchState{Countdown, InMatch, PostTimeout} {
 		arena.MatchState = state
 		arena.FieldVolunteers = false
 		arena.SignalVolunteers()
@@ -830,7 +832,7 @@ func TestSignalReset(t *testing.T) {
 	defer events.Close()
 
 	// Test that SignalReset only works in PreMatch and PostMatch states.
-	for _, state := range []MatchState{StartMatch, InMatch, PostTimeout} {
+	for _, state := range []MatchState{Countdown, InMatch, PostTimeout} {
 		arena.MatchState = state
 		arena.FieldReset = false
 		arena.FieldVolunteers = false

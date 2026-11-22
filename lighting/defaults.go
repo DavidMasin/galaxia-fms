@@ -14,12 +14,14 @@ const (
 	startingFieldResetColor = "#00ff00"
 	startingVolunteersColor = "#8000ff"
 	startingIdleColor       = white
+	startingBeatColor       = white
+	startingGoColor         = "#00ff00"
 )
 
 // StartingScenes returns the looks a new fixture starts with in a game, by moment, as docs/devices.md lists them:
-// the alliance colour while each phase runs, green on field reset, purple for volunteers, red blinking on E-stop,
-// orange blinking on a fault, and white at idle. A digital, relay or pwm fixture has no colours: it is on, or
-// blinks.
+// the alliance colour while each phase runs, off during the countdown with a white flash on each beat and green at
+// the start, green on field reset, purple for volunteers, red blinking on E-stop, orange blinking on a fault, and
+// white at idle. A digital, relay or pwm fixture has no colours: it is on, off, or blinks.
 func StartingScenes(game *gamedef.Game, fixture *Fixture) map[string]*Look {
 	look := func(pattern, color string) *Look {
 		if fixture.Kind != KindLEDStrip {
@@ -28,11 +30,14 @@ func StartingScenes(game *gamedef.Game, fixture *Fixture) map[string]*Look {
 		return &Look{P: pattern, C: []string{color}}
 	}
 	looks := map[string]*Look{
-		MomentEStop:      look(device.PatternBlink, startingEStopColor),
-		MomentFault:      look(device.PatternBlink, startingFaultColor),
-		MomentFieldReset: look(device.PatternSolid, startingFieldResetColor),
-		MomentVolunteers: look(device.PatternSolid, startingVolunteersColor),
-		MomentIdle:       look(device.PatternSolid, startingIdleColor),
+		MomentEStop:         look(device.PatternBlink, startingEStopColor),
+		MomentFault:         look(device.PatternBlink, startingFaultColor),
+		MomentCountdownGo:   look(device.PatternSolid, startingGoColor),
+		MomentCountdownBeat: look(device.PatternSolid, startingBeatColor),
+		MomentCountdown:     {P: device.PatternOff},
+		MomentFieldReset:    look(device.PatternSolid, startingFieldResetColor),
+		MomentVolunteers:    look(device.PatternSolid, startingVolunteersColor),
+		MomentIdle:          look(device.PatternSolid, startingIdleColor),
 	}
 	if game != nil {
 		for _, phase := range game.Match.Phases {

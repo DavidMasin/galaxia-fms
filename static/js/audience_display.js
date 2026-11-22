@@ -16,6 +16,7 @@ let redSide;
 let blueSide;
 let overlayCenteringHideParams;
 let overlayCenteringShowParams;
+let soundEnabled = true;
 
 // The last message of each kind, kept so that the display can be drawn again when the game arrives or changes.
 let lastMatchLoad = null;
@@ -169,6 +170,9 @@ const handleScorePosted = function (data) {
 
 // Handles a websocket message to play a sound to signal match start/stop/etc.
 const handlePlaySound = function (sound) {
+  if (!soundEnabled) {
+    return;
+  }
   $("audio").each(function (k, v) {
     // Stop and reset any sounds that are still playing.
     v.pause();
@@ -632,6 +636,26 @@ $(function () {
   redSide = sides.redSide;
   blueSide = sides.blueSide;
 
+  // The countdown to the start of a match covers the whole screen and ends in the match timer.
+  soundEnabled = urlParams.get("sound") !== "false";
+  CountdownDisplay.init({
+    container: document.getElementById("countdown"),
+    style: urlParams.get("countdown") || "overlay",
+    sound: soundEnabled,
+    audioLatencyMs: Number(urlParams.get("audioLatencyMs")) || 0,
+    colors: function () {
+      const first = GameView.allianceAt(0);
+      const second = GameView.allianceAt(1);
+      if (first === null || second === null) {
+        return null;
+      }
+      return redSide === "left" ? [first.color, second.color] : [second.color, first.color];
+    },
+    resolveTarget: function () {
+      return currentScreen === "match" || transitionInProgress ? document.getElementById("matchTime") : null;
+    },
+  });
+
   // Scale only the overlay, including its offsets so it slides fully offscreen at any zoom.
   const configuredZoomFactor = Number(urlParams.get("zoomFactor"));
   const zoomFactor = Number.isFinite(configuredZoomFactor) && configuredZoomFactor > 0 ? configuredZoomFactor : 1;
@@ -675,6 +699,9 @@ $(function () {
     },
     audienceDisplayMode: function (event) {
       handleAudienceDisplayMode(event.data);
+    },
+    countdown: function (event) {
+      CountdownDisplay.handle(event.data);
     },
     game: function (event) {
       handleGame(event.data);

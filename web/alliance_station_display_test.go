@@ -18,8 +18,9 @@ func TestAllianceStationDisplay(t *testing.T) {
 	assert.Equal(t, 302, recorder.Code)
 	assert.Contains(t, recorder.Header().Get("Location"), "displayId=100")
 	assert.Contains(t, recorder.Header().Get("Location"), "station=R1")
+	assert.Contains(t, recorder.Header().Get("Location"), "countdown=full")
 
-	recorder = web.getHttpResponse("/displays/alliance_station?displayId=1&station=B1")
+	recorder = web.getHttpResponse("/displays/alliance_station?displayId=1&station=B1&countdown=off")
 	assert.Equal(t, 200, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "Alliance Station Display - Untitled Event - Galaxia FMS")
 }
@@ -39,6 +40,7 @@ func TestAllianceStationDisplayWebsocket(t *testing.T) {
 	readWebsocketType(t, ws, "game")
 	readWebsocketType(t, ws, "allianceStationDisplayMode")
 	readWebsocketType(t, ws, "arenaStatus")
+	readWebsocketType(t, ws, "countdown")
 	readWebsocketType(t, ws, "matchLoad")
 	readWebsocketType(t, ws, "matchTime")
 	readWebsocketType(t, ws, "realtimeScore")

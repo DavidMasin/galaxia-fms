@@ -1,6 +1,7 @@
 package device
 
 import (
+	"encoding/json"
 	"github.com/DavidMasin/galaxia-fms/scoring"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -88,6 +89,75 @@ outputs:
 	assert.Nil(t, stack.Output("horn"))
 	_, kept := h.m.OutputsOf("stack")["horn"]
 	assert.False(t, kept)
+}
+
+// Outputs can pulse on the countdown to a match, and every device is told the moment it ends at.
+func TestCountdownEventsAndFieldState(t *testing.T) {
+	h := newHarness(t)
+	stack := h.connect("stack", output("buzzer", TypeRelay), output("horn", TypeRelay), output("lamp", TypeRelay))
+	h.bind(`
+outputs:
+  - { id: buzzer, device: stack, channel: buzzer, on: countdown.beat, pulse_ms: 100 }
+  - { id: horn, device: stack, channel: horn, on: countdown.go, pulse_ms: 500 }
+`)
+	countdown := func(events ...string) *Snapshot {
+		snapshot := h.snapshot("", 0, events...)
+		snapshot.Clock.State = "countdown"
+		snapshot.CountdownGoAt, snapshot.CountdownBeats = time.UnixMilli(1794510003000), 3
+		return snapshot
+	}
+
+	idle := h.snapshot("", 0)
+	h.m.UpdateOutputs(idle)
+	assert.Equal(t, &FieldState{State: "idle", MatchRemaining: h.game.Duration(), Scores: idle.Scores}, stack.Field())
+
+	started := countdown("countdown.start")
+	h.m.UpdateOutputs(started)
+	assert.Equal(
+		t,
+		&FieldState{
+			State: "countdown", MatchRemaining: h.game.Duration(), Scores: started.Scores, T0: 1794510003000,
+			Beats: []int64{-3000, -2000, -1000, 0},
+		},
+		stack.Field(),
+	)
+	encoded, err := json.Marshal(stack.Field())
+	require.Nil(t, err)
+	assert.Contains(t, string(encoded), `"t0":1794510003000,"beats":[-3000,-2000,-1000,0]`)
+	assert.Equal(t, v(0), stack.Output("buzzer"))
+
+	h.m.UpdateOutputs(countdown("countdown.beat"))
+	assert.Equal(t, v(1), stack.Output("buzzer"))
+	h.clock.Advance(100 * time.Millisecond)
+	h.m.UpdateOutputs(countdown())
+	assert.Equal(t, v(0), stack.Output("buzzer"))
+	assert.Equal(t, v(0), stack.Output("horn"))
+
+	h.m.UpdateOutputs(h.snapshot("auto", 0, "countdown.go", "match.start", "phase.auto.start"))
+	assert.Equal(t, v(1), stack.Output("horn"))
+	encoded, err = json.Marshal(stack.Field())
+	require.Nil(t, err)
+	assert.NotContains(t, string(encoded), "t0", "the moment of the start is only told while it is ahead")
+
+	// A countdown to another moment is news, even with nothing else changed.
+	h.m.UpdateOutputs(started)
+	again := countdown()
+	again.CountdownGoAt = time.UnixMilli(1794510009000)
+	h.m.UpdateOutputs(again)
+	assert.Equal(t, int64(1794510009000), stack.Field().T0)
+
+	// The start of the countdown and its being called off can be bound to as well; nothing else of it can.
+	set, err := ParseBindings([]byte(`
+outputs:
+  - { id: a, device: stack, channel: buzzer, on: countdown.start, pulse_ms: 100 }
+  - { id: b, device: stack, channel: horn, on: countdown.cancel, pulse_ms: 100 }
+  - { id: c, device: stack, channel: lamp, on: countdown.end, pulse_ms: 100 }
+`))
+	require.Nil(t, err)
+	problems := h.m.ValidateBindings(set)
+	if assert.Len(t, problems, 1, "%v", problems) {
+		assert.Contains(t, problems[0].Message, "countdown.end")
+	}
 }
 
 func TestStripAndDisplayOutputs(t *testing.T) {

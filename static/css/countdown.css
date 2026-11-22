@@ -13,12 +13,22 @@
   src: url("fonts/futura-lt.otf") format("opentype");
 }
 
+/* What a display gives the countdown to cover: the whole screen, above everything else on it. */
+.gc-host {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+/* The countdown is always there, with every part of it faded out until it runs. Switching its layers in when a
+   countdown is announced made the browser hold a frame for a quarter of a second or more on a page with much else
+   on it; keeping them costs the memory of the canvas, and nothing is drawn while nothing changes. */
 .gc-root {
   position: absolute;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
-  visibility: hidden;
   opacity: 1;
   z-index: 1000;
   contain: strict;
@@ -28,18 +38,19 @@
   --gc-b: #1565c0;
   --gc-a-clear: rgba(211, 47, 47, 0);
   --gc-b-clear: rgba(21, 101, 192, 0);
-  --gc-glow: rgba(255, 255, 255, 0.5);
 }
 
-.gc-root.gc-active {
-  visibility: visible;
-}
-
+/* The dim and the flash are smooth gradients over the whole screen. They are drawn a twentieth of its size and
+   stretched, which looks the same and gives the browser a four-hundredth of the picture to keep. */
 .gc-dim {
   position: absolute;
-  inset: 0;
+  left: 47.5%;
+  top: 47.5%;
+  width: 5%;
+  height: 5%;
   background: radial-gradient(ellipse at center, rgba(4, 8, 20, 0.82) 0%, rgba(2, 4, 10, 0.96) 100%);
   opacity: 0;
+  transform: scale(20.5);
   will-change: opacity;
 }
 
@@ -114,40 +125,27 @@
   height: 0;
 }
 
+/* The numerals are bitmaps that countdown.js draws once, glow included; here they are only placed. The ghosts are
+   the soft copies that trail behind a numeral as it slams in, standing in for motion blur. */
 .gc-numeral,
 .gc-ghost {
   position: absolute;
   left: 0;
   top: 0;
-  color: #ffffff;
-  font-size: calc(var(--gc-unit) * 40);
-  line-height: 1;
-  white-space: nowrap;
   opacity: 0;
   transform: translate(-50%, -50%);
   will-change: transform, opacity;
 }
 
-.gc-numeral {
-  text-shadow: 0 0 calc(var(--gc-unit) * 2) rgba(255, 255, 255, 0.75),
-    0 0 calc(var(--gc-unit) * 7) var(--gc-glow);
-}
-
-/* Trailing copies that stretch behind a numeral as it slams in, standing in for motion blur. */
-.gc-ghost {
-  color: rgba(255, 255, 255, 0.55);
-  filter: blur(calc(var(--gc-unit) * 0.7));
-}
-
-.gc-lite .gc-ghost {
-  display: none;
-}
-
 .gc-flash {
   position: absolute;
-  inset: 0;
+  left: 47.5%;
+  top: 47.5%;
+  width: 5%;
+  height: 5%;
   background: #ffffff;
   opacity: 0;
+  transform: scale(20.5);
   will-change: opacity;
 }
 

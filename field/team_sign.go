@@ -90,7 +90,7 @@ func (signs *TeamSigns) Update(arena *Arena) {
 		} else {
 			countdownSec = int(math.Ceil(arena.modeRemainingSec()))
 		}
-	case StartMatch, InMatch:
+	case Countdown, InMatch:
 		countdownSec = int(math.Ceil(arena.modeRemainingSec()))
 	case TimeoutActive:
 		countdownSec = arena.TimeoutDurationSec - int(arena.MatchTimeSec())

@@ -559,6 +559,12 @@ func (m *fieldMoments) observe(snapshot *device.Snapshot) {
 		switch {
 		case event == device.EventScorePosted:
 			m.postedAt, m.postedSinceEnd = snapshot.Time, true
+		case event == device.EventCountdownBeat:
+			m.beatAt = snapshot.Time
+		case event == device.EventCountdownGo:
+			m.goAt = snapshot.Time
+		case event == device.EventCountdownCancel:
+			m.beatAt = time.Time{}
 		case strings.HasPrefix(event, cuePrefix):
 			m.cueTimes[event] = snapshot.Time
 		}
@@ -593,6 +599,13 @@ func (m *fieldMoments) active(
 	if faulted {
 		add(MomentFault)
 	}
+	state := snapshot.Clock.State
+	if !m.goAt.IsZero() && snapshot.Time.Sub(m.goAt) < CountdownGoDuration && state == "running" {
+		add(MomentCountdownGo)
+	}
+	if !m.beatAt.IsZero() && snapshot.Time.Sub(m.beatAt) < CountdownBeatDuration && state == "countdown" {
+		add(MomentCountdownBeat)
+	}
 	if len(m.cueTimes) > 0 {
 		// The most recent cue first.
 		first := len(out)
@@ -608,9 +621,11 @@ func (m *fieldMoments) active(
 			return cues[i] < cues[j]
 		})
 	}
-	state := snapshot.Clock.State
 	if index, ok := prog.phaseIndex[snapshot.Clock.Phase]; ok && state == "running" {
 		out = append(out, index)
+	}
+	if state == "countdown" {
+		add(MomentCountdown)
 	}
 	if !m.postedAt.IsZero() && snapshot.Time.Sub(m.postedAt) < ScorePostedDuration {
 		add(MomentScorePosted)

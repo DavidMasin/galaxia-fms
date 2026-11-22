@@ -17,6 +17,9 @@ type apiRoute struct {
 	handler func(web *Web) http.HandlerFunc
 }
 
+// unlockedApiPaths are answered without the arena's lock, because they read nothing of the arena.
+var unlockedApiPaths = map[string]bool{"/api/v1/time": true}
+
 // publicApiPaths are open to anyone even while logins are needed: the clock (displays and devices measure their
 // offset with it), health, the description, and who am I.
 var publicApiPaths = map[string]bool{
@@ -69,7 +72,11 @@ func (web *Web) addApiRoutes(mux *routeMux) {
 		if !publicApiPaths[route.path] {
 			handler = web.readerOnly(handler)
 		}
-		mux.HandleFunc(route.method+" "+route.path, handler)
+		if unlockedApiPaths[route.path] {
+			mux.HandleUnlocked(route.method+" "+route.path, handler)
+		} else {
+			mux.HandleFunc(route.method+" "+route.path, handler)
+		}
 	}
 }
 

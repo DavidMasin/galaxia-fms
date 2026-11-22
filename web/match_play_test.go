@@ -500,17 +500,35 @@ func TestMatchPlayWebsocketCommands(t *testing.T) {
 	web.arena.AllianceStations["B2"].Bypass = true
 	web.arena.AllianceStations["B3"].Bypass = true
 	ws.Write("startMatch", nil)
-	readWebsocketType(t, ws, "eventStatus")
-	assert.Equal(t, field.StartMatch, web.arena.MatchState)
+	readWebsocketType(t, ws, "audienceDisplayMode")
+	assert.Equal(t, field.Countdown, web.arena.MatchState)
 	ws.Write("commitAndPost", nil)
 	assert.Contains(t, readWebsocketError(t, ws), "cannot commit match while it is in progress")
 	ws.Write("discardResults", nil)
 	assert.Contains(t, readWebsocketError(t, ws), "cannot reset match while it is in progress")
+
+	// Aborting before the match has begun calls the start off; nothing was played, so nothing is left to commit.
 	ws.Write("abortMatch", nil)
-	readWebsocketType(t, ws, "audienceDisplayMode")
+	assert.Eventually(t, locked(web, func() bool {
+		return web.arena.MatchState == field.PreMatch
+	}), time.Second, 5*time.Millisecond)
+	ws.Write("abortMatch", nil)
+	assert.Contains(t, readWebsocketError(t, ws), "cannot abort match")
+
+	// Once the arena loop has started the match, aborting ends it.
+	ws.Write("startMatch", nil)
+	assert.Eventually(t, locked(web, func() bool {
+		return web.arena.MatchState == field.Countdown
+	}), time.Second, 5*time.Millisecond)
+	web.arena.Update()
+	web.arena.Do(func() {
+		assert.Equal(t, field.InMatch, web.arena.MatchState)
+	})
+	ws.Write("abortMatch", nil)
+	readWebsocketUntil(t, ws, "audienceDisplayMode")
 	assert.Equal(t, field.PostMatch, web.arena.MatchState)
 
-	// Score something after the match, the way the panels would; each change sends the score once.
+	// Score something after the match, the way the panels would; each change sends the score.
 	scorer := scoring.Source{Kind: scoring.SourceScorer, ID: "test"}
 	for _, change := range []scoring.Change{
 		towerChange("red", 1, "endgame_tower", "level1"), towerChange("red", 2, "endgame_tower", "level2"),
@@ -519,7 +537,7 @@ func TestMatchPlayWebsocketCommands(t *testing.T) {
 		change.Source = scorer
 		_, err = web.arena.ApplyScoreChange(change)
 		assert.Nil(t, err)
-		realtimeScore := readWebsocketType(t, ws, "realtimeScore").(map[string]any)
+		realtimeScore := readWebsocketUntil(t, ws, "realtimeScore").(map[string]any)
 		assert.Equal(t, web.arena.Game.Hash, realtimeScore["gameHash"])
 	}
 	ws.Write("commitAndPost", nil)

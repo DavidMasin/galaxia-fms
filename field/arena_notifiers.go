@@ -21,6 +21,7 @@ type ArenaNotifiers struct {
 	AllianceStationDisplayModeNotifier *websocket.Notifier
 	ArenaStatusNotifier                *websocket.Notifier
 	AudienceDisplayModeNotifier        *websocket.Notifier
+	CountdownNotifier                  *websocket.Notifier
 	DisplayConfigurationNotifier       *websocket.Notifier
 	EventStatusNotifier                *websocket.Notifier
 	GameNotifier                       *websocket.Notifier
@@ -141,6 +142,7 @@ func (arena *Arena) configureNotifiers() {
 	arena.AudienceDisplayModeNotifier = websocket.NewNotifier(
 		"audienceDisplayMode", arena.generateAudienceDisplayModeMessage,
 	)
+	arena.CountdownNotifier = websocket.NewNotifier("countdown", arena.generateCountdownMessage)
 	arena.DisplayConfigurationNotifier = websocket.NewNotifier(
 		"displayConfiguration", arena.generateDisplayConfigurationMessage,
 	)
@@ -161,7 +163,8 @@ func (arena *Arena) configureNotifiers() {
 	// of its own, and so does its notifier.
 	for _, notifier := range []*websocket.Notifier{
 		arena.AllianceSelectionNotifier, arena.AllianceStationDisplayModeNotifier, arena.ArenaStatusNotifier,
-		arena.AudienceDisplayModeNotifier, arena.EventStatusNotifier, arena.GameNotifier, arena.LowerThirdNotifier,
+		arena.AudienceDisplayModeNotifier, arena.CountdownNotifier, arena.EventStatusNotifier, arena.GameNotifier,
+		arena.LowerThirdNotifier,
 		arena.MatchLoadNotifier, arena.MatchTimeNotifier, arena.RealtimeScoreNotifier, arena.ScorePostedNotifier,
 		arena.ScoringStatusNotifier,
 	} {

@@ -62,7 +62,7 @@ func TestSetupFieldTestingWebsocket(t *testing.T) {
 	assert.Nil(t, err)
 	defer audienceConn.Close()
 	audienceWs := websocket.NewTestWebsocket(audienceConn)
-	readWebsocketMultiple(t, audienceWs, 9)
+	readWebsocketMultiple(t, audienceWs, 10)
 
 	ws.Write("playSound", "resume")
 	assert.Equal(t, "resume", readWebsocketType(t, audienceWs, "playSound"))
@@ -139,7 +139,7 @@ func TestSetupFieldTestingWebsocketSetPlcCoilOverrideDisallowedStates(t *testing
 	readWebsocketMultiple(t, ws, 2)
 
 	for _, matchState := range []field.MatchState{
-		field.StartMatch,
+		field.Countdown,
 		field.InMatch,
 	} {
 		web.arena.MatchState = matchState

@@ -91,6 +91,7 @@ func TestApiTimeAndHealth(t *testing.T) {
 	after := time.Now().UnixMilli()
 	assert.GreaterOrEqual(t, int64(response["t"].(float64)), before)
 	assert.LessOrEqual(t, int64(response["t"].(float64)), after)
+	assert.Equal(t, int64(response["t"].(float64)), int64(response["us"].(float64))/1000)
 	_, err := time.Parse(time.RFC3339Nano, response["iso"].(string))
 	assert.NoError(t, err)
 

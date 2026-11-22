@@ -257,7 +257,7 @@ const handleArenaStatus = function (data) {
       $("#editResults").prop("disabled", true);
       $("#startTimeout").prop("disabled", false);
       break;
-    case "START_MATCH":
+    case "COUNTDOWN":
     case "IN_MATCH":
       $("#showOverlay").prop("disabled", true);
       $("#introRadio").prop("disabled", true);

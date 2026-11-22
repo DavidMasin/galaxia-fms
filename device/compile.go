@@ -22,12 +22,18 @@ const PlcDeviceID = "plc"
 // BindingsOwner is the owner of the output channels the binding set drives, in claims.
 const BindingsOwner = "bindings"
 
-// Match events an output can pulse on, besides phase.<id>.start, phase.<id>.end and cue.<id>.
+// Match events an output can pulse on, besides phase.<id>.start, phase.<id>.end and cue.<id>. The countdown ones
+// belong to the countdown to a match: its start, each of its beats, the start of the match it ends with, and its
+// being called off.
 const (
-	EventMatchStart  = "match.start"
-	EventMatchEnd    = "match.end"
-	EventMatchAbort  = "match.abort"
-	EventScorePosted = "score.posted"
+	EventMatchStart      = "match.start"
+	EventMatchEnd        = "match.end"
+	EventMatchAbort      = "match.abort"
+	EventScorePosted     = "score.posted"
+	EventCountdownStart  = "countdown.start"
+	EventCountdownBeat   = "countdown.beat"
+	EventCountdownGo     = "countdown.go"
+	EventCountdownCancel = "countdown.cancel"
 )
 
 const defaultBlinkPeriod = time.Second
@@ -759,7 +765,8 @@ func (c *compiler) colors(colors []string, alliance string, fail func(format str
 // checkEvent checks the event an output pulses on.
 func (c *compiler) checkEvent(event string) error {
 	switch event {
-	case EventMatchStart, EventMatchEnd, EventMatchAbort, EventScorePosted:
+	case EventMatchStart, EventMatchEnd, EventMatchAbort, EventScorePosted, EventCountdownStart, EventCountdownBeat,
+		EventCountdownGo, EventCountdownCancel:
 		return nil
 	}
 	if rest, ok := strings.CutPrefix(event, "phase."); ok {
@@ -781,7 +788,7 @@ func (c *compiler) checkEvent(event string) error {
 	}
 	return fmt.Errorf(
 		"%q is not an event (match.start, match.end, match.abort, phase.<id>.start, phase.<id>.end, cue.<id>, "+
-			"score.posted)", event,
+			"score.posted, countdown.start, countdown.beat, countdown.go, countdown.cancel)", event,
 	)
 }
 

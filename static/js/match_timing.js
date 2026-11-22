@@ -13,7 +13,7 @@ const matchTypePlayoff = 3;
 // Values of field.MatchState. While IN_MATCH, the message's PhaseIndex says which phase of the game is running.
 const matchStates = {
   0: "PRE_MATCH",
-  1: "START_MATCH",
+  1: "COUNTDOWN",
   2: "IN_MATCH",
   3: "POST_MATCH",
   4: "TIMEOUT_ACTIVE",
@@ -74,7 +74,7 @@ const getCurrentPhase = function (data) {
 const getCountdown = function (data) {
   switch (matchStates[data.MatchState]) {
     case "PRE_MATCH":
-    case "START_MATCH": {
+    case "COUNTDOWN": {
       const stretch = getStretch(0);
       return stretch === null ? 0 : Math.round(stretch.end - stretch.start);
     }
@@ -106,11 +106,9 @@ const translateMatchTime = function (data, callback) {
     case "PRE_MATCH":
       matchStateText = "PRE-MATCH";
       break;
-    case "START_MATCH": {
-      const first = GameView.phaseAt(0);
-      matchStateText = first === null ? "" : getRobotsText(first.robots);
+    case "COUNTDOWN":
+      matchStateText = "COUNTDOWN";
       break;
-    }
     case "IN_MATCH":
       matchStateText = phase === null ? "" : getRobotsText(phase.robots);
       break;

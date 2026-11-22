@@ -117,18 +117,22 @@ type DeviceCommand struct {
 	Do string `json:"do"`
 }
 
-// FieldState is the state of the match every device may follow, published as field/state.
+// FieldState is the state of the match every device may follow, published as field/state. While the state is
+// countdown, T0 is the moment the match starts, in UTC milliseconds on the clock field/clock tells, and Beats is when
+// each beat of the countdown falls relative to it, in milliseconds, ending with the start itself at zero.
 type FieldState struct {
 	State          string             `json:"state"`
 	Phase          string             `json:"phase"`
 	PhaseRemaining float64            `json:"phase_remaining"`
 	MatchRemaining float64            `json:"match_remaining"`
 	Scores         map[string]float64 `json:"scores"`
+	T0             int64              `json:"t0,omitempty"`
+	Beats          []int64            `json:"beats,omitempty"`
 }
 
 // sameAs reports whether two field states differ in anything but the clock, which changes on every look.
 func (s *FieldState) sameAs(other *FieldState) bool {
-	if s == nil || other == nil || s.State != other.State || s.Phase != other.Phase ||
+	if s == nil || other == nil || s.State != other.State || s.Phase != other.Phase || s.T0 != other.T0 ||
 		len(s.Scores) != len(other.Scores) {
 		return false
 	}

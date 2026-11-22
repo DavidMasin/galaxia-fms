@@ -897,3 +897,13 @@ Added after that commit:
   was driven with them.
 - Match review ticks and fixes the "bypassed" box of a position that has no team, since such a position counts
   as bypassed whatever is recorded.
+
+## 2026-11-22 23:24 - CI for the wiring check: every job passed
+
+Commit `5dc9d9f`, run 45071427606: all seven jobs passed. The entry above was written at about 23:19, not 23:24;
+I put the time in without reading the clock.
+
+**Waiting on David:** his running copy needs a restart to see the new game (see the 23:12 entry), and the branch
+`refs/heads/claude/ecstatic-lalande-5168fa` (devices and lighting following a restored database) is still not
+merged. Both `main` and that branch have changed `field/arena.go` since, so the merge may now need more than
+the work log put right.

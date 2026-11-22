@@ -813,3 +813,18 @@ games), a real screen at 60 frames a second, OBS, devices on hardware.
 Nothing of mine is left running: the test copy is stopped and its ports are free.
 
 **Left of milestone 9:** OBS automation, camera recording, theming.
+
+## 2026-11-22 11:13 - CI for the countdown: every job passed
+
+Commits `8e274eb` (the countdown), `5926f70` (SDKs) and `de56f01` (browser tests in CI), run 45006017161. All
+seven jobs passed. Read in the log, not only in the result: the race job ran all 19 packages with no data race
+report, and the new step ran the 13 browser-code tests under Node, all passing.
+
+After the measurements and before the commit I changed one more thing, checked in headless Chrome: the alliance
+station display keeps the team on screen during the countdown and dims the screen behind it by default
+(`countdown=full`), because that display turns white when the match starts and the numerals are white.
+
+The README now mentions the countdown.
+
+**Next:** the rest of milestone 9 (OBS automation, camera recording, theming), or the practice modes
+(milestone 7).

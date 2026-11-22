@@ -26,6 +26,10 @@ Field electronics are plug-and-play:
 - [docs/tutorial-first-sensor.md](docs/tutorial-first-sensor.md) walks through the first sensor, and
   [docs/devices.md](docs/devices.md) is the full reference.
 
+A match starts with a countdown ("Drivers, behind the lines", 3, 2, 1, GO) that the audience display, the alliance
+station displays, field devices and lighting all count down to the same moment; robots are enabled at the end of
+it. A game says what is counted, and Setup → Settings → Game can shorten it or turn it off.
+
 A read API, an event stream and data exports are under `/api/v1`, described in
 [docs/openapi.yaml](docs/openapi.yaml). Every event is also written to a file per day in a `journal` folder
 beside the database. Webhooks send the same events to a program of yours, signed and retried;

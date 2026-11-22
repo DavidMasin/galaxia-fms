@@ -220,6 +220,11 @@ func score(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s: %s\n", args[1], err)
 		return 1
 	}
+	if input.State == nil {
+		// Without this a state written at the top level of the file would be scored as an empty match.
+		fmt.Fprintf(stderr, "%s: there is no \"state:\" key; write the raw state under it\n", args[1])
+		return 1
+	}
 	state, err := scoring.BuildState(game, input.State)
 	if err != nil {
 		fmt.Fprintln(stderr, err)

@@ -75,6 +75,8 @@ type ElementView struct {
 	Widget  string       `json:"widget"`
 	Order   float64      `json:"order"`
 	Hidden  bool         `json:"hidden,omitempty"`
+	Row     string       `json:"row,omitempty"` // With Column: the cell of the group's grid it is drawn in.
+	Column  string       `json:"column,omitempty"`
 	// PhasePoints is true when what the element earns depends on the phase it was set in, so an editor needs to
 	// ask for the phase.
 	PhasePoints bool `json:"phasePoints,omitempty"`
@@ -182,7 +184,7 @@ func (g *Game) View() *View {
 			ID: element.ID, Name: element.Name, Type: element.Type, Scope: element.Scope, Min: element.Min,
 			Max: element.Max, Step: element.Step, Unit: element.Unit, Initial: element.Initial, Edit: element.Edit,
 			Phases: element.Phases, Cycle: element.Cycle, Group: element.UI.Group, Widget: element.UI.Widget,
-			Order: element.UI.Order, Hidden: element.UI.Hidden,
+			Order: element.UI.Order, Hidden: element.UI.Hidden, Row: element.UI.Row, Column: element.UI.Column,
 			PhasePoints: element.Points != nil && element.Points.ByPhase != nil,
 		}
 		if elementView.Widget == "" {

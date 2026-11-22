@@ -150,7 +150,9 @@
               "group": { "type": "string" },
               "widget": { "enum": ["stepper", "toggle", "buttons", "select", "timer", "slider", "input"] },
               "order": { "type": "number" },
-              "hidden": { "type": "boolean" }
+              "hidden": { "type": "boolean" },
+              "row": { "type": "string", "description": "With column: the cell of a grid this boolean is drawn in." },
+              "column": { "type": "string" }
             }
           }
         },

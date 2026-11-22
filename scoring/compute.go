@@ -20,8 +20,8 @@ type Options struct {
 	Params map[string]float64
 	// Playoff applies the game's playoff tiebreakers when the top scores are equal.
 	Playoff bool
-	// Teams gives the team number at each robot position, per alliance. It is optional and only feeds the
-	// "team" property of robots in expressions.
+	// Teams gives the team number at each robot position, per alliance. It is optional and feeds the "team"
+	// property of robots in expressions. Where it is given, a position with team 0 counts as bypassed.
 	Teams map[string][]int
 }
 
@@ -133,9 +133,13 @@ func buildEnvironment(g *gamedef.Game, s *State, opts Options) *environment {
 		phasePoints := make(map[string]any)
 		robots := make([]any, len(state.Robots))
 		for i := range state.Robots {
-			robot := map[string]any{"position": i + 1, "team": 0}
+			robot := map[string]any{"position": i + 1, "team": 0, "bypassed": state.Bypassed[i+1]}
 			if teams := opts.Teams[alliance.ID]; i < len(teams) {
 				robot["team"] = teams[i]
+				// A position that is known to have no team has no robot to take part.
+				if teams[i] == 0 {
+					robot["bypassed"] = true
+				}
 			}
 			robots[i] = robot
 		}
@@ -632,8 +636,28 @@ type TriggerEvent struct {
 	Cue        string
 }
 
-// TriggerChanges evaluates the triggers that fire on the given event and returns the changes they make. The
-// caller stamps and applies them like any other change; their source is the rule engine.
+// leavesUnchanged reports whether setting an element to a value would leave the raw state exactly as it is. A
+// trigger that would is not a change, and the record of the match should not say that one was made: a game that
+// latches many places at once would otherwise bury what its scorers did under places that stayed empty.
+//
+// Setting a boolean that is already true, or an enum to the option it already has, is not counted: it moves the
+// phase the value is credited to.
+func leavesUnchanged(element *gamedef.Element, current *Value, value any) bool {
+	if current == nil {
+		return false
+	}
+	switch element.Type {
+	case gamedef.TypeBoolean:
+		return !current.Bool && value == false
+	case gamedef.TypeNumber:
+		return current.Number == value
+	}
+	return false
+}
+
+// TriggerChanges evaluates the triggers that fire on the given event and returns the changes they make, leaving
+// out those that would change nothing. The caller stamps and applies them like any other change; their source is
+// the rule engine.
 func TriggerChanges(g *gamedef.Game, s *State, opts Options, event TriggerEvent) ([]Change, error) {
 	var changes []Change
 	var result *Result
@@ -672,6 +696,9 @@ func TriggerChanges(g *gamedef.Game, s *State, opts Options, event TriggerEvent)
 				if !ok || element.Option(option) == nil {
 					return nil, fmt.Errorf("trigger %d gave %v, which is not an option of %s", i+1, value, element.ID)
 				}
+			}
+			if current, err := s.value(g, element, owner, 0); err == nil && leavesUnchanged(element, current, value) {
+				continue
 			}
 			changes = append(changes, Change{
 				Alliance: owner, Element: element.ID, Op: OpSet, Value: value,

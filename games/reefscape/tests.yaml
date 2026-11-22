@@ -1,0 +1,394 @@
+# Worked examples for Reefscape. Each one is a situation the 2025 game manual describes, with the result worked out by
+# hand from table 6-2. Section numbers are the manual's.
+
+cases:
+  # Red: three robots leave (9). Trough: 2 latched and 3 more, 2 x 3 + 3 x 2 = 12. L4 A latched (7), L4 B in teleop
+  # (5), L3 A in teleop (4), L2 A and B in teleop (6). L3 C was latched and is gone: nothing, but it still counts as
+  # coral scored in auto. Algae: 2 x 6 + 3 x 4 = 24. Barge: 12 + 6 + 2 = 20. Blue's fouls give red 2 + 6.
+  - name: A qualification match with every kind of scoring
+    state:
+      red:
+        robots:
+          - { leave: true, barge: deep }
+          - { leave: true, barge: shallow }
+          - { leave: true, barge: park }
+        trough: { auto: 2, teleop: 3 }
+        auto_trough: 2
+        l4_a: true
+        auto_l4_a: true
+        l4_b: true
+        l3_a: true
+        auto_l3_c: true
+        l2_a: true
+        l2_b: true
+        processor: { teleop: 2 }
+        net: { teleop: 3 }
+      blue:
+        processor: { teleop: 2 }
+        fouls: [minor, major]
+    expect:
+      winner: red
+      field: { coopertition: true }
+      red:
+        score: 95
+        result: win
+        foul_points: 8
+        points: { leave: 9, auto_coral_points: 13, teleop_coral_points: 21, processor: 12, net: 12, barge: 20 }
+        breakdown:
+          leave_points: 9
+          auto_coral_points: 13
+          teleop_coral_points: 21
+          algae_points: 24
+          barge_points: 20
+          foul_points: 8
+        values: { l1: 5, l2: 2, l3: 1, l4: 2, auto_coral: 4, coral: 10, algae: 5, levels_met: 0, levels_needed: 3 }
+        rp: { win: 3, auto: 1, coral: 0, barge: 1 }
+        rp_total: 5
+        stats: { coopertition: 1, match_points: 87, auto_points: 22, barge_points: 20 }
+      blue:
+        score: 12
+        result: loss
+        foul_points: 0
+        rp: { win: 0, auto: 0, coral: 0, barge: 0 }
+        rp_total: 0
+        stats: { coopertition: 1, match_points: 12, auto_points: 0, barge_points: 0 }
+
+  # Section 6.5.1: coral scored in auto and removed from its branch in teleop loses its points but still counts
+  # towards the auto ranking point.
+  - name: Auto coral taken off its branch
+    state:
+      red:
+        robots: [{ leave: true }, { leave: true }, { leave: true }]
+        auto_l4_a: true
+    expect:
+      red:
+        score: 9
+        points: { auto_coral_points: 0, teleop_coral_points: 0 }
+        values: { l4: 0, auto_coral: 1, auto_rp: true }
+        rp: { auto: 1 }
+
+  # Section 6.5.1: coral scored in that place again gets the auto points back.
+  - name: Auto coral put back on the same branch
+    state:
+      red: { l4_a: true, auto_l4_a: true }
+    expect:
+      red: { score: 7, points: { auto_coral_points: 7, teleop_coral_points: 0 } }
+
+  - name: Coral on another branch earns the teleop value
+    state:
+      red: { l4_b: true, auto_l4_a: true }
+    expect:
+      red: { score: 5, points: { auto_coral_points: 0, teleop_coral_points: 5 } }
+
+  # Table 6-2, one coral on each level: 3 + 4 + 6 + 7 in auto, 2 + 3 + 4 + 5 in teleop.
+  - name: One coral on each level in auto
+    state:
+      red:
+        trough: { auto: 1 }
+        auto_trough: 1
+        l2_c: true
+        auto_l2_c: true
+        l3_c: true
+        auto_l3_c: true
+        l4_c: true
+        auto_l4_c: true
+    expect:
+      red: { score: 20, points: { auto_coral_points: 20 } }
+
+  - name: One coral on each level in teleop
+    state:
+      red: { trough: { teleop: 1 }, l2_c: true, l3_c: true, l4_c: true }
+    expect:
+      red: { score: 14, points: { teleop_coral_points: 14 } }
+
+  # Section 6.5.1: the trough is not tracked by place. Three were there when auto ended, two came in teleop.
+  - name: Trough with three auto coral and two teleop coral
+    state:
+      red: { trough: { auto: 3, teleop: 2 }, auto_trough: 3 }
+    expect:
+      red: { score: 13, points: { auto_coral_points: 9, teleop_coral_points: 4 } }
+
+  # One of the five falls out: the points lost are those of a teleop coral.
+  - name: Coral leaving the trough is a teleop coral first
+    state:
+      red: { trough: { auto: 3, teleop: 1 }, auto_trough: 3 }
+    expect:
+      red: { score: 11, points: { auto_coral_points: 9, teleop_coral_points: 2 } }
+
+  # Three fall out: both teleop coral, then one of the auto coral.
+  - name: Auto coral leave the trough only after the teleop coral
+    state:
+      red: { trough: { auto: 2 }, auto_trough: 3 }
+    expect:
+      red: { score: 6, points: { auto_coral_points: 6, teleop_coral_points: 0 }, values: { auto_coral: 3 } }
+
+  # One is scored again in teleop: it is counted as the auto coral that left, whatever phase it was scored in.
+  - name: Coral coming back to the trough is an auto coral first
+    state:
+      red: { trough: { auto: 2, teleop: 1 }, auto_trough: 3 }
+    expect:
+      red: { score: 9, points: { auto_coral_points: 9, teleop_coral_points: 0 } }
+
+  # Table 6-2: algae is worth the same in either period, 6 in the processor and 4 in the net.
+  - name: Algae in auto and in teleop
+    state:
+      red: { processor: { auto: 1, teleop: 1 }, net: { auto: 1, teleop: 1 } }
+    expect:
+      red: { score: 20, points: { processor: 12, net: 8 } }
+
+  # Table 6-2: the auto ranking point needs every robot that was not bypassed to leave, and a coral scored in auto.
+  - name: Auto ranking point is lost if one robot stays
+    state:
+      red:
+        robots: [{ leave: true }, { leave: true }, {}]
+        l2_a: true
+        auto_l2_a: true
+    expect:
+      red: { rp: { auto: 0 } }
+
+  - name: A bypassed robot does not have to leave
+    state:
+      red:
+        robots: [{ leave: true }, { leave: true }, { bypassed: true }]
+        l2_a: true
+        auto_l2_a: true
+    expect:
+      red: { rp: { auto: 1 } }
+
+  - name: Auto ranking point needs a coral scored in auto
+    state:
+      red:
+        robots: [{ leave: true }, { leave: true }, { leave: true }]
+        l2_a: true
+    expect:
+      red: { rp: { auto: 0 }, values: { auto_coral: 0 } }
+
+  # Table 6-2: at least 7 coral on each level. 7 x 2 + 7 x 3 + 7 x 4 + 7 x 5 = 98.
+  - name: Coral ranking point with seven on every level
+    state:
+      red:
+        trough: { teleop: 7 }
+        l2_a: true
+        l2_b: true
+        l2_c: true
+        l2_d: true
+        l2_e: true
+        l2_f: true
+        l2_g: true
+        l3_a: true
+        l3_b: true
+        l3_c: true
+        l3_d: true
+        l3_e: true
+        l3_f: true
+        l3_g: true
+        l4_a: true
+        l4_b: true
+        l4_c: true
+        l4_d: true
+        l4_e: true
+        l4_f: true
+        l4_g: true
+    expect:
+      red: { score: 98, values: { levels_met: 4, levels_needed: 4 }, rp: { coral: 1 } }
+
+  - name: Seven on three levels is not enough without coopertition
+    state:
+      red:
+        trough: { teleop: 7 }
+        l2_a: true
+        l2_b: true
+        l2_c: true
+        l2_d: true
+        l2_e: true
+        l2_f: true
+        l2_g: true
+        l3_a: true
+        l3_b: true
+        l3_c: true
+        l3_d: true
+        l3_e: true
+        l3_f: true
+        l3_g: true
+        l4_a: true
+        processor: { teleop: 3 }
+      blue: { processor: { teleop: 1 } }
+    expect:
+      field: { coopertition: false }
+      red: { values: { levels_met: 3, levels_needed: 4 }, rp: { coral: 0 }, stats: { coopertition: 0 } }
+
+  # Section 6.5.3: two algae in each processor lower the requirement to three levels.
+  - name: Seven on three levels is enough with coopertition
+    state:
+      red:
+        trough: { teleop: 7 }
+        l2_a: true
+        l2_b: true
+        l2_c: true
+        l2_d: true
+        l2_e: true
+        l2_f: true
+        l2_g: true
+        l3_a: true
+        l3_b: true
+        l3_c: true
+        l3_d: true
+        l3_e: true
+        l3_f: true
+        l3_g: true
+        l4_a: true
+        processor: { teleop: 2 }
+      blue: { processor: { teleop: 2 } }
+    expect:
+      field: { coopertition: true }
+      red: { values: { levels_met: 3, levels_needed: 3 }, rp: { coral: 1 }, stats: { coopertition: 1 } }
+      blue: { rp: { coral: 0 }, stats: { coopertition: 1 } }
+
+  # The note under table 6-2: an event may raise the requirement.
+  - name: A raised coral requirement
+    params: { coral_rp_threshold: 8 }
+    state:
+      red:
+        trough: { teleop: 8 }
+        l2_a: true
+        l2_b: true
+        l2_c: true
+        l2_d: true
+        l2_e: true
+        l2_f: true
+        l2_g: true
+      blue: {}
+    expect:
+      red: { values: { levels_met: 1 }, rp: { coral: 0 } }
+
+  # Table 6-2: at least 16 barge points. A deep cage and two parked robots are 12 + 2 + 2.
+  - name: Barge ranking point at sixteen points
+    state:
+      red: { robots: [{ barge: deep }, { barge: park }, { barge: park }] }
+    expect:
+      red: { score: 16, points: { barge: 16 }, rp: { barge: 1 } }
+
+  - name: Two shallow cages and a parked robot are fourteen
+    state:
+      red: { robots: [{ barge: shallow }, { barge: shallow }, { barge: park }] }
+    expect:
+      red: { score: 14, rp: { barge: 0 } }
+
+  - name: A raised barge requirement
+    params: { barge_rp_threshold: 20 }
+    state:
+      red: { robots: [{ barge: deep }, { barge: shallow }, {}] }
+    expect:
+      red: { score: 18, rp: { barge: 0 } }
+
+  # G410: a major foul for each coral, and the other alliance is awarded the coral ranking point.
+  - name: Taking coral off the opponent's reef hands them the coral ranking point
+    state:
+      red: {}
+      blue: { fouls: [{ type: major_coral_rp, rule: G410, robot: 2 }] }
+    expect:
+      red: { score: 6, foul_points: 6, rp: { coral: 1, barge: 0 } }
+      blue: { rp: { coral: 0 } }
+
+  # G418 and G428: a major foul, and the other alliance is awarded the barge ranking point.
+  - name: Contact with a climbing robot hands the opponent the barge ranking point
+    state:
+      red: {}
+      blue: { fouls: [{ type: major_barge_rp, rule: G428 }] }
+    expect:
+      red: { score: 6, foul_points: 6, rp: { coral: 0, barge: 1 } }
+
+  # G206, and table 6-3: being ineligible overrides a ranking point earned in play or awarded for a violation.
+  # It carries no points, and the auto ranking point is not affected.
+  - name: Collusion takes the coral and barge ranking points away
+    state:
+      red:
+        robots: [{ leave: true, barge: deep }, { leave: true, barge: deep }, { leave: true }]
+        l2_a: true
+        auto_l2_a: true
+        fouls: [{ type: rp_ineligible, rule: G206 }]
+      blue: { fouls: [{ type: major_coral_rp, rule: G410 }, { type: major_barge_rp, rule: G418 }] }
+    expect:
+      red: { foul_points: 12, rp: { win: 3, auto: 1, coral: 0, barge: 0 }, rp_total: 4 }
+      blue: { foul_points: 0 }
+
+  # Table 6-2: a tie is one ranking point for each alliance.
+  - name: A qualification tie
+    state:
+      red: { net: { teleop: 1 } }
+      blue: { net: { auto: 1 } }
+    expect:
+      winner: none
+      red: { score: 4, result: tie, rp: { win: 1 }, rp_total: 1 }
+      blue: { score: 4, result: tie, rp: { win: 1 }, rp_total: 1 }
+
+  # Table 10-3, first: major foul points received. Red's three minor fouls give blue 6, blue's major gives red 6,
+  # and only the major counts here.
+  - name: Playoff tie broken by major foul points
+    playoff: true
+    state:
+      red: { net: { teleop: 1 }, fouls: [minor, minor, minor] }
+      blue: { net: { teleop: 1 }, fouls: [major] }
+    expect:
+      winner: red
+      tiebreak: Major foul points from the opponent
+      red: { score: 10, result: win }
+      blue: { score: 10, result: loss }
+
+  # A foul that also hands over a ranking point is still a major foul for this purpose.
+  - name: Playoff tie broken by a major foul with a ranking point attached
+    playoff: true
+    state:
+      red: { processor: { teleop: 1 } }
+      blue: { fouls: [{ type: major_barge_rp, rule: G428 }], processor: { teleop: 2 } }
+    expect:
+      winner: red
+      tiebreak: Major foul points from the opponent
+      red: { score: 12 }
+      blue: { score: 12 }
+
+  # Table 10-3, second: leave and auto coral points. Red has a leave and a teleop coral on L2, blue an algae.
+  - name: Playoff tie broken by leave and auto coral points
+    playoff: true
+    state:
+      red: { robots: [{ leave: true }, {}, {}], l2_a: true }
+      blue: { processor: { teleop: 1 } }
+    expect:
+      winner: red
+      tiebreak: Leave and auto coral points
+      red: { score: 6 }
+      blue: { score: 6 }
+
+  # Table 10-3, third: barge points.
+  - name: Playoff tie broken by barge points
+    playoff: true
+    state:
+      red: { robots: [{ barge: park }, { barge: park }, {}] }
+      blue: { net: { teleop: 1 } }
+    expect:
+      winner: red
+      tiebreak: Barge points
+      red: { score: 4 }
+      blue: { score: 4 }
+
+  # Table 10-3, fourth: the match is replayed.
+  - name: A playoff tie that nothing breaks
+    playoff: true
+    state:
+      red: { net: { teleop: 1 } }
+      blue: { net: { teleop: 1 } }
+    expect:
+      winner: none
+      red: { result: tie }
+      blue: { result: tie }
+
+  # Section 10.6: a disqualified alliance receives no match points in a playoff match.
+  - name: Playoff disqualification
+    playoff: true
+    state:
+      red: { net: { teleop: 5 }, disqualified: true }
+      blue: { net: { teleop: 1 } }
+    expect:
+      winner: blue
+      red: { score: 0, result: loss }
+      blue: { score: 4, result: win }

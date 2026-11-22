@@ -143,6 +143,54 @@ const robotLabel = function (allianceId, position) {
   return team ? "Team " + team : "Robot " + position;
 };
 
+// Says whether an element is edited as one cell of a grid: a boolean, not scored per robot, that the game gives a
+// row and a column, and whose points do not depend on the phase it was set in.
+const inResultGrid = function (element) {
+  return element.type === "boolean" && element.scope !== "robot" && Boolean(element.row) &&
+    Boolean(element.column) && element.phasePoints !== true;
+};
+
+// Builds the table that edits the elements of one grid: a tick box for each, in the game's rows and columns.
+const buildResultGrid = function (cells, values) {
+  const rows = [];
+  const columns = [];
+  cells.forEach(function (element) {
+    if (!rows.includes(element.row)) {
+      rows.push(element.row);
+    }
+    if (!columns.includes(element.column)) {
+      columns.push(element.column);
+    }
+  });
+  const table = $("<table class='table table-sm table-borderless w-auto mb-2 result-editor-grid'></table>");
+  const head = $("<tr><th></th></tr>").appendTo($("<thead></thead>").appendTo(table));
+  columns.forEach(function (column) {
+    head.append($("<th class='text-center fw-normal'></th>").text(column));
+  });
+  const body = $("<tbody></tbody>").appendTo(table);
+  rows.forEach(function (row) {
+    const tableRow = $("<tr></tr>").appendTo(body);
+    tableRow.append($("<th scope='row'></th>").text(row));
+    columns.forEach(function (column) {
+      const cell = $("<td class='text-center'></td>").appendTo(tableRow);
+      const element = cells.find(function (candidate) {
+        return candidate.row === row && candidate.column === column;
+      });
+      if (!element) {
+        return;
+      }
+      const raw = values(element)[0].raw;
+      const checkbox = newInput("checkbox").prop("checked", raw.bool === true).attr("title", element.name);
+      checkbox.on("change", function () {
+        raw.bool = checkbox.prop("checked");
+        scheduleSummaryRefresh();
+      });
+      cell.append(checkbox);
+    });
+  });
+  return table;
+};
+
 // Builds the editors of a list of elements, grouped as the game groups them. values(element) returns the raw
 // values to edit as a list of {label, raw}.
 const buildElementEditors = function (container, elements, values) {
@@ -155,7 +203,18 @@ const buildElementEditors = function (container, elements, values) {
   groups.forEach(function (group) {
     const fieldset = $("<fieldset class='mb-3'></fieldset>").appendTo(container);
     fieldset.append($("<legend class='fs-5'></legend>").text(group));
-    elements.filter(function (element) { return element.group === group; }).forEach(function (element) {
+    const groupElements = elements.filter(function (element) { return element.group === group; });
+    const cells = groupElements.filter(inResultGrid);
+    let gridBuilt = false;
+    groupElements.forEach(function (element) {
+      if (inResultGrid(element)) {
+        // The game's grid is edited as one table, where the first of its elements falls in the group.
+        if (!gridBuilt) {
+          gridBuilt = true;
+          fieldset.append(buildResultGrid(cells, values));
+        }
+        return;
+      }
       const elementNode = $("<div class='result-editor-element'></div>").appendTo(fieldset);
       elementNode.append($("<h6 class='fw-bold mb-2'></h6>").text(element.name));
       const owners = values(element);
@@ -286,6 +345,23 @@ const buildAllianceEditor = function (alliance) {
     }
   }
 
+  // The robots that took no part in the match. A game's rules can read this, so it can be put right here.
+  const bypassedFieldset = $("<fieldset class='mb-3'></fieldset>").appendTo(card);
+  bypassedFieldset.append("<legend class='fs-5'>Bypassed (took no part)</legend>");
+  const bypassedRow = $("<div class='result-editor-robots'></div>").appendTo(bypassedFieldset);
+  for (let position = 1; position <= view.allianceSize; position++) {
+    const checkbox = newInput("checkbox").prop("checked", allianceState.bypassed[position] === true);
+    checkbox.on("change", function () {
+      if (checkbox.prop("checked")) {
+        allianceState.bypassed[position] = true;
+      } else {
+        delete allianceState.bypassed[position];
+      }
+      scheduleSummaryRefresh();
+    });
+    bypassedRow.append($("<label></label>").append(checkbox, " " + robotLabel(alliance.id, position)));
+  }
+
   const disqualified = newInput("checkbox").prop("checked", allianceState.disqualified === true);
   disqualified.on("change", function () {
     allianceState.disqualified = disqualified.prop("checked");
@@ -375,6 +451,7 @@ const initResultEditor = function (data) {
     }
     allianceState.fouls = allianceState.fouls || [];
     allianceState.cards = allianceState.cards || {};
+    allianceState.bypassed = allianceState.bypassed || {};
   });
 
   // What is scored for the field as a whole comes first, then one column per alliance.

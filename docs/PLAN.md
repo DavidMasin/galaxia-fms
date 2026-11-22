@@ -665,6 +665,11 @@ present they replace the generic renderers for that game. They receive the same 
 | `orbital-rush` (invented) | Exercises every schema feature. Three alliances of two; five phases including two pauses; all five element types at all three scopes; a multiplier; a cooperative bonus; a trigger with a coin flip; a live value; minor and major fouls, a no-points penalty, yellow and red cards; five ranking points; four tiebreakers; panel layout; a template override. | A test asserts that every schema keyword appears in it. |
 | `rebuilt-style` | Modelled on the 2026 FRC game as implemented upstream: auto, pause, a transition shift, four shifts and an endgame; a fuel counter scored only in the shifts when that alliance's hub is active; the auto winner decided by a trigger and sent to driver stations as game data; tower levels per robot; three bonus ranking points with tunable thresholds; the playoff tiebreakers. Rule descriptions are written in my own words, not copied from the game manual. | Its computed scores are tested against the same cases as upstream's `score_test.go`, so we know the engine can express a real game. |
 
+> **As built (2026-11-22).** A fourth example, `reefscape`, is the 2025 FRC game written from its game manual
+> alone. It needed things this schema did not have: `bypassed` on a robot, a grid of booleans on the scoring panel
+> (`ui.row` and `ui.column`), taking away in one phase what a counter was given in an earlier one, and triggers
+> that record nothing when they change nothing. See [milestones/kickoff-2025.md](milestones/kickoff-2025.md).
+
 ### 6.9 Expression language
 
 Recommendation: **`expr-lang/expr`**.

@@ -25,6 +25,7 @@ import (
 //	        robots:
 //	          - { leave: true, climb: high }    # boolean and enum values
 //	          - { climb: { value: low, phase: teleop } }
+//	          - { bypassed: true }              # the robot took no part in the match
 //	        fouls: [minor, { type: major, robot: 2 }]
 //	        cards: { 1: yellow }
 //	      field: { auto_winner: red }
@@ -133,7 +134,14 @@ func BuildState(g *gamedef.Game, compact map[string]map[string]any) (*State, err
 				for i, entry := range robots {
 					robot, _ := entry.(map[string]any)
 					for _, id := range sortedKeys(robot) {
-						if err = setElement(owner, i+1, id, robot[id]); err != nil {
+						if id == TargetBypassed {
+							err = apply(Change{
+								Alliance: owner, Robot: i + 1, Element: TargetBypassed, Op: OpSet, Value: robot[id],
+							})
+						} else {
+							err = setElement(owner, i+1, id, robot[id])
+						}
+						if err != nil {
 							break
 						}
 					}

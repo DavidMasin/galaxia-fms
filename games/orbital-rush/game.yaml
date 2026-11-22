@@ -122,6 +122,17 @@ elements:
     edit: [scorer]
     ui: { group: Station, widget: toggle, order: 6, hidden: true }
 
+  # Booleans drawn together as a grid: ui.row and ui.column give each one its cell. A cell is one compact button
+  # that carries the name of its column, so many places to score fit on a tablet.
+  - { id: antenna_high_port, name: High port antenna, type: boolean, scope: alliance, points: 1, edit: [scorer],
+      ui: { group: Station, row: High, column: Port, order: 7 } }
+  - { id: antenna_high_starboard, name: High starboard antenna, type: boolean, scope: alliance, points: 1,
+      edit: [scorer], ui: { group: Station, row: High, column: Starboard, order: 7.1 } }
+  - { id: antenna_low_port, name: Low port antenna, type: boolean, scope: alliance, points: 1, edit: [scorer],
+      ui: { group: Station, row: Low, column: Port, order: 7.2 } }
+  - { id: antenna_low_starboard, name: Low starboard antenna, type: boolean, scope: alliance, points: 1,
+      edit: [scorer], ui: { group: Station, row: Low, column: Starboard, order: 7.3 } }
+
   # Robot scope.
   - id: launched
     name: Left the pad

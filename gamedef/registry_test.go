@@ -146,7 +146,7 @@ func TestView(t *testing.T) {
 	assert.Equal(t, 125.0, view.Duration)
 	assert.Equal(t, false, view.Features["brackets"])
 	assert.Equal(t, true, view.Features["gameData"])
-	assert.Len(t, view.Elements, 16)
+	assert.Len(t, view.Elements, 20)
 	assert.Len(t, view.Params, 4)
 	assert.Len(t, view.RankingPoints, 5)
 	assert.Equal(t, []string{"Fewest major fouls", "Launch points", "Dock points"}, view.Tiebreakers)
@@ -168,6 +168,10 @@ func TestView(t *testing.T) {
 	// Defaults are filled in where the game says nothing.
 	assert.Equal(t, []string{"launch", "drift", "orbit", "blackout", "reentry"}, byID["comets"].Phases)
 	assert.Equal(t, []string{"scorer"}, byID["storm"].Edit)
+	// A boolean placed in a grid carries its cell.
+	assert.Equal(t, "High", byID["antenna_high_starboard"].Row)
+	assert.Equal(t, "Starboard", byID["antenna_high_starboard"].Column)
+	assert.Equal(t, "", byID["beacon"].Row)
 
 	ballCount := games["ball-count"].View()
 	assert.Equal(t, true, ballCount.Features["brackets"])

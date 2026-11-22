@@ -620,9 +620,10 @@ func TestStateChanges(t *testing.T) {
 	to.Alliances[first].Fouls = []scoring.Foul{{Type: g.Fouls.Types[0].ID, Robot: 2}}
 	to.Alliances[second].Cards = map[int]string{1: g.Cards[0].ID}
 	to.Alliances[second].Disqualified = true
+	to.Alliances[second].Bypassed = map[int]bool{2: true}
 
 	changes := stateChanges(g, from, to, matchReviewSource)
-	assert.GreaterOrEqual(t, len(changes), changed+3)
+	assert.GreaterOrEqual(t, len(changes), changed+4)
 	for _, change := range changes {
 		assert.Equal(t, matchReviewSource, change.Source)
 	}
@@ -642,11 +643,25 @@ func TestStateChanges(t *testing.T) {
 	target := copyState(t, from)
 	target.Alliances[first].Fouls = []scoring.Foul{}
 	assert.Empty(t, stateChanges(g, from2, copyState(t, from2), matchReviewSource))
+	// The same goes for who was bypassed: left out, it stays as it is.
+	for _, change := range stateChanges(g, from2, target, matchReviewSource) {
+		assert.NotEqual(t, scoring.TargetBypassed, change.Element)
+	}
+	target.Alliances[second].Bypassed = map[int]bool{}
 	back := stateChanges(g, from2, target, matchReviewSource)
 	apply(from2, back)
 	assert.Equal(t, 0, len(from2.Alliances[first].Fouls))
 	assert.Equal(t, 0, len(from2.Alliances[second].Cards))
 	assert.False(t, from2.Alliances[second].Disqualified)
+	assert.Empty(t, from2.Alliances[second].Bypassed)
+
+	// The audit log says it in words.
+	bypassed := scoring.Change{
+		Alliance: second, Robot: 2, Element: scoring.TargetBypassed, Op: scoring.OpSet, Value: true,
+	}
+	assert.Contains(t, describeChange(g, &bypassed, nil), "bypassed: took no part in the match")
+	bypassed.Value = false
+	assert.Contains(t, describeChange(g, &bypassed, nil), "not bypassed: took part in the match")
 	for _, element := range g.Elements {
 		if element.Type == "counter" && element.Scope == "alliance" {
 			assert.Equal(t, 0, from2.Alliances[first].Elements[element.ID].Total())

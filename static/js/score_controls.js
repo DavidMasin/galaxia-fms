@@ -63,6 +63,11 @@ const ScoreControls = {
     return sections;
   },
 
+  // Says whether the game places an element in a grid: a boolean, not scored per robot, with a row and a column.
+  inGrid: function (element) {
+    return element.type === "boolean" && element.scope !== "robot" && Boolean(element.row) && Boolean(element.column);
+  },
+
   // Returns the raw value of an element for one owner from a realtimeScore message, or undefined if it holds none.
   rawValue: function (score, element, allianceId, robot) {
     if (!score) {
@@ -119,13 +124,14 @@ const ScoreControls = {
   },
 
   // Creates the control for one element and one owner. options is
-  //   {element, allianceId, robot, label, send}, where send(command) is given {alliance, robot, element, op, value,
-  //   bucket} to pass on to the server as a "score" command.
+  //   {element, allianceId, robot, label, cell, send}, where send(command) is given {alliance, robot, element, op,
+  //   value, bucket} to pass on to the server as a "score" command, and cell is the text on the button of a
+  //   boolean that is drawn as one cell of a grid.
   // Returns {node, update}; call update(raw, enabled, clock) whenever the score, the clock or the game changes.
   create: function (options) {
     const element = options.element;
     const node = $("<div class='score-control'></div>").attr("data-type", element.type)
-      .attr("data-widget", element.widget);
+      .attr("data-widget", element.widget).attr("data-cell", options.cell ? "true" : "false");
     if (options.label) {
       node.append($("<div class='score-control-label'></div>").text(options.label));
     }
@@ -187,9 +193,16 @@ const ScoreControls = {
       case "boolean": {
         const button = $("<button type='button' class='score-button score-toggle'></button>").appendTo(body);
         button.on("click", function () { send("set", !((state.raw || {}).bool === true)); });
+        if (options.cell) {
+          // In a grid the button carries the name of its column and shows its state by its colour alone.
+          button.addClass("score-cell").text(options.cell).attr("title", element.name);
+        }
         render = function () {
           const on = (state.raw || {}).bool === true;
-          button.text(on ? "Yes" : "No").attr("data-selected", on).prop("disabled", !state.enabled);
+          if (!options.cell) {
+            button.text(on ? "Yes" : "No");
+          }
+          button.attr("data-selected", on).attr("aria-pressed", on).prop("disabled", !state.enabled);
         };
         break;
       }
@@ -322,7 +335,51 @@ const ScoreControls = {
     groups.forEach(function (group) {
       const groupNode = $("<div class='score-group'></div>").appendTo(sectionNode);
       groupNode.append($("<h3 class='score-group-title'></h3>").text(group));
-      section.elements.filter(function (element) { return element.group === group; }).forEach(function (element) {
+      const groupElements = section.elements.filter(function (element) { return element.group === group; });
+
+      // The elements a game places in rows and columns are drawn together as one grid, where the first of them
+      // falls in the order of the group. Rows and columns appear in the order the game first names them.
+      const cells = groupElements.filter(ScoreControls.inGrid);
+      let gridBuilt = false;
+      const buildGrid = function () {
+        const rows = [];
+        const columns = [];
+        cells.forEach(function (element) {
+          if (!rows.includes(element.row)) {
+            rows.push(element.row);
+          }
+          if (!columns.includes(element.column)) {
+            columns.push(element.column);
+          }
+        });
+        const grid = $("<div class='score-grid'></div>").appendTo(groupNode)
+          .css("grid-template-columns", "auto repeat(" + columns.length + ", minmax(0, 1fr))");
+        rows.forEach(function (row) {
+          grid.append($("<div class='score-grid-row-name'></div>").text(row));
+          columns.forEach(function (column) {
+            const slot = $("<div class='score-grid-slot'></div>").appendTo(grid);
+            const element = cells.find(function (candidate) {
+              return candidate.row === row && candidate.column === column;
+            });
+            if (element) {
+              const control = ScoreControls.create(
+                {element: element, allianceId: section.allianceId, robot: 0, label: "", cell: column, send: send}
+              );
+              slot.append(control.node);
+              controls.push({element: element, allianceId: section.allianceId, robot: 0, control: control});
+            }
+          });
+        });
+      };
+
+      groupElements.forEach(function (element) {
+        if (ScoreControls.inGrid(element)) {
+          if (!gridBuilt) {
+            gridBuilt = true;
+            buildGrid();
+          }
+          return;
+        }
         const elementNode = $("<div class='score-element'></div>").attr("data-scope", element.scope)
           .appendTo(groupNode);
         elementNode.append($("<div class='score-element-name'></div>").text(element.name));

@@ -448,6 +448,12 @@ func copyAllianceState(state *scoring.AllianceState) *scoring.AllianceState {
 	for position, card := range state.Cards {
 		copied.Cards[position] = card
 	}
+	for position := range state.Bypassed {
+		if copied.Bypassed == nil {
+			copied.Bypassed = make(map[int]bool, len(state.Bypassed))
+		}
+		copied.Bypassed[position] = true
+	}
 	return copied
 }
 

@@ -83,7 +83,7 @@ func (d Diagnostics) Error() string {
 var reservedMembers = map[string]bool{
 	"id": true, "name": true, "robots": true, "points": true, "phase_points": true, "fouls": true,
 	"foul_points": true, "cards": true, "disqualified": true, "breakdown": true, "score": true, "rp": true,
-	"position": true, "team": true, "total": true, "seconds": true, "running": true, "count": true,
+	"position": true, "team": true, "bypassed": true, "total": true, "seconds": true, "running": true, "count": true,
 }
 
 // Names that have a fixed meaning at the top level of an expression and so cannot be used as alliance ids.
@@ -378,9 +378,22 @@ func (v *validator) validate() {
 		}
 		memberIDs[id] = what
 	}
+	gridCells := map[string]string{}
 	for i, element := range g.Elements {
 		path := fmt.Sprintf("/elements/%d", i)
 		claim(path+"/id", element.ID, "an element")
+		if row, column := element.UI.Row, element.UI.Column; row != "" || column != "" {
+			cell := element.UI.Group + "\x00" + row + "\x00" + column
+			switch {
+			case row == "" || column == "":
+				v.errorf(path+"/ui", "ui.row and ui.column place an element in a grid and must be given together")
+			case element.Type != TypeBoolean || element.Scope == ScopeRobot:
+				v.errorf(path+"/ui", "only a boolean element of alliance or field scope can be placed in a grid")
+			case gridCells[cell] != "":
+				v.errorf(path+"/ui", "%s is already in row %q, column %q of this group", gridCells[cell], row, column)
+			}
+			gridCells[cell] = element.ID
+		}
 		g.elementByID[element.ID] = element
 		if element.Name == "" {
 			element.Name = titleFromID(element.ID)
@@ -668,7 +681,7 @@ type shapes struct {
 
 func (g *Game) buildShapes(withLive bool) shapes {
 	number := rules.NumberShape
-	robot := map[string]*rules.Shape{"position": number, "team": number}
+	robot := map[string]*rules.Shape{"position": number, "team": number, "bypassed": rules.BoolShape}
 	alliance := map[string]*rules.Shape{
 		"id": rules.StringShape, "name": rules.StringShape, "foul_points": number, "score": number,
 		"cards": rules.ListOf(rules.StringShape), "disqualified": rules.BoolShape,

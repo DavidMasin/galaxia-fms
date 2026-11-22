@@ -31,6 +31,7 @@ const (
 	TargetFoul         = "foul"
 	TargetCard         = "card"
 	TargetDisqualified = "disqualified"
+	TargetBypassed     = "bypassed"
 )
 
 // Kinds of source that can make a change.
@@ -83,6 +84,10 @@ type AllianceState struct {
 	Fouls        []Foul              `json:"fouls"`
 	Cards        map[int]string      `json:"cards"` // Robot position -> card id.
 	Disqualified bool                `json:"disqualified"`
+	// Bypassed holds the robot positions whose team took no part in the match: the station was bypassed when the
+	// match started. It is raw state because rules read it ("every robot that played must ...") and because a
+	// person must be able to put it right afterwards. A position with no team needs no entry; see Options.Teams.
+	Bypassed map[int]bool `json:"bypassed,omitempty"`
 }
 
 // State is the complete raw score state of a match.
@@ -247,6 +252,8 @@ func (s *State) Apply(g *gamedef.Game, change *Change) error {
 		}
 		allianceState.Disqualified = disqualified
 		return nil
+	case TargetBypassed:
+		return s.applyBypassed(change)
 	}
 
 	element := g.Element(change.Element)
@@ -377,6 +384,42 @@ func (s *State) Apply(g *gamedef.Game, change *Change) error {
 	return nil
 }
 
+// DecrementPhase returns the phase that taking something away from a counter should be credited to. That is the
+// wanted phase if it holds enough. Otherwise it is the latest earlier phase that does: what is being taken away
+// was scored then, as when a game piece scored in one phase is knocked out in the next. If no phase holds enough,
+// the wanted phase is returned and Apply reports the problem.
+func (s *State) DecrementPhase(g *gamedef.Game, change *Change, wanted string) string {
+	element := g.Element(change.Element)
+	if element == nil || element.Type != gamedef.TypeCounter || change.Op != OpDecrement {
+		return wanted
+	}
+	value, err := s.value(g, element, change.Alliance, change.Robot)
+	if err != nil || value == nil {
+		return wanted
+	}
+	amount := 1
+	if change.Value != nil {
+		n, ok := rules.ToNumber(change.Value)
+		if !ok {
+			return wanted
+		}
+		amount = int(n)
+	}
+	if value.Counts[wanted] >= amount {
+		return wanted
+	}
+	earlier := false
+	for i := len(g.Match.Phases) - 1; i >= 0; i-- {
+		phase := g.Match.Phases[i].ID
+		if phase == wanted {
+			earlier = true
+		} else if earlier && value.Counts[phase] >= amount {
+			return phase
+		}
+	}
+	return wanted
+}
+
 func (s *State) applyFoul(g *gamedef.Game, change *Change) error {
 	allianceState := s.Alliances[change.Alliance]
 	if allianceState == nil {
@@ -427,6 +470,29 @@ func (s *State) applyCard(g *gamedef.Game, change *Change) error {
 	} else {
 		allianceState.Cards[change.Robot] = card
 	}
+	return nil
+}
+
+func (s *State) applyBypassed(change *Change) error {
+	allianceState := s.Alliances[change.Alliance]
+	if allianceState == nil {
+		return fmt.Errorf("there is no alliance %q", change.Alliance)
+	}
+	if change.Robot < 1 || change.Robot > len(allianceState.Robots) {
+		return fmt.Errorf("a robot position is bypassed; %d is out of range", change.Robot)
+	}
+	bypassed, ok := change.Value.(bool)
+	if !ok || change.Op != OpSet {
+		return fmt.Errorf("bypassed takes op set with true or false")
+	}
+	if !bypassed {
+		delete(allianceState.Bypassed, change.Robot)
+		return nil
+	}
+	if allianceState.Bypassed == nil {
+		allianceState.Bypassed = make(map[int]bool)
+	}
+	allianceState.Bypassed[change.Robot] = true
 	return nil
 }
 

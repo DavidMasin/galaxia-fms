@@ -828,3 +828,58 @@ The README now mentions the countdown.
 
 **Next:** the rest of milestone 9 (OBS automation, camera recording, theming), or the practice modes
 (milestone 7).
+
+## 2026-11-22 23:12 - The 2025 game, from its manual alone
+
+David gave me the 2025 game manual as a PDF and asked for an FMS for that game using only the manual, as on a
+kickoff day. I used nothing else: not upstream's 2025 code, not the web. The report is
+`docs/milestones/kickoff-2025.md`.
+
+**Reading the manual.** The PDF tool here has no renderer, so I installed PyMuPDF into the scratch environment
+and extracted the text page by page, and pictures of the pages whose figures matter (5-8 for how branches are
+named, 5-17, 6-3, 6-4). Read: sections 4 to 7 and 10, and the glossary.
+
+**The game.** `games/reefscape/game.yaml` (78 scoring elements) and `tests.yaml` (31 worked examples, each worked
+out by hand from table 6-2 before it was run; all passed the first time). Coral is tracked by place: 36 booleans
+for the branches and a counter for the trough. What stands on the reef when teleop starts is latched into 36
+more booleans and a number by triggers, which is how the manual's rules about autonomous coral that is removed
+and scored again come out right.
+
+**What the engine needed, none of it about this game:**
+- `bypassed` on a robot in expressions. The arena records a bypassed team when the match starts; a station with
+  no team counts without a record. Match review can correct it.
+- `ui.row` and `ui.column`: the booleans of a group drawn as a grid of compact buttons on the scoring panel, and
+  as a table in match review. The reference example game uses it too, because a test requires that game to use
+  every schema feature.
+- A removal from a counter comes off the latest earlier phase that holds enough, instead of being refused.
+- A trigger that would change nothing records nothing, and the triggers of one moment are applied as one step.
+- `game score` refuses a file without a `state:` key instead of scoring an empty match.
+
+**Found by playing it.** The first match on the test copy recorded 74 changes when teleop started, most of them
+an empty place set to empty. That pushed the scorer's own actions out of the panel's list of recent changes and
+computed the score 74 times in the pass that announces teleop. `BenchmarkCompute` puts one computation for this
+game at 0.46 ms, so about 34 ms; I did not time it in the match. After the change a second match recorded 3.
+
+**Checked in a browser**, on the test copy (port 8090, its own database, broker ports 18840 and 18841), through
+the real scoring and referee panels: the reef grid, autonomous scoring, the latch at the start of teleop, a
+latched coral knocked off (28) and scored again (35), two coral leaving the trough (30), a foul that hands over
+the coral ranking point (36), algae and the barge (72), the latch corrected by the scorer (74), commit, and the
+final score screen: 9, 23, 0, 16, 20, 6, total 74. Match review shows the reef as a table.
+
+**Commands run.** `go build`, `go vet` (three analyzers off as before), `go run cmd/gofmt -l` on the packages
+(clean), `go test ./...` (20 packages pass; `gamecli` has tests now), the race detector over every package (no
+data race), `node --test` on the browser tests (13 pass), `galaxia-fms game validate games` (4 games) and
+`game test games` (60 examples pass).
+
+**Not there, and said so in the report:** publishing to The Blue Alliance (its field names are not in the
+manual), the barge lights' three seconds after the match, tying G419 to one robot's result, knowing a
+qualification match from a playoff match in the file, cage heights, near and far scorers. Lights and sensors
+are not bound by the file and nothing was tried on hardware.
+
+**About David's running copy.** It runs from `galaxia-fms.exe` in this folder, built at 22:25 and started at
+22:38, while I was part of the way through these changes. My `go build` at 23:11 replaced the file; Windows kept
+the running one as `galaxia-fms.exe~`, so his copy carried on untouched (ports 8080, 1883 and 8083 are still
+its own). It needs a restart to see the new game, and `galaxia-fms.exe~` can be deleted once it has stopped. His
+changed logo files in `static/img` are his and are not in my commit.
+
+The test copy is stopped and its ports are free.

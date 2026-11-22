@@ -15,8 +15,10 @@ for each finished milestone is in [docs/milestones/](docs/milestones/), and a ru
 [WORKLOG.md](WORKLOG.md).
 
 Matches, scoring panels, the referee panel, match review, rankings and every display run from a game definition
-file. Three example games ship in [games/](games/); [docs/game-definition.md](docs/game-definition.md) explains how
-to write your own.
+file. Four example games ship in [games/](games/), two of them real FRC games. The 2025 game was written from its
+game manual alone, as on a kickoff day; what that took is in
+[docs/milestones/kickoff-2025.md](docs/milestones/kickoff-2025.md).
+[docs/game-definition.md](docs/game-definition.md) explains how to write your own.
 
 Field electronics are plug-and-play:
 - Sensors, buttons, E-stops, stack lights and LED strips connect over Wi-Fi (MQTT, WebSocket or HTTP) or USB.

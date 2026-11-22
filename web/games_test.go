@@ -54,7 +54,7 @@ func TestGamesApiListAndGet(t *testing.T) {
 		assert.Equal(t, true, summary["valid"], summary["id"])
 		assert.Empty(t, summary["diagnostics"])
 	}
-	assert.Equal(t, []string{"ball-count", "orbital-rush", "rebuilt-style"}, ids)
+	assert.Equal(t, []string{"ball-count", "orbital-rush", "rebuilt-style", "reefscape"}, ids)
 
 	recorder = web.getHttpResponse("/api/v1/games/ball-count")
 	assert.Equal(t, 200, recorder.Code)

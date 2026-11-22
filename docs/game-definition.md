@@ -4,13 +4,14 @@ A game is one YAML file, `games/<id>/game.yaml`. It describes the alliances, the
 scored, the fouls, the rules that turn raw scoring into points and ranking points, and how teams are ranked.
 Nothing about a game lives in Go code.
 
-Three examples ship with Galaxia FMS:
+Four examples ship with Galaxia FMS:
 
 | Game | Read it for |
 |------|-------------|
 | [`games/ball-count`](../games/ball-count/game.yaml) | The smallest useful game. Start here. |
 | [`games/orbital-rush`](../games/orbital-rush/game.yaml) | Every feature of the schema, each with a comment. |
 | [`games/rebuilt-style`](../games/rebuilt-style/game.yaml) | A real FRC game (2026) expressed as data. |
+| [`games/reefscape`](../games/reefscape/game.yaml) | A real FRC game (2025) written from its manual alone: places scored one by one, a latch at the end of autonomous, fouls that move ranking points. |
 
 ## Working on a game from the terminal
 
@@ -183,7 +184,24 @@ Other keys:
 - `step`, `unit`: hints for number inputs.
 - `cycle: true`: a change to this element marks the end of a scoring cycle in practice statistics.
 - `ui`: `group`, `widget` (`stepper`, `toggle`, `buttons`, `select`, `timer`, `slider`, `input`), `order`,
-  `hidden`. Hints for the generated scoring panel.
+  `hidden`, `row` and `column`. Hints for the generated scoring panel.
+
+A game with many places to score, each of them filled or empty, gives each place a boolean and puts them in a
+grid:
+
+```yaml
+  - { id: shelf_top_a, name: Top shelf A, type: boolean, scope: alliance,
+      ui: { group: Shelves, row: Top, column: A, order: 10 } }
+  - { id: shelf_top_b, name: Top shelf B, type: boolean, scope: alliance,
+      ui: { group: Shelves, row: Top, column: B, order: 11 } }
+```
+
+- The booleans of one group that name a `row` and a `column` are drawn together: one compact button for each,
+  carrying the name of its column, with the name of the row at the left. Rows and columns appear in the order
+  the file first names them. Match review edits the same grid as a table of tick boxes.
+- `row` and `column` are given together, on a boolean of alliance or field scope, and a cell holds one element.
+- Each place is still an element of its own: it has an id, a sensor can be bound to it, and expressions read it
+  by name. Count a row with `count([own.shelf_top_a, own.shelf_top_b], #)`.
 
 A field element cannot have `points`, because it belongs to no alliance. Use a derived value.
 
@@ -204,6 +222,9 @@ cards:
 
 - `to: opponents` (the default) credits the points to every other alliance. `to: none` is a penalty with no
   points that rules can still read.
+- A rule whose violation does more than give points, such as handing the opponent a ranking point, gets a foul
+  type of its own. Calling the rule is then enough, and the ranking point reads
+  `opp.fouls.<that type>.count > 0`.
 - `rules` is the catalogue the referee panel offers. The same rule id may appear once per foul type.
 - Read fouls as `own.fouls.count`, `own.fouls.major.count`, `own.fouls.major.points`. `own.foul_points` is
   what an alliance received from the others.
@@ -250,6 +271,26 @@ triggers:
 - `pick(a, b, ...)` returns one argument at random. It is only allowed here.
 - The result is recorded like any other score change, with the rule as its source, so it appears in the audit
   log and a scorer can override it.
+- A trigger that would leave the value exactly as it is records nothing.
+
+**A latch.** Some rules depend on what was true at one moment: a game piece scored in autonomous keeps its
+autonomous value only while it stays where it was. Keep two elements, what is there now and what was there at
+the moment, and let a trigger copy one to the other:
+
+```yaml
+elements:
+  - { id: shelf_top_a, type: boolean, scope: alliance }
+  - { id: auto_shelf_top_a, type: boolean, scope: alliance, edit: [scorer], phases: [teleop] }
+triggers:
+  - { on: { phase_start: teleop }, set: { element: auto_shelf_top_a, value: "own.shelf_top_a" } }
+derived:
+  - id: shelf_points
+    scope: alliance
+    points: "own.shelf_top_a ? (own.auto_shelf_top_a ? 6 : 4) : 0"
+```
+
+`phases: [teleop]` keeps scorers away from the latch until it has been taken, and lets them correct it
+afterwards. [`games/reefscape`](../games/reefscape/game.yaml) does this for 36 places and a counter.
 
 ### live
 
@@ -378,7 +419,7 @@ Properties of an alliance:
 |----------|---------|
 | `id`, `name` | |
 | `<element id>` | An alliance element's value |
-| `robots` | List of robots; each has `position`, `team` and the robot elements |
+| `robots` | List of robots; each has `position`, `team`, `bypassed` and the robot elements |
 | `<derived id>` | An alliance derived value |
 | `points.<id>` | Points earned by an element (summed over robots) or by a derived value with points |
 | `phase_points.<element>.<phase>` | The part of an element's points earned in one phase |
@@ -386,6 +427,10 @@ Properties of an alliance:
 | `foul_points` | Points this alliance received from the others' fouls |
 | `cards`, `disqualified` | |
 | `score`, `breakdown.<row>`, `rp.<id>`, `rp.total` | Only after the score exists: in breakdown, ranking, playoff, live and tba expressions |
+
+A robot is `bypassed` if it took no part in the match: its station was bypassed when the match started, or had
+no team. Write "every robot that played" as `all(own.robots, #.bypassed or #.leave)`. Match review can correct
+it.
 
 Functions beyond expr's own: `clamp(value, low, high)` and, in triggers, `pick(...)`.
 
@@ -395,7 +440,7 @@ Things to know:
 - A condition used as a number counts as 1 when true.
 - Element, derived and live ids share one namespace and cannot be `id`, `name`, `robots`, `points`,
   `phase_points`, `fouls`, `foul_points`, `cards`, `disqualified`, `breakdown`, `score`, `rp`, `position`,
-  `team`, `total`, `seconds`, `running` or `count`.
+  `team`, `bypassed`, `total`, `seconds`, `running` or `count`.
 
 ## Worked examples
 
@@ -417,6 +462,7 @@ cases:
         robots:
           - { leave: true, climb: high }
           - { climb: low }
+          - { bypassed: true }                    # this robot took no part in the match
         fouls: [minor, { type: major, rule: G1, robot: 2 }]
         cards: { 1: yellow }
         disqualified: false
@@ -438,4 +484,5 @@ cases:
         stats: { match_points: 44 }
 ```
 
-Only what you list under `expect` is checked. The `state` form is the same one `game score` reads.
+Only what you list under `expect` is checked. The `state` form is the same one `game score` reads: its file
+has `state:`, and optionally `params:` and `playoff:`, at the top level.

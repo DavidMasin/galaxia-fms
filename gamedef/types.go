@@ -209,6 +209,9 @@ type UIHint struct {
 	Widget string  `yaml:"widget"`
 	Order  float64 `yaml:"order"`
 	Hidden bool    `yaml:"hidden"`
+	// Row and Column place a boolean element in a grid of its group: one compact button per cell.
+	Row    string `yaml:"row"`
+	Column string `yaml:"column"`
 }
 
 // Points is how an element earns points: a flat value, a value per phase, or an expression.

@@ -201,7 +201,7 @@ func (web *Web) handleScoreCommand(command string, data any, source scoring.Sour
 		return err
 	}
 	switch args.Element {
-	case scoring.TargetFoul, scoring.TargetCard, scoring.TargetDisqualified:
+	case scoring.TargetFoul, scoring.TargetCard, scoring.TargetDisqualified, scoring.TargetBypassed:
 		// These have commands of their own, which apply the rules that go with them.
 		return fmt.Errorf("the score command changes scoring elements; %s is not one", args.Element)
 	}

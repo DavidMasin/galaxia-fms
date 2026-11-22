@@ -1,0 +1,596 @@
+# Reefscape: the 2025 FIRST Robotics Competition game, written from its game manual and nothing else.
+#
+# Source: the 2025 game manual, in the copy whose section 6 is marked V13 and section 7 V11. The section and table
+# numbers in the comments below point into it. Rule descriptions are written for this project and are not quoted.
+# This file is not an official FIRST product.
+#
+# What the game needed from the file:
+#   - coral on the reef is tracked by place, as the manual says the field does (figure 5-8): twelve branches, A to
+#     L, on each of levels 2 to 4, one coral each, and a count for the trough, level 1;
+#   - what stands on the reef when autonomous has been assessed is latched. A latched coral earns its autonomous
+#     value while it stays. Taken off, it earns nothing but still counts for the autonomous ranking point. Put back
+#     on the same branch, it earns its autonomous value again (section 6.5.1);
+#   - the trough has no places, so coral leaving it is taken from the teleop coral first and coral coming back is
+#     counted as the autonomous coral first;
+#   - two algae in each alliance's processor lower the coral ranking point from four levels to three;
+#   - three kinds of foul hand a ranking point to the opponent or take two away.
+
+schema: 1
+id: reefscape
+name: Reefscape
+version: "1.0"
+description: >
+  Robots place coral on the four levels of their reef, clear algae into their processor or their net, and end the
+  match parked under the barge or hanging from a cage. Two algae in each processor is cooperation that both
+  alliances are rewarded for.
+
+alliances:
+  size: 3
+  list:
+    - { id: red, name: Red, short: R, color: "#d32f2f", ds: red }
+    - { id: blue, name: Blue, short: B, color: "#1565c0", ds: blue }
+
+# Table 6-2 says these two requirements may be raised at district championships and the championship.
+params:
+  coral_rp_threshold: { name: Coral on a level that counts for the coral ranking point, type: int, default: 7, min: 1 }
+  barge_rp_threshold: { name: Barge points for the barge ranking point, type: int, default: 16, min: 0 }
+
+# Section 6.4: 15 seconds of autonomous, then teleop for the remaining 2:15. The three seconds between them are the
+# delay "for scoring purposes" the manual describes; the latch below is taken when they are over. Table 5-1 lists
+# the sounds: one at the start, one when autonomous ends, one when teleop begins, one at 20 seconds, one at the end.
+match:
+  countdown: { enabled: true, voice: drivers_behind_lines, beats: 3 }
+  phases:
+    - id: auto
+      name: Autonomous
+      duration: 15
+      robots: auto
+      cues:
+        - { at: start, sound: match_start }
+        - { at: end, sound: phase_end }
+    - { id: pause, name: Pause, duration: 3, robots: disabled }
+    - id: teleop
+      name: Teleop
+      duration: 135
+      robots: teleop
+      cues:
+        - { at: start, sound: resume }
+        - { remaining: 20, sound: warning, id: last_20 }
+        - { at: end, sound: match_end }
+  # Section 6.5: what was on its way when a period ended is still assessed for three seconds.
+  score_grace: 3
+
+elements:
+  # Section 6.5.2: a robot leaves if its bumpers no longer overlap the starting line when autonomous ends.
+  - id: leave
+    name: Left the starting line
+    type: boolean
+    scope: robot
+    points: 3
+    edit: [scorer, referee]
+    ui: { group: Leave, widget: toggle, order: 1 }
+
+  # The reef as it stands now. One coral per branch (section 6.5.1), so each place is a yes or a no. They are drawn
+  # as a grid, highest level at the top. A sensor on a branch can be bound to its place as well.
+  - { id: l4_a, name: L4 A, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L4, column: A, order: 10 } }
+  - { id: l4_b, name: L4 B, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L4, column: B, order: 11 } }
+  - { id: l4_c, name: L4 C, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L4, column: C, order: 12 } }
+  - { id: l4_d, name: L4 D, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L4, column: D, order: 13 } }
+  - { id: l4_e, name: L4 E, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L4, column: E, order: 14 } }
+  - { id: l4_f, name: L4 F, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L4, column: F, order: 15 } }
+  - { id: l4_g, name: L4 G, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L4, column: G, order: 16 } }
+  - { id: l4_h, name: L4 H, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L4, column: H, order: 17 } }
+  - { id: l4_i, name: L4 I, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L4, column: I, order: 18 } }
+  - { id: l4_j, name: L4 J, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L4, column: J, order: 19 } }
+  - { id: l4_k, name: L4 K, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L4, column: K, order: 20 } }
+  - { id: l4_l, name: L4 L, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L4, column: L, order: 21 } }
+  - { id: l3_a, name: L3 A, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L3, column: A, order: 22 } }
+  - { id: l3_b, name: L3 B, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L3, column: B, order: 23 } }
+  - { id: l3_c, name: L3 C, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L3, column: C, order: 24 } }
+  - { id: l3_d, name: L3 D, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L3, column: D, order: 25 } }
+  - { id: l3_e, name: L3 E, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L3, column: E, order: 26 } }
+  - { id: l3_f, name: L3 F, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L3, column: F, order: 27 } }
+  - { id: l3_g, name: L3 G, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L3, column: G, order: 28 } }
+  - { id: l3_h, name: L3 H, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L3, column: H, order: 29 } }
+  - { id: l3_i, name: L3 I, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L3, column: I, order: 30 } }
+  - { id: l3_j, name: L3 J, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L3, column: J, order: 31 } }
+  - { id: l3_k, name: L3 K, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L3, column: K, order: 32 } }
+  - { id: l3_l, name: L3 L, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L3, column: L, order: 33 } }
+  - { id: l2_a, name: L2 A, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L2, column: A, order: 34 } }
+  - { id: l2_b, name: L2 B, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L2, column: B, order: 35 } }
+  - { id: l2_c, name: L2 C, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L2, column: C, order: 36 } }
+  - { id: l2_d, name: L2 D, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L2, column: D, order: 37 } }
+  - { id: l2_e, name: L2 E, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L2, column: E, order: 38 } }
+  - { id: l2_f, name: L2 F, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L2, column: F, order: 39 } }
+  - { id: l2_g, name: L2 G, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L2, column: G, order: 40 } }
+  - { id: l2_h, name: L2 H, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L2, column: H, order: 41 } }
+  - { id: l2_i, name: L2 I, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L2, column: I, order: 42 } }
+  - { id: l2_j, name: L2 J, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L2, column: J, order: 43 } }
+  - { id: l2_k, name: L2 K, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L2, column: K, order: 44 } }
+  - { id: l2_l, name: L2 L, type: boolean, scope: alliance, edit: [device, scorer], cycle: true,
+      ui: { group: Reef, row: L2, column: L, order: 45 } }
+
+  # The trough is not tracked by place, only counted.
+  - id: trough
+    name: L1 trough
+    type: counter
+    scope: alliance
+    min: 0
+    edit: [device, scorer]
+    cycle: true
+    ui: { group: Reef, widget: stepper, order: 50 }
+
+  # The latch: the reef as it stood when autonomous had been assessed. The triggers below fill it in at the start
+  # of teleop. A scorer who was late can put it right during teleop or after the match.
+  - { id: auto_l4_a, name: Auto L4 A, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L4, column: A, order: 110 } }
+  - { id: auto_l4_b, name: Auto L4 B, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L4, column: B, order: 111 } }
+  - { id: auto_l4_c, name: Auto L4 C, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L4, column: C, order: 112 } }
+  - { id: auto_l4_d, name: Auto L4 D, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L4, column: D, order: 113 } }
+  - { id: auto_l4_e, name: Auto L4 E, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L4, column: E, order: 114 } }
+  - { id: auto_l4_f, name: Auto L4 F, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L4, column: F, order: 115 } }
+  - { id: auto_l4_g, name: Auto L4 G, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L4, column: G, order: 116 } }
+  - { id: auto_l4_h, name: Auto L4 H, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L4, column: H, order: 117 } }
+  - { id: auto_l4_i, name: Auto L4 I, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L4, column: I, order: 118 } }
+  - { id: auto_l4_j, name: Auto L4 J, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L4, column: J, order: 119 } }
+  - { id: auto_l4_k, name: Auto L4 K, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L4, column: K, order: 120 } }
+  - { id: auto_l4_l, name: Auto L4 L, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L4, column: L, order: 121 } }
+  - { id: auto_l3_a, name: Auto L3 A, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L3, column: A, order: 122 } }
+  - { id: auto_l3_b, name: Auto L3 B, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L3, column: B, order: 123 } }
+  - { id: auto_l3_c, name: Auto L3 C, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L3, column: C, order: 124 } }
+  - { id: auto_l3_d, name: Auto L3 D, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L3, column: D, order: 125 } }
+  - { id: auto_l3_e, name: Auto L3 E, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L3, column: E, order: 126 } }
+  - { id: auto_l3_f, name: Auto L3 F, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L3, column: F, order: 127 } }
+  - { id: auto_l3_g, name: Auto L3 G, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L3, column: G, order: 128 } }
+  - { id: auto_l3_h, name: Auto L3 H, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L3, column: H, order: 129 } }
+  - { id: auto_l3_i, name: Auto L3 I, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L3, column: I, order: 130 } }
+  - { id: auto_l3_j, name: Auto L3 J, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L3, column: J, order: 131 } }
+  - { id: auto_l3_k, name: Auto L3 K, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L3, column: K, order: 132 } }
+  - { id: auto_l3_l, name: Auto L3 L, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L3, column: L, order: 133 } }
+  - { id: auto_l2_a, name: Auto L2 A, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L2, column: A, order: 134 } }
+  - { id: auto_l2_b, name: Auto L2 B, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L2, column: B, order: 135 } }
+  - { id: auto_l2_c, name: Auto L2 C, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L2, column: C, order: 136 } }
+  - { id: auto_l2_d, name: Auto L2 D, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L2, column: D, order: 137 } }
+  - { id: auto_l2_e, name: Auto L2 E, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L2, column: E, order: 138 } }
+  - { id: auto_l2_f, name: Auto L2 F, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L2, column: F, order: 139 } }
+  - { id: auto_l2_g, name: Auto L2 G, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L2, column: G, order: 140 } }
+  - { id: auto_l2_h, name: Auto L2 H, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L2, column: H, order: 141 } }
+  - { id: auto_l2_i, name: Auto L2 I, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L2, column: I, order: 142 } }
+  - { id: auto_l2_j, name: Auto L2 J, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L2, column: J, order: 143 } }
+  - { id: auto_l2_k, name: Auto L2 K, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L2, column: K, order: 144 } }
+  - { id: auto_l2_l, name: Auto L2 L, type: boolean, scope: alliance, edit: [scorer], phases: [teleop],
+      ui: { group: Reef when auto ended, row: L2, column: L, order: 145 } }
+
+  - id: auto_trough
+    name: L1 trough when auto ended
+    type: number
+    scope: alliance
+    min: 0
+    step: 1
+    edit: [scorer]
+    phases: [teleop]
+    ui: { group: Reef when auto ended, widget: input, order: 150 }
+
+  # Section 6.5.1: an algae counts in a processor once it has passed the sensors behind the opening, so a sensor
+  # can count it. An algae counts in a net while it rests there, so it can be taken off again.
+  - id: processor
+    name: Algae in the processor
+    type: counter
+    scope: alliance
+    min: 0
+    points: 6
+    edit: [device, scorer]
+    cycle: true
+    ui: { group: Algae, widget: stepper, order: 200 }
+
+  - id: net
+    name: Algae in the net
+    type: counter
+    scope: alliance
+    min: 0
+    points: 4
+    edit: [device, scorer]
+    cycle: true
+    ui: { group: Algae, widget: stepper, order: 201 }
+
+  # Section 6.5.2: where each robot is when the match has ended. A robot that hangs is not also parked.
+  - id: barge
+    name: Barge
+    type: enum
+    scope: robot
+    edit: [scorer, referee]
+    options:
+      - { id: none, name: None, points: 0 }
+      - { id: park, name: Parked, points: 2 }
+      - { id: shallow, name: Shallow cage, points: 6 }
+      - { id: deep, name: Deep cage, points: 12 }
+    ui: { group: Barge, widget: buttons, order: 300 }
+
+# Table 6-3. A minor foul gives the opponent 2 points and a major foul 6. Three rules do more than that, and each
+# has a type of its own so that calling the rule is enough.
+fouls:
+  types:
+    - { id: minor, name: Minor foul, points: 2, to: opponents }
+    - { id: major, name: Major foul, points: 6, to: opponents }
+    - { id: major_coral_rp, name: "Major foul, coral RP to the opponent", points: 6, to: opponents }
+    - { id: major_barge_rp, name: "Major foul, barge RP to the opponent", points: 6, to: opponents }
+    - { id: rp_ineligible, name: No coral or barge RP, points: 0, to: none }
+  rules:
+    - { id: G206, name: Colluding for ranking points, foul: rp_ineligible,
+        text: "Teams agreed to break a rule together to affect ranking points. Also a yellow card." }
+    - { id: G210, name: Forcing an opponent to foul, foul: major,
+        text: A strategy with no purpose but to make an opponent break a rule. }
+    - { id: G301, name: Delaying the match, foul: major,
+        text: "A drive team delayed the start of a match again after a warning. Counted in the delayed match." }
+    - { id: G401, name: Over the line in auto, foul: minor,
+        text: In autonomous a drive team member touched something beyond the human starting line. }
+    - { id: G402, name: Touching the controls in auto, foul: minor,
+        text: "In autonomous a drive team member interacted with a robot or an operator console. Also a yellow card." }
+    - { id: G403, name: Auto contact past the barge, foul: major,
+        text: In autonomous a robot that had fully crossed the barge zone contacted an opponent robot. }
+    - { id: G404, name: Algae thrown in auto, foul: minor,
+        text: In autonomous a human player put algae onto the field. }
+    - { id: G405, name: Opponent cage in auto, foul: major,
+        text: In autonomous a robot contacted a cage of the other alliance. }
+    - { id: G406, name: Misusing a scoring element, foul: major,
+        text: A robot used coral or algae to make a field task easier or harder than it should be. }
+    - { id: G407, name: Scoring element out of the field, foul: minor,
+        text: A robot deliberately sent coral or algae out of the field other than through a processor. }
+    - { id: G407, name: Scoring element out of the field again, foul: major,
+        text: The same robot did it again in the match. }
+    - { id: G408, name: Damaging scoring elements, foul: major,
+        text: Coral or algae damaged again after a warning earlier in the event. }
+    - { id: G409, name: More than one coral and one algae, foul: minor,
+        text: A robot controlled more than one coral and one algae at once. One foul for each extra piece. }
+    - { id: G410, name: Coral taken off the opponent's reef, foul: major_coral_rp,
+        text: "A robot removed coral scored on the other alliance's reef. One foul for each coral, and the opponent is
+          awarded the coral ranking point." }
+    - { id: G411, name: Algae put on the opponent's reef, foul: major,
+        text: "A robot deliberately put algae on the other alliance's reef. Also a yellow card." }
+    - { id: G412, name: Coral launched outside the reef zone, foul: major,
+        text: A robot threw coral while its bumpers were not at least partly in its own reef zone. }
+    - { id: G414, name: Bumpers out of the bumper zone, foul: minor,
+        text: The bumpers of a robot were outside the height they must stay in. }
+    - { id: G415, name: Reaching too far, foul: minor,
+        text: A robot extended further beyond its frame than the limit allows. }
+    - { id: G415, name: Reaching too far for an advantage, foul: major,
+        text: The extension beyond the limit was used to score or to get in the way. }
+    - { id: G417, name: Holding on to the field, foul: major,
+        text: "A robot grabbed, attached to or hung from a part of the field other than a cage." }
+    - { id: G418, name: Opponent cage in teleop, foul: major_barge_rp,
+        text: "In teleop a robot contacted a cage of the other alliance. In a qualification match the opponent is
+          awarded the barge ranking point." }
+    - { id: G419, name: Using an anchor, foul: major,
+        text: "A robot used the top of a cage or its chain to climb or steady itself. That robot earns no cage points:
+          set its barge result to match." }
+    - { id: G420, name: Touching a net, foul: major,
+        text: "A robot contacted a net, or algae scored in the opponent's net. One more foul for each algae
+          knocked out." }
+    - { id: G421, name: Two defenders, foul: minor,
+        text: More than one robot of an alliance was past both barge zones on the opponent's side. }
+    - { id: G421, name: Two defenders for another 3 seconds, foul: major,
+        text: Called again for every 3 seconds the second robot stays there. }
+    - { id: G422, name: Reaching into an opponent, foul: minor,
+        text: A robot reached inside the frame of an opponent robot and made contact. }
+    - { id: G423, name: Damaging an opponent, foul: major,
+        text: "A robot damaged or disabled an opponent robot. Also a yellow card, or a red card if the opponent
+          can no longer drive." }
+    - { id: G424, name: Tipping or entangling, foul: major,
+        text: "A robot deliberately tipped, attached to or entangled an opponent. Also a yellow or a red card." }
+    - { id: G425, name: Pinning, foul: minor,
+        text: A robot held an opponent in place for more than 3 seconds. }
+    - { id: G425, name: Pinning for another 3 seconds, foul: major,
+        text: Called again for every 3 seconds the pin goes on. }
+    - { id: G426, name: Shutting down play together, foul: major,
+        text: "Two or more robots worked together to close off a major part of play. Called again every 3 seconds." }
+    - { id: G427, name: Contact in a protected zone, foul: major,
+        text: A robot contacted an opponent robot that was in its own barge zone or reef zone. }
+    - { id: G428, name: Contact with a climbing robot, foul: major_barge_rp,
+        text: "In the last 20 seconds a robot contacted an opponent that was touching one of its own cages. The opponent
+          is awarded the barge ranking point." }
+    - { id: G429, name: Leaving the assigned area, foul: minor,
+        text: A drive team member touched something outside the area they must stay in. }
+    - { id: G430, name: Wrong person at the controls, foul: major,
+        text: A robot was operated by someone other than the drivers and human players of its team. }
+    - { id: G431, name: Reaching into the chute, foul: minor,
+        text: A drive team member reached into the chute of a coral station. }
+    - { id: G432, name: Human misusing a scoring element, foul: major,
+        text: A drive team member used coral or algae to interfere with a field task or a robot. }
+    - { id: G433, name: Scoring element entered the wrong way, foul: major,
+        text: "Coral entered the field other than through a coral station, or algae other than from the
+          processor area." }
+    - { id: G434, name: Coach touching a scoring element, foul: minor,
+        text: A coach touched coral or algae. }
+    - { id: G435, name: Too many algae stored, foul: major,
+        text: More than four algae were kept in a processor area. One foul for each extra algae. }
+
+# Section 6.6.1.
+cards:
+  - { id: yellow, name: Yellow card, color: "#fdd835", second_becomes: red }
+  - { id: red, name: Red card, color: "#d32f2f", disqualifies: true }
+
+derived:
+  # Coral scored now, by level.
+  - { id: l1, name: Coral on level 1, scope: alliance, expr: "own.trough.total" }
+  - id: l2
+    name: Coral on level 2
+    scope: alliance
+    expr: >
+      count([own.l2_a, own.l2_b, own.l2_c, own.l2_d, own.l2_e, own.l2_f, own.l2_g, own.l2_h, own.l2_i, own.l2_j,
+      own.l2_k, own.l2_l], #)
+  - id: l3
+    name: Coral on level 3
+    scope: alliance
+    expr: >
+      count([own.l3_a, own.l3_b, own.l3_c, own.l3_d, own.l3_e, own.l3_f, own.l3_g, own.l3_h, own.l3_i, own.l3_j,
+      own.l3_k, own.l3_l], #)
+  - id: l4
+    name: Coral on level 4
+    scope: alliance
+    expr: >
+      count([own.l4_a, own.l4_b, own.l4_c, own.l4_d, own.l4_e, own.l4_f, own.l4_g, own.l4_h, own.l4_i, own.l4_j,
+      own.l4_k, own.l4_l], #)
+
+  # Of the coral scored now, the ones the latch also holds. They earn their autonomous value. For the trough these
+  # are counted from the bottom, so the autonomous coral are the last to go and the first to come back.
+  - { id: l1_auto, name: Auto coral on level 1, scope: alliance, expr: "min(own.trough.total, own.auto_trough)" }
+  - id: l2_auto
+    name: Auto coral on level 2
+    scope: alliance
+    expr: >
+      count([own.l2_a and own.auto_l2_a, own.l2_b and own.auto_l2_b, own.l2_c and own.auto_l2_c, own.l2_d and
+      own.auto_l2_d, own.l2_e and own.auto_l2_e, own.l2_f and own.auto_l2_f, own.l2_g and own.auto_l2_g,
+      own.l2_h and own.auto_l2_h, own.l2_i and own.auto_l2_i, own.l2_j and own.auto_l2_j, own.l2_k and
+      own.auto_l2_k, own.l2_l and own.auto_l2_l], #)
+  - id: l3_auto
+    name: Auto coral on level 3
+    scope: alliance
+    expr: >
+      count([own.l3_a and own.auto_l3_a, own.l3_b and own.auto_l3_b, own.l3_c and own.auto_l3_c, own.l3_d and
+      own.auto_l3_d, own.l3_e and own.auto_l3_e, own.l3_f and own.auto_l3_f, own.l3_g and own.auto_l3_g,
+      own.l3_h and own.auto_l3_h, own.l3_i and own.auto_l3_i, own.l3_j and own.auto_l3_j, own.l3_k and
+      own.auto_l3_k, own.l3_l and own.auto_l3_l], #)
+  - id: l4_auto
+    name: Auto coral on level 4
+    scope: alliance
+    expr: >
+      count([own.l4_a and own.auto_l4_a, own.l4_b and own.auto_l4_b, own.l4_c and own.auto_l4_c, own.l4_d and
+      own.auto_l4_d, own.l4_e and own.auto_l4_e, own.l4_f and own.auto_l4_f, own.l4_g and own.auto_l4_g,
+      own.l4_h and own.auto_l4_h, own.l4_i and own.auto_l4_i, own.l4_j and own.auto_l4_j, own.l4_k and
+      own.auto_l4_k, own.l4_l and own.auto_l4_l], #)
+
+  # Everything the latch holds, on the reef still or not. This is what the autonomous ranking point counts.
+  - id: auto_coral
+    name: Coral scored in auto
+    scope: alliance
+    expr: >
+      own.auto_trough + count([
+      own.auto_l2_a, own.auto_l2_b, own.auto_l2_c, own.auto_l2_d, own.auto_l2_e, own.auto_l2_f, own.auto_l2_g,
+      own.auto_l2_h, own.auto_l2_i, own.auto_l2_j, own.auto_l2_k, own.auto_l2_l, own.auto_l3_a, own.auto_l3_b,
+      own.auto_l3_c, own.auto_l3_d, own.auto_l3_e, own.auto_l3_f, own.auto_l3_g, own.auto_l3_h, own.auto_l3_i,
+      own.auto_l3_j, own.auto_l3_k, own.auto_l3_l, own.auto_l4_a, own.auto_l4_b, own.auto_l4_c, own.auto_l4_d,
+      own.auto_l4_e, own.auto_l4_f, own.auto_l4_g, own.auto_l4_h, own.auto_l4_i, own.auto_l4_j, own.auto_l4_k,
+      own.auto_l4_l], #)
+
+  - { id: coral, name: Coral, scope: alliance, expr: "own.l1 + own.l2 + own.l3 + own.l4" }
+  - { id: algae, name: Algae, scope: alliance, expr: "own.processor.total + own.net.total" }
+
+  # Table 6-2: coral is worth 3, 4, 6 and 7 on levels 1 to 4 in autonomous, and 2, 3, 4 and 5 in teleop.
+  - id: auto_coral_points
+    name: Auto coral points
+    scope: alliance
+    points: "own.l1_auto * 3 + own.l2_auto * 4 + own.l3_auto * 6 + own.l4_auto * 7"
+  - id: teleop_coral_points
+    name: Teleop coral points
+    scope: alliance
+    points: >
+      (own.l1 - own.l1_auto) * 2 + (own.l2 - own.l2_auto) * 3 + (own.l3 - own.l3_auto) * 4 +
+      (own.l4 - own.l4_auto) * 5
+
+  # Section 6.5.3: at least two algae in each alliance's processor.
+  # The name is short because the audience display shows it on a badge.
+  - { id: coopertition, name: Co-op, scope: field, expr: "all(alliances, #.processor.total >= 2)" }
+
+  # G206 makes an alliance ineligible for the coral and barge ranking points, whatever else happens (table 6-3).
+  - id: bonus_eligible
+    name: Eligible for coral and barge RP
+    scope: alliance
+    expr: "own.fouls.rp_ineligible.count == 0"
+
+  # The coral ranking point needs enough coral on every level, or on three of the four with coopertition.
+  - id: levels_met
+    name: Levels with enough coral
+    scope: alliance
+    expr: "count([own.l1, own.l2, own.l3, own.l4], # >= params.coral_rp_threshold)"
+  - { id: levels_needed, name: Levels needed, scope: alliance, expr: "field.coopertition ? 3 : 4" }
+
+  # Table 6-2. A robot that was bypassed is left out of "every robot left".
+  - id: auto_rp
+    name: Auto RP
+    scope: alliance
+    expr: "all(own.robots, #.bypassed or #.leave) and own.auto_coral >= 1"
+  - id: coral_rp
+    name: Coral RP
+    scope: alliance
+    expr: >
+      own.bonus_eligible and
+      (own.levels_met >= own.levels_needed or opp.fouls.major_coral_rp.count > 0)
+  - id: barge_rp
+    name: Barge RP
+    scope: alliance
+    expr: >
+      own.bonus_eligible and
+      (own.points.barge >= params.barge_rp_threshold or opp.fouls.major_barge_rp.count > 0)
+
+# The latch. Teleop starts three seconds after autonomous ends, which is when its assessment is over.
+triggers:
+  - { on: { phase_start: teleop }, set: { element: auto_l4_a, value: "own.l4_a" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l4_b, value: "own.l4_b" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l4_c, value: "own.l4_c" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l4_d, value: "own.l4_d" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l4_e, value: "own.l4_e" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l4_f, value: "own.l4_f" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l4_g, value: "own.l4_g" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l4_h, value: "own.l4_h" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l4_i, value: "own.l4_i" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l4_j, value: "own.l4_j" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l4_k, value: "own.l4_k" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l4_l, value: "own.l4_l" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l3_a, value: "own.l3_a" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l3_b, value: "own.l3_b" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l3_c, value: "own.l3_c" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l3_d, value: "own.l3_d" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l3_e, value: "own.l3_e" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l3_f, value: "own.l3_f" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l3_g, value: "own.l3_g" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l3_h, value: "own.l3_h" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l3_i, value: "own.l3_i" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l3_j, value: "own.l3_j" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l3_k, value: "own.l3_k" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l3_l, value: "own.l3_l" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l2_a, value: "own.l2_a" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l2_b, value: "own.l2_b" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l2_c, value: "own.l2_c" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l2_d, value: "own.l2_d" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l2_e, value: "own.l2_e" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l2_f, value: "own.l2_f" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l2_g, value: "own.l2_g" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l2_h, value: "own.l2_h" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l2_i, value: "own.l2_i" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l2_j, value: "own.l2_j" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l2_k, value: "own.l2_k" } }
+  - { on: { phase_start: teleop }, set: { element: auto_l2_l, value: "own.l2_l" } }
+  - { on: { phase_start: teleop }, set: { element: auto_trough, value: "own.trough.total" } }
+
+# For lights on the field (section 5.4). Each side of the barge has three: one lights for each algae in that
+# alliance's processor up to two, and all three once both alliances have their two. They flash for the last 20
+# seconds. Bind a light strip to these on Setup > Bindings or Setup > Lighting.
+live:
+  - id: barge_lights
+    name: Barge lights lit
+    scope: alliance
+    expr: "field.coopertition ? 3 : min(own.processor.total, 2)"
+  - id: last_seconds
+    name: Last 20 seconds
+    scope: field
+    expr: "match_state == 'running' and phase == 'teleop' and phase_remaining <= 20"
+
+breakdown:
+  - { id: leave_points, name: Leave, expr: "own.points.leave" }
+  - { id: auto_coral_points, name: Auto coral, expr: "own.points.auto_coral_points" }
+  - { id: teleop_coral_points, name: Teleop coral, expr: "own.points.teleop_coral_points" }
+  - { id: algae_points, name: Algae, expr: "own.points.processor + own.points.net" }
+  - { id: barge_points, name: Barge, expr: "own.points.barge" }
+  - { id: foul_points, name: Fouls, expr: "own.foul_points" }
+
+# Table 6-2 for the points and section 10.5.3, table 10-1, for the order.
+ranking:
+  points:
+    - { id: win, name: Win, expr: "result == 'win' ? 3 : result == 'tie' ? 1 : 0" }
+    - { id: auto, name: Auto, expr: "own.auto_rp" }
+    - { id: coral, name: Coral, expr: "own.coral_rp" }
+    - { id: barge, name: Barge, expr: "own.barge_rp" }
+  stats:
+    - { id: coopertition, name: Coopertition points, expr: "field.coopertition ? 1 : 0" }
+    - { id: match_points, name: Match points, expr: "own.score - own.foul_points" }
+    - { id: auto_points, name: Leave and auto coral points, expr: "own.points.leave + own.points.auto_coral_points" }
+    - { id: barge_points, name: Barge points, expr: "own.points.barge" }
+  order:
+    - { name: Ranking score, expr: "rp / played", decimals: 2 }
+    - { name: Avg coopertition, expr: "coopertition / played", decimals: 2 }
+    - { name: Avg match, expr: "match_points / played", decimals: 2 }
+    - { name: Avg auto, expr: "auto_points / played", decimals: 2 }
+    - { name: Avg barge, expr: "barge_points / played", decimals: 2 }
+    - { random: true }
+
+# Section 10.6.2.1, table 10-3. If all three are equal the match is replayed.
+playoff:
+  tiebreakers:
+    - name: Major foul points from the opponent
+      expr: "sum(opponents, #.fouls.major.points + #.fouls.major_coral_rp.points + #.fouls.major_barge_rp.points)"
+    - { name: Leave and auto coral points, expr: "own.points.leave + own.points.auto_coral_points" }
+    - { name: Barge points, expr: "own.points.barge" }
+
+layout:
+  scoring_panels:
+    # Two scorers for each alliance, or one who does everything.
+    - { id: red_reef, name: Red reef, alliances: [red], groups: [Reef, Reef when auto ended] }
+    - { id: red_field, name: "Red leave, algae and barge", alliances: [red], groups: [Leave, Algae, Barge] }
+    - { id: red, name: Red everything, alliances: [red] }
+    - { id: blue_reef, name: Blue reef, alliances: [blue], groups: [Reef, Reef when auto ended] }
+    - { id: blue_field, name: "Blue leave, algae and barge", alliances: [blue], groups: [Leave, Algae, Barge] }
+    - { id: blue, name: Blue everything, alliances: [blue] }
+  audience:
+    live: [coral, algae]
+    indicators: [coopertition, auto_rp, coral_rp, barge_rp]
+  # The coral on levels 1 to 4, as on the back of the field timer (figure 5-17).
+  team_sign: "string(own.l1) + '-' + string(own.l2) + '-' + string(own.l3) + '-' + string(own.l4)"

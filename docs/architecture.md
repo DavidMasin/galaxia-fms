@@ -191,14 +191,32 @@ not recorded; the error says why.
   is the time at which the match stopped; device inputs arriving within `score_grace` seconds of the end are
   credited to the phase that was running when the match stopped, and later ones are refused; human edits to
   counters must name the `Bucket` themselves. In every other state changes are rejected, except from `admin`.
+- **Taking away what an earlier phase scored.** A counter is kept per phase. While `InMatch`, a decrement that
+  the phase it would be credited to cannot cover is credited to the latest earlier phase that can
+  (`State.DecrementPhase`), and the change records that phase as its `Bucket`: a game piece scored in one
+  phase and knocked out in the next. A source that names a `Bucket` is taken at its word, and a decrement no
+  single phase can cover is refused as before.
 - **Who may change what.** For `device`, `scorer` and `referee` sources during `InMatch`, the element must
   list that kind in `edit` and must accept the bucket phase. In `PostMatch` scorers and referees may change
   any element. `admin`, `rule` and `api` sources are not restricted. Fouls, cards and the alliance
   disqualification flag may be changed by `referee`, `admin` and `api` only.
+- **Who played.** `AllianceState.Bypassed` holds the robot positions whose team took no part. The arena writes
+  it in the pass that starts the match (`recordBypassedStations`, source kind `rule`, target `bypassed`), for
+  each station that has a team and is bypassed; a station without a team needs no record, because a position
+  whose team is 0 in `Options.Teams` already counts as bypassed. Expressions read it as `bypassed` on a robot.
+  `device`, `scorer` and `referee` sources cannot change it; `admin` and `api` sources can, which is how match
+  review corrects it. The arena's own changes are published as `score.changed`, browsers get the score once,
+  later in the same pass, and panels are not sent them one by one.
 - **Undo.** `UndoScoreChange` appends a change with `Reverts` set and rebuilds `State` with `scoring.Fold`.
   The source needs the permission it would need to make the change it undoes. A change can be undone once;
   undoing the undo record brings it back. It publishes `score.undone`.
-- **Triggers** produce ordinary changes with source kind `rule`.
+- **Triggers** produce ordinary changes with source kind `rule`. A trigger that would leave a value exactly as
+  it is (a boolean that is false and stays false, a number that keeps its value) makes no change, so a game
+  that latches many places at once records only the ones that hold something. The triggers of one moment are
+  applied as one step (`applyScoreChanges`): each change is recorded and published on its own, and the result
+  is computed and sent to browsers once. One computation takes about 0.03 ms for the smallest example game
+  and 0.46 ms for the largest (`BenchmarkCompute`, on the development laptop), and the phase a trigger fires
+  in is not announced to the robots until its triggers are done.
 
 Live values are re-evaluated on every pass of the arena loop (every 10 ms); if any changed, browsers are
 notified.

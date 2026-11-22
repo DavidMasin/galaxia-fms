@@ -72,12 +72,11 @@ func (arena *Arena) recomputeScore() error {
 // changed. The arena loop calls it on every pass, so a value that depends on the clock is never stale by more than
 // one pass.
 func (arena *Arena) updateLiveValues() {
-	if len(arena.Game.Live) == 0 {
-		return
-	}
 	arena.scoreMutex.Lock()
-	changed := false
-	if arena.Score.Result != nil {
+	// A change the loop itself made to the score earlier in this pass goes out in the same message.
+	changed := arena.scoreNotifyPending
+	arena.scoreNotifyPending = false
+	if len(arena.Game.Live) > 0 && arena.Score.Result != nil {
 		live, err := arena.Score.Result.Live(arena.clock())
 		if err != nil {
 			if !arena.liveErrorLogged {
@@ -85,7 +84,7 @@ func (arena *Arena) updateLiveValues() {
 				arena.liveErrorLogged = true
 			}
 		} else {
-			changed = !reflect.DeepEqual(live, arena.Score.Live)
+			changed = changed || !reflect.DeepEqual(live, arena.Score.Live)
 			arena.Score.Live = live
 		}
 	}
@@ -116,6 +115,20 @@ func (arena *Arena) ApplyScoreChange(change scoring.Change) (scoring.Change, err
 
 // applyScoreChange is ApplyScoreChange without the notifications. The caller holds the score lock.
 func (arena *Arena) applyScoreChange(change scoring.Change) (scoring.Change, error) {
+	change, err := arena.recordScoreChange(change)
+	if err != nil {
+		return change, err
+	}
+	if err := arena.recomputeScore(); err != nil {
+		log.Printf("Failed to recompute the score after change %d: %v", change.Seq, err)
+	}
+	return change, nil
+}
+
+// recordScoreChange is the part of applying a change that comes before the result is worked out again: it stamps
+// the change, checks that it is allowed, applies it to the raw state and adds it to the record. The caller holds
+// the score lock.
+func (arena *Arena) recordScoreChange(change scoring.Change) (scoring.Change, error) {
 	change.Seq = model.NextChangeSeq(arena.Score.Changes)
 	change.Time = time.Now().UTC()
 	change.Reverts = 0
@@ -129,10 +142,30 @@ func (arena *Arena) applyScoreChange(change scoring.Change) (scoring.Change, err
 		return change, err
 	}
 	arena.Score.Changes = append(arena.Score.Changes, change)
-	if err := arena.recomputeScore(); err != nil {
-		log.Printf("Failed to recompute the score after change %d: %v", change.Seq, err)
-	}
 	return change, nil
+}
+
+// applyScoreChanges makes several changes as one step: each is recorded on its own, and the result is worked out
+// once, after the last. The arena loop uses it for what happens at one moment, such as a game's triggers at the
+// start of a phase, so that a game with many of them does not hold up the pass they fall in. A change that is
+// refused is logged, with what says what was being done, and left out. It returns the changes that were made. The
+// caller holds the score lock and sends the notifications.
+func (arena *Arena) applyScoreChanges(changes []scoring.Change, what string) []scoring.Change {
+	var applied []scoring.Change
+	for _, change := range changes {
+		recorded, err := arena.recordScoreChange(change)
+		if err != nil {
+			log.Printf("Failed to %s (%s): %v", what, change.Element, err)
+			continue
+		}
+		applied = append(applied, recorded)
+	}
+	if len(applied) > 0 {
+		if err := arena.recomputeScore(); err != nil {
+			log.Printf("Failed to recompute the score after %d changes: %v", len(applied), err)
+		}
+	}
+	return applied
 }
 
 // UndoScoreChange takes back the change with the given sequence number: it appends a change that reverts it and
@@ -228,6 +261,16 @@ func (arena *Arena) stampChange(change *scoring.Change) error {
 		if ended := arena.gracePhase(); ended != nil && element != nil && element.AcceptsPhase(ended.ID) &&
 			(kind == scoring.SourceDevice || !element.AcceptsPhase(change.Phase)) {
 			change.Bucket = ended.ID
+		}
+		// Something scored in an earlier phase can be taken away in this one: a game piece knocked out of a goal.
+		// The count comes off the phase that holds it, so that the removal is never refused for want of a count
+		// in the phase the clock happens to be in.
+		credited := change.Bucket
+		if credited == "" {
+			credited = change.Phase
+		}
+		if holding := arena.Score.State.DecrementPhase(g, change, credited); holding != credited {
+			change.Bucket = holding
 		}
 	case PostMatch:
 		if kind == scoring.SourceDevice {
@@ -327,15 +370,59 @@ func (arena *Arena) runTriggers(event scoring.TriggerEvent) {
 	}
 	arena.scoreMutex.Lock()
 	changes, err := scoring.TriggerChanges(arena.Game, arena.Score.State, arena.scoringOptions(), event)
+	var applied []scoring.Change
+	if err == nil {
+		applied = arena.applyScoreChanges(changes, fmt.Sprintf("apply a trigger of game %q", arena.Game.ID))
+	}
 	arena.scoreMutex.Unlock()
 	if err != nil {
 		log.Printf("Failed to evaluate the triggers of game %q: %v", arena.Game.ID, err)
 		return
 	}
-	for _, change := range changes {
-		if _, err := arena.ApplyScoreChange(change); err != nil {
-			log.Printf("Failed to apply a trigger of game %q to %s: %v", arena.Game.ID, change.Element, err)
+	if len(applied) == 0 {
+		return
+	}
+
+	// Browsers get the score once, and each change on its own, so that a panel can offer to undo it.
+	arena.RealtimeScoreNotifier.Notify()
+	for _, change := range applied {
+		arena.ScoreChangeNotifier.NotifyWithMessage(ScoreChangeMessage{Change: change})
+		arena.Bus.Publish("score.changed", change)
+	}
+}
+
+// recordBypassedStations writes into the score which teams take no part in the match that has just started: those
+// whose station is bypassed. A rule can then tell a robot that did nothing from one that was not there, and the
+// record can be put right in match review like anything else in the score. A station without a team needs no
+// record: scoring already knows that nothing played there.
+//
+// It runs in the arena loop. Browsers get the score once, later in the same pass (see updateLiveValues), and panels
+// are not sent the changes one by one: a panel lists what it can undo, and this is not something a panel shows.
+func (arena *Arena) recordBypassedStations() {
+	source := scoring.Source{Kind: scoring.SourceRule, ID: "match-start", Name: "Start of match"}
+	var changes []scoring.Change
+	for allianceIndex, alliance := range arena.Game.Alliances.List {
+		for i, stationId := range arena.AllianceStationIds(allianceIndex) {
+			allianceStation := arena.AllianceStations[stationId]
+			if allianceStation == nil || allianceStation.Team == nil || !allianceStation.Bypass {
+				continue
+			}
+			changes = append(changes, scoring.Change{
+				Alliance: alliance.ID, Robot: i + 1, Element: scoring.TargetBypassed, Op: scoring.OpSet, Value: true,
+				Source: source,
+			})
 		}
+	}
+	if len(changes) == 0 {
+		return
+	}
+	arena.scoreMutex.Lock()
+	recorded := arena.applyScoreChanges(changes, "record a bypassed station")
+	arena.scoreNotifyPending = arena.scoreNotifyPending || len(recorded) > 0
+	arena.scoreMutex.Unlock()
+
+	for _, change := range recorded {
+		arena.Bus.Publish("score.changed", change)
 	}
 }
 

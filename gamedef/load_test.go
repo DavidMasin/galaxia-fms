@@ -14,7 +14,7 @@ import (
 
 const gamesDir = "../games"
 
-var exampleGames = []string{"ball-count", "orbital-rush", "rebuilt-style"}
+var exampleGames = []string{"ball-count", "orbital-rush", "rebuilt-style", "reefscape"}
 
 func TestExampleGamesLoadCleanly(t *testing.T) {
 	games, problems, err := LoadDir(gamesDir)
@@ -67,7 +67,7 @@ func TestExampleGameShapes(t *testing.T) {
 	assert.Less(t, position["derived:high_docks"], position["derived:double_dock"])
 	assert.Less(t, position["derived:coop"], position["derived:coop_bonus"])
 	assert.Less(t, position["points:cargo"], position["derived:gravity_bonus"])
-	assert.Len(t, orbital.Order, 11+9)
+	assert.Len(t, orbital.Order, 15+9)
 }
 
 // schemaPaths lists every property the schema allows, as paths such as "elements[].ui.widget".
@@ -261,6 +261,31 @@ func TestDiagnostics(t *testing.T) {
 			"layout references missing alliance",
 			[2]string{"", "layout:\n  scoring_panels:\n    - { id: p, alliances: [green] }\n"},
 			`there is no alliance "green"`, 22,
+		},
+		{
+			"grid row without a column",
+			[2]string{"scope: robot, points: 3 }", "scope: alliance, points: 3, ui: { row: Top } }"},
+			"ui.row and ui.column place an element in a grid and must be given together", 15,
+		},
+		{
+			"grid cell for a robot element",
+			[2]string{"scope: robot, points: 3 }", "scope: robot, points: 3, ui: { row: Top, column: Left } }"},
+			"only a boolean element of alliance or field scope can be placed in a grid", 15,
+		},
+		{
+			"grid cell for a counter",
+			[2]string{"teleop: 1 } }", "teleop: 1 }, ui: { row: Top, column: Left } }"},
+			"only a boolean element of alliance or field scope can be placed in a grid", 14,
+		},
+		{
+			"two elements in one grid cell",
+			[2]string{
+				"{ id: night }] }",
+				"{ id: night }] }\n" +
+					"  - { id: lamp_a, type: boolean, scope: field, ui: { row: Top, column: Left } }\n" +
+					"  - { id: lamp_b, type: boolean, scope: field, ui: { row: Top, column: Left } }",
+			},
+			`lamp_a is already in row "Top", column "Left" of this group`, 18,
 		},
 		{
 			"rule references missing foul type",

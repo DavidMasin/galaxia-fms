@@ -109,6 +109,30 @@
 .score-toggle {
   min-width: 120px;
 }
+/* Booleans that a game places in rows and columns: one compact button per cell, the row's name at the left. */
+.score-grid {
+  display: grid;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.score-grid-row-name {
+  padding-right: 8px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.score-control[data-cell="true"] {
+  border: 0;
+  padding: 0;
+  background: none;
+}
+.score-cell {
+  width: 100%;
+  min-width: 0;
+  min-height: 60px;
+  padding: 4px 0;
+}
 .score-readout {
   min-width: 4ch;
   font-size: 2rem;

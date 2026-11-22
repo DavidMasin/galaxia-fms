@@ -21,7 +21,7 @@ func loadGame(t *testing.T, id string) *gamedef.Game {
 }
 
 func TestExampleGameCases(t *testing.T) {
-	for _, id := range []string{"ball-count", "orbital-rush", "rebuilt-style"} {
+	for _, id := range []string{"ball-count", "orbital-rush", "rebuilt-style", "reefscape"} {
 		game := loadGame(t, id)
 		src, err := os.ReadFile(filepath.Join(gamesDir, id, "tests.yaml"))
 		assert.NoError(t, err)
@@ -298,17 +298,58 @@ func TestTriggers(t *testing.T) {
 	changes, err = TriggerChanges(orbital, state, Options{}, TriggerEvent{PhaseStart: "orbit"})
 	assert.NoError(t, err)
 	assert.Equal(t, true, changes[0].Value)
+	// Red and green are level on nine, so neither leads; blue trails. Nobody's momentum changes, and a trigger
+	// that would change nothing makes no change.
 	changes, err = TriggerChanges(orbital, state, Options{}, TriggerEvent{Cue: "reentry_start"})
 	assert.NoError(t, err)
-	if assert.Len(t, changes, 3) {
-		values := map[string]any{}
-		for _, c := range changes {
-			assert.Equal(t, "momentum", c.Element)
-			values[c.Alliance] = c.Value
-		}
-		// Red and green are level on nine, so neither leads; blue trails.
-		assert.Equal(t, map[string]any{"red": false, "blue": false, "green": false}, values)
+	assert.Empty(t, changes)
+
+	// With red ahead, and green holding momentum it has lost, those two change and blue does not.
+	state, err = BuildState(orbital, map[string]map[string]any{
+		"red":   {"cargo": map[string]any{"orbit": 9}},
+		"blue":  {"cargo": map[string]any{"orbit": 4}},
+		"green": {"cargo": map[string]any{"orbit": 5}, "momentum": true},
+	})
+	assert.NoError(t, err)
+	changes, err = TriggerChanges(orbital, state, Options{}, TriggerEvent{Cue: "reentry_start"})
+	assert.NoError(t, err)
+	values := map[string]any{}
+	for _, c := range changes {
+		assert.Equal(t, "momentum", c.Element)
+		values[c.Alliance] = c.Value
 	}
+	assert.Equal(t, map[string]any{"red": true, "green": false}, values)
+
+	// A game that latches many places at one moment records only the ones that hold something: here two of the
+	// 74 values the reefscape example copies when teleop starts. A number that stays the same is left out too.
+	reef := loadGame(t, "reefscape")
+	state, err = BuildState(reef, map[string]map[string]any{
+		"red": {"l4_a": true, "trough": map[string]any{"auto": 2}},
+	})
+	assert.NoError(t, err)
+	changes, err = TriggerChanges(reef, state, Options{}, TriggerEvent{PhaseStart: "teleop"})
+	assert.NoError(t, err)
+	latched := map[string]any{}
+	for _, c := range changes {
+		latched[c.Alliance+"."+c.Element] = c.Value
+	}
+	assert.Equal(t, map[string]any{"red.auto_l4_a": true, "red.auto_trough": 2.0}, latched)
+
+	// A latch that has to be cleared is a change. One that would set what is already set is kept as well,
+	// because setting a boolean again moves the phase it is credited to.
+	state, err = BuildState(reef, map[string]map[string]any{
+		"red": {"l4_a": true, "auto_l4_a": true, "auto_l3_b": true, "auto_trough": 3},
+	})
+	assert.NoError(t, err)
+	changes, err = TriggerChanges(reef, state, Options{}, TriggerEvent{PhaseStart: "teleop"})
+	assert.NoError(t, err)
+	latched = map[string]any{}
+	for _, c := range changes {
+		latched[c.Alliance+"."+c.Element] = c.Value
+	}
+	assert.Equal(
+		t, map[string]any{"red.auto_l4_a": true, "red.auto_l3_b": false, "red.auto_trough": 0.0}, latched,
+	)
 }
 
 func TestLiveValues(t *testing.T) {
@@ -530,4 +571,124 @@ func TestApplyToStateDecodedFromJson(t *testing.T) {
 	after, err := json.Marshal(fresh)
 	assert.NoError(t, err)
 	assert.Equal(t, string(before), string(after))
+}
+
+func TestBypassedRobots(t *testing.T) {
+	game, diagnostics := gamedef.Parse([]byte(`schema: 1
+id: trio
+name: Trio
+alliances:
+  size: 3
+  list: [{ id: home, name: Home, short: H, color: "#123456" }]
+match:
+  phases: [{ id: run, duration: 60, robots: teleop }]
+elements:
+  - { id: moved, type: boolean, scope: robot }
+derived:
+  - { id: playing, scope: alliance, expr: "count(own.robots, not #.bypassed)" }
+  - { id: all_moved, scope: alliance, expr: "all(own.robots, #.bypassed or #.moved)" }
+`))
+	assert.Empty(t, diagnostics)
+	values := func(state *State, options Options) map[string]any {
+		result, err := Compute(game, state, options)
+		assert.NoError(t, err)
+		return result.Alliances["home"].Values
+	}
+	bypass := func(robot int, value any) Change {
+		return Change{Alliance: "home", Robot: robot, Element: TargetBypassed, Op: OpSet, Value: value}
+	}
+
+	// Nobody is bypassed until something says so.
+	state := NewState(game)
+	assert.Equal(t, map[string]any{"playing": 3, "all_moved": false}, values(state, Options{}))
+
+	// A bypassed robot is left out of what every robot must do.
+	moved := Change{Alliance: "home", Robot: 1, Element: "moved", Op: OpSet, Value: true}
+	assert.NoError(t, state.Apply(game, &moved))
+	moved.Robot = 2
+	assert.NoError(t, state.Apply(game, &moved))
+	change := bypass(3, true)
+	assert.NoError(t, state.Apply(game, &change))
+	assert.Equal(t, map[int]bool{3: true}, state.Alliances["home"].Bypassed)
+	assert.Equal(t, map[string]any{"playing": 2, "all_moved": true}, values(state, Options{}))
+
+	// Lifting it leaves no entry behind, so a state that never had one and one that lost it are stored alike.
+	change = bypass(3, false)
+	assert.NoError(t, state.Apply(game, &change))
+	assert.Empty(t, state.Alliances["home"].Bypassed)
+	encoded, err := json.Marshal(state)
+	assert.NoError(t, err)
+	assert.NotContains(t, string(encoded), "bypassed")
+	assert.Equal(t, map[string]any{"playing": 3, "all_moved": false}, values(state, Options{}))
+
+	// Where the teams are known, a position without one has no robot to take part.
+	teams := Options{Teams: map[string][]int{"home": {254, 1114, 0}}}
+	assert.Equal(t, map[string]any{"playing": 2, "all_moved": true}, values(state, teams))
+
+	// It survives being stored and loaded.
+	change = bypass(2, true)
+	assert.NoError(t, state.Apply(game, &change))
+	encoded, err = json.Marshal(state)
+	assert.NoError(t, err)
+	var loaded State
+	assert.NoError(t, json.Unmarshal(encoded, &loaded))
+	assert.Equal(t, map[int]bool{2: true}, loaded.Alliances["home"].Bypassed)
+
+	// It is a change like any other: folded from the record, and gone when the change is undone.
+	changes := []Change{
+		{Seq: 1, Alliance: "home", Robot: 1, Element: TargetBypassed, Op: OpSet, Value: true},
+		{Seq: 2, Alliance: "home", Robot: 2, Element: TargetBypassed, Op: OpSet, Value: true},
+		{Seq: 3, Reverts: 2},
+	}
+	folded, skipped := Fold(game, changes)
+	assert.Empty(t, skipped)
+	assert.Equal(t, map[int]bool{1: true}, folded.Alliances["home"].Bypassed)
+
+	// The compact form of worked examples can say it too.
+	compact, err := BuildState(game, map[string]map[string]any{
+		"home": {"robots": []any{map[string]any{"moved": true}, map[string]any{"bypassed": true}, map[string]any{}}},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, map[int]bool{2: true}, compact.Alliances["home"].Bypassed)
+	assert.True(t, compact.Alliances["home"].Robots[0]["moved"].Bool)
+
+	// What makes no sense is refused.
+	for _, bad := range []Change{
+		bypass(0, true),
+		bypass(4, true),
+		bypass(1, "yes"),
+		{Alliance: "home", Robot: 1, Element: TargetBypassed, Op: OpToggle},
+		{Alliance: "away", Robot: 1, Element: TargetBypassed, Op: OpSet, Value: true},
+	} {
+		assert.Error(t, state.Apply(game, &bad), "%+v", bad)
+	}
+}
+
+func TestDecrementPhase(t *testing.T) {
+	game := loadGame(t, "ball-count")
+	state, err := BuildState(game, map[string]map[string]any{
+		"red": {"balls": map[string]any{"auto": 2, "teleop": 1}},
+	})
+	assert.NoError(t, err)
+	remove := func(amount any) *Change {
+		return &Change{Alliance: "red", Element: "balls", Op: OpDecrement, Value: amount}
+	}
+
+	// The wanted phase if it holds enough, else the latest earlier phase that does.
+	assert.Equal(t, "teleop", state.DecrementPhase(game, remove(nil), "teleop"))
+	assert.Equal(t, "auto", state.DecrementPhase(game, remove(2), "teleop"))
+	assert.Equal(t, "auto", state.DecrementPhase(game, remove(1), "pause"))
+	assert.Equal(t, "auto", state.DecrementPhase(game, remove(nil), "auto"))
+	// Never a later phase, and the wanted phase when nothing can cover it, so that Apply says what is wrong.
+	state.Alliances["red"].Elements["balls"].Counts = map[string]int{"teleop": 1}
+	assert.Equal(t, "auto", state.DecrementPhase(game, remove(nil), "auto"))
+	assert.Equal(t, "teleop", state.DecrementPhase(game, remove(5), "teleop"))
+	// Only a removal from a counter is redirected.
+	add := &Change{Alliance: "red", Element: "balls", Op: OpIncrement}
+	assert.Equal(t, "pause", state.DecrementPhase(game, add, "pause"))
+	assert.Equal(t, "pause", state.DecrementPhase(game, remove("many"), "pause"))
+	missing := &Change{Alliance: "green", Element: "balls", Op: OpDecrement}
+	assert.Equal(t, "pause", state.DecrementPhase(game, missing, "pause"))
+	unknown := &Change{Alliance: "red", Element: "nothing", Op: OpDecrement}
+	assert.Equal(t, "pause", state.DecrementPhase(game, unknown, "pause"))
 }

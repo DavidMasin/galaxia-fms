@@ -96,6 +96,7 @@ type Arena struct {
 	Score                             *MatchScore // Guarded by scoreMutex.
 	scoreMutex                        sync.Mutex
 	foulsCommitted                    map[string]bool // By alliance id. Guarded by scoreMutex.
+	scoreNotifyPending                bool            // Browsers are owed the score. Guarded by scoreMutex.
 	gameParams                        map[string]float64
 	gameRefreshPending                atomic.Bool
 	cuesFired                         map[*gamedef.Cue]bool
@@ -631,6 +632,7 @@ func (arena *Arena) StartMatch() error {
 // openMatchRecords does the bookkeeping of a match that has just started. It runs in the pass of the arena loop that
 // starts the match, after the robots have been enabled, so that none of it delays them.
 func (arena *Arena) openMatchRecords() {
+	arena.recordBypassedStations()
 	arena.updateCycleTime(arena.CurrentMatch.StartedAt)
 	for _, allianceStation := range arena.AllianceStations {
 		if allianceStation.Team != nil {

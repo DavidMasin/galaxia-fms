@@ -169,6 +169,18 @@ func stateChanges(g *gamedef.Game, from, to *scoring.State, source scoring.Sourc
 			}
 		}
 
+		// Bypassed robot positions. As with cards, a nil map means the browser sent none.
+		if newAlliance.Bypassed != nil {
+			for position := 1; position <= len(oldAlliance.Robots); position++ {
+				if newAlliance.Bypassed[position] != oldAlliance.Bypassed[position] {
+					add(scoring.Change{
+						Alliance: alliance.ID, Robot: position, Element: scoring.TargetBypassed, Op: scoring.OpSet,
+						Value: newAlliance.Bypassed[position],
+					})
+				}
+			}
+		}
+
 		if newAlliance.Disqualified != oldAlliance.Disqualified {
 			add(scoring.Change{
 				Alliance: alliance.ID, Element: scoring.TargetDisqualified, Op: scoring.OpSet,
@@ -271,6 +283,12 @@ func describeChange(g *gamedef.Game, change *scoring.Change, teams map[string][]
 			action = "alliance disqualified"
 		} else {
 			action = "alliance disqualification lifted"
+		}
+	case scoring.TargetBypassed:
+		if bypassed, _ := change.Value.(bool); bypassed {
+			action = "bypassed: took no part in the match"
+		} else {
+			action = "not bypassed: took part in the match"
 		}
 	default:
 		name := change.Element

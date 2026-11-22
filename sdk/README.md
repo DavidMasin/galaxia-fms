@@ -158,6 +158,12 @@ estimate starts again from them.
 Kept as the last message: `state`, `phase`, `phase_remaining`, `match_remaining` and `scores`. Between messages,
 while `state` is `running`, the SDKs count `phase_remaining` down locally so a timer display moves smoothly.
 
+While `state` is `countdown` the message also carries `t0`, the moment the match starts in UTC milliseconds on the
+FMS clock, and `beats`, when each beat of the countdown falls relative to it in milliseconds, ending with the start
+itself at 0. The Python and MicroPython SDKs give them as `field_state.t0` and `field_state.beats`; compare `t0`
+with `field_time_ms()` to act on the beat. The Arduino library does not read them yet: a sketch that wants to act
+on the countdown lets the FMS do the timing, with an output bound to `countdown.beat` or `countdown.go`.
+
 ## Tests
 
 | What | Command | Needs |

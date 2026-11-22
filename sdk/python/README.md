@@ -38,7 +38,7 @@ pip install ./sdk/python
 | `dev.wait_connected(timeout=None)` | Blocks until connected. After `timeout` seconds it raises `galaxia.Refused` (with `.code` 2, 4 or 5 and a plain message) if the FMS refused the device, or `TimeoutError`. |
 | `dev.connected`, `dev.approved`, `dev.refusal` | State. `approved` is true once the FMS accepts the device's outputs. |
 | `dev.run_forever()`, `dev.disconnect()` | Block forever; or say goodbye (status offline) and stop. |
-| `dev.field_state`, `dev.phase_remaining()`, `dev.field_time_ms()` | The last `field/state` (`state`, `phase`, `phase_remaining`, `match_remaining`, `scores`), the phase time counted down locally, and the FMS clock in UTC ms. |
+| `dev.field_state`, `dev.phase_remaining()`, `dev.field_time_ms()` | The last `field/state` (`state`, `phase`, `phase_remaining`, `match_remaining`, `scores`, and during a countdown `t0` and `beats`), the phase time counted down locally, and the FMS clock in UTC ms. |
 | `dev.on_field_state(fn)`, `dev.on_field_message(fn)`, `dev.on_command(fn)`, `dev.on_identify(fn)`, `dev.on_connect(fn)`, `dev.on_reboot = fn` | Callbacks. They run on the SDK's threads: keep them short. Without `on_reboot`, a reboot command restarts the program. |
 
 ## Channels

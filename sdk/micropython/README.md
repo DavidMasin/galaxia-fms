@@ -68,7 +68,7 @@ a pulse or rainbow colour can be one step of 255 away at the odd instant.
 | `dev.wifi(ssid, password)`, `dev.connect(host, token, port=1883)` | Settings; the connection is made by `run()`. |
 | `dev.run(loop=None, interval_ms=5)` | Runs forever, calling your `loop()` function every `interval_ms`. |
 | `await dev.start()` | For asyncio programs: starts the SDK's tasks and returns. |
-| `dev.connected`, `dev.approved`, `dev.refusal`, `dev.field_state`, `dev.phase_remaining()`, `dev.field_time_ms()` | State. `refusal` is the code of the last refused connection (2, 4 or 5) or None. `field_state` has `state`, `phase`, `phase_remaining`, `match_remaining`, `scores`. |
+| `dev.connected`, `dev.approved`, `dev.refusal`, `dev.field_state`, `dev.phase_remaining()`, `dev.field_time_ms()` | State. `refusal` is the code of the last refused connection (2, 4 or 5) or None. `field_state` has `state`, `phase`, `phase_remaining`, `match_remaining`, `scores`, and during a countdown `t0` and `beats`. |
 | `dev.on_field_state(fn)`, `dev.on_command(fn)`, `dev.on_identify(fn)`, `dev.on_reboot = fn` | Callbacks. |
 
 Inputs:

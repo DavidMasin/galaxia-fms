@@ -391,6 +391,12 @@ def test_field_state_clock_and_reboot(clock):
         await h.step(dev, 2500)
         assert dev.phase_remaining() == 12.5
         assert dev.field_state.scores == {"red": 1, "blue": 2}
+        assert (dev.field_state.t0, dev.field_state.beats) == (None, [])
+        await h.fms("field/state", {"state": "countdown", "t0": FIELD_MS + 3000, "beats": [-1000, 0]}, retain=True)
+        assert (dev.field_state.state, dev.field_state.t0) == ("countdown", FIELD_MS + 3000)
+        assert dev.field_state.beats == [-1000, 0]
+        await h.fms("field/state", {"state": "running", "phase": "auto", "phase_remaining": 12.5,
+                                    "scores": {"red": 1, "blue": 2}}, retain=True)
         await h.fms("field/clock", {"t": FIELD_MS})
         assert dev.field_time_ms() == FIELD_MS
         await h.step(dev, 250)

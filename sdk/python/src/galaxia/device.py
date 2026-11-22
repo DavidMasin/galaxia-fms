@@ -85,6 +85,11 @@ class FieldState:
         self.match_remaining = ch._number(raw.get("match_remaining"))
         scores = raw.get("scores")
         self.scores = dict(scores) if isinstance(scores, dict) else {}
+        # While the state is "countdown": when the match starts, in UTC ms on the FMS clock (see field_time_ms),
+        # and when each beat of the countdown falls relative to that, in ms, ending with the start itself at 0.
+        self.t0 = ch._number(raw.get("t0"))
+        beats = raw.get("beats")
+        self.beats = list(beats) if isinstance(beats, list) else []
 
     @property
     def running(self):

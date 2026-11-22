@@ -207,9 +207,16 @@ def test_field_state(env):
     assert dev.phase_remaining() == 93.4
     env.step(dev, 400)
     assert abs(dev.phase_remaining() - 93.0) < 1e-9
+    assert (state.t0, state.beats) == (None, [])
     env.fms("field/state", {"state": "post", "phase": "teleop", "phase_remaining": 0}, retain=True)
     env.step(dev, 400)
     assert dev.phase_remaining() == 0
+    # During the countdown to a match the FMS says when the match starts, and when each beat falls before it.
+    env.fms("field/state", {"state": "countdown", "phase": "", "phase_remaining": 0, "match_remaining": 150,
+                            "scores": {}, "t0": 1794510003000, "beats": [-3000, -2000, -1000, 0]}, retain=True)
+    state = dev.field_state
+    assert (state.state, state.t0, state.beats) == ("countdown", 1794510003000, [-3000, -2000, -1000, 0])
+    assert not state.running
 
 
 def test_field_state_is_received_when_retained_before_connecting(env):

@@ -533,7 +533,7 @@ triggers:
 
 # For lights on the field (section 5.4). Each side of the barge has three: one lights for each algae in that
 # alliance's processor up to two, and all three once both alliances have their two. They flash for the last 20
-# seconds. Bind a light strip to these on Setup > Bindings or Setup > Lighting.
+# seconds. docs/milestones/kickoff-2025.md has the lines that bind a light strip to them on Setup > Bindings.
 live:
   - id: barge_lights
     name: Barge lights lit

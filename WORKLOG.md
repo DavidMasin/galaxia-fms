@@ -883,3 +883,17 @@ its own). It needs a restart to see the new game, and `galaxia-fms.exe~` can be 
 changed logo files in `static/img` are his and are not in my commit.
 
 The test copy is stopped and its ports are free.
+
+## 2026-11-22 23:24 - CI for the 2025 game, and its wiring checked
+
+Commit `de04b45`, run 45070858746: all seven jobs passed. Read in the log: the test job and the race job each ran
+20 packages, with no data race report, and the 13 browser-code tests passed.
+
+Added after that commit:
+- `device/example_bindings_test.go` checks, against the game, the bindings the report gives for the manual's
+  electronics: a sensor behind each processor, a switch on a branch, the barge lights as a strip filled a third
+  at a time and flashing in the last 20 seconds, the coral counts for the back of the timer. The report now has
+  them under "Wiring the field". They pass the check that Setup → Bindings makes; no device, real or simulated,
+  was driven with them.
+- Match review ticks and fixes the "bypassed" box of a position that has no team, since such a position counts
+  as bypassed whatever is recorded.

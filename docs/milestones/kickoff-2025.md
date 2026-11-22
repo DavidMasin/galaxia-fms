@@ -54,6 +54,43 @@ Choose **Reefscape** on Setup → Settings → Game and everything follows from 
 | 10.6.2.1, table 10-3: playoff ties | `playoff.tiebreakers` |
 | 5.4: lights on the barge | the live values `barge_lights` and `last_seconds` |
 
+## Wiring the field
+
+The manual's field has a sensor behind each processor and three lights on each side of the barge (5.4, 5.5). The
+file does not bind devices, since which devices a field has is not the game's to say, but it gives them what they
+need. These bindings, typed in on Setup → Bindings, are accepted for this game (`TestReefscapeBindings` checks the
+same text):
+
+```yaml
+inputs:
+  # The sensor behind a processor counts each algae that passes it.
+  - { id: red-processor, device: processor-red, channel: count,
+      action: { score: processor, op: increment, alliance: red } }
+  # A switch on one branch of a practice reef: closed while a coral sits on it.
+  - { id: red-l4-a-on, device: reef-red, channel: l4a, edge: rising, debounce_ms: 100,
+      action: { score: l4_a, op: set, value: true, alliance: red } }
+  - { id: red-l4-a-off, device: reef-red, channel: l4a, edge: falling, debounce_ms: 100,
+      action: { score: l4_a, op: set, value: false, alliance: red } }
+outputs:
+  # One strip for the three barge lights of an alliance: a third for each, flashing in the last 20 seconds.
+  - id: barge-red
+    device: barge-lights
+    channel: red
+    alliance: red
+    when: "not field.last_seconds"
+    look: { p: progress, c: [alliance, "#101010"], v: "own.barge_lights / 3" }
+    else: { p: blink, c: [alliance], ms: 500 }
+  # The coral on each level, as on the back of the field timer.
+  - id: timer-red
+    device: timer-red
+    channel: back
+    alliance: red
+    value: "string(own.l1) + '-' + string(own.l2) + '-' + string(own.l3) + '-' + string(own.l4)"
+```
+
+A sensor may score the processor, the net, the trough and any branch. It may not touch the latch, leave or the
+barge result: those are a person's call.
+
 ## What the engine needed
 
 Each of these is general. None names anything of this game.
@@ -134,7 +171,7 @@ The manual says what a rule is, not how a field keeps track of it. These are my 
   panels and a choice of which branches each sees.
 - **After the match, the trough counter asks which phase** a correction belongs to, as every counter does. For
   this game the answer does not change the score.
-- **Lights and sensors are not bound** by the file. The values are there; binding them to devices is done on
-  Setup → Bindings and Setup → Lighting, and none of it was tried on hardware.
+- **Lights and sensors on real hardware.** The bindings above pass the check that Setup → Bindings makes. They
+  were not run against a device, real or simulated, in this work.
 - **Not looked at**: surrogates, the "count" pause before scores are final, and how cards carry over between
   matches. They are not game-specific and were not changed.

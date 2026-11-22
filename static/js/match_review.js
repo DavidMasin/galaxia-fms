@@ -350,7 +350,10 @@ const buildAllianceEditor = function (alliance) {
   bypassedFieldset.append("<legend class='fs-5'>Bypassed (took no part)</legend>");
   const bypassedRow = $("<div class='result-editor-robots'></div>").appendTo(bypassedFieldset);
   for (let position = 1; position <= view.allianceSize; position++) {
-    const checkbox = newInput("checkbox").prop("checked", allianceState.bypassed[position] === true);
+    // A position without a team has no robot to take part, whatever is recorded, so its box is ticked and fixed.
+    const hasTeam = Boolean((editData.teams[alliance.id] || [])[position - 1]);
+    const checkbox = newInput("checkbox").prop("checked", !hasTeam || allianceState.bypassed[position] === true)
+      .prop("disabled", !hasTeam);
     checkbox.on("change", function () {
       if (checkbox.prop("checked")) {
         allianceState.bypassed[position] = true;

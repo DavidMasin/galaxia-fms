@@ -1023,3 +1023,10 @@ of the push; I read its result this morning because the laptop slept while I was
 
 The branch `claude/ecstatic-lalande-5168fa` is now part of `main`. Its worktree under `.claude/worktrees` is still
 there and can go when David says so.
+
+## 2026-11-23 08:03 - The merged side session is archived
+
+David said to archive the session that made the restore fix; done. Archiving did not remove its worktree,
+`.claude/worktrees/ecstatic-lalande-5168fa`, or the local branch `claude/ecstatic-lalande-5168fa`. The worktree
+has no uncommitted work and the branch is contained in `main`, so removing them would lose nothing, but I have
+left both for David to decide.

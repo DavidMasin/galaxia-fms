@@ -1014,3 +1014,12 @@ not over the one David runs from.
 
 **Not checked:** a restore in a browser. The branch's own tests restore through the web handler; nobody has
 clicked it.
+
+## 2026-11-23 08:02 - CI for the merge: every job passed
+
+Commit `7b0a586`, run 45074127197: all seven jobs passed. Read in the log: the test job and the race job each
+ran 20 packages, with no data race report, and the 13 browser-code tests passed. The run finished within minutes
+of the push; I read its result this morning because the laptop slept while I was waiting on it.
+
+The branch `claude/ecstatic-lalande-5168fa` is now part of `main`. Its worktree under `.claude/worktrees` is still
+there and can go when David says so.

@@ -1125,3 +1125,10 @@ computer without 10.0.100.5) and `e51a58f` (keeping teams on the access point be
 above still say the work is on the branch; that was true when they were written.
 
 The field computer gets both with `git pull` on `main` and `go build`, then a restart of `galaxia-fms.exe`.
+
+## 2026-11-27 15:05 - CI for today's changes on main: every job passed
+
+Commit `6b0f536`, run 46002501036: all seven jobs passed (build and test, the race detector, the device SDKs and
+examples, and the four cross-compiles, Windows among them). I read each job's result and its steps' results, not
+the logs, so the package and test counts are not confirmed from this run. The run covers `ff91dc2` and `e51a58f`
+as well, which were pushed to `main` with it.

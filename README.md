@@ -61,6 +61,11 @@ Startup options:
 | `-port` | `8080` | The web port |
 | `-db` | `./event.db` | The event database file |
 
+Driver stations look for the FMS at `10.0.100.5`, an address fixed in the FRC Driver Station software, so on the
+field the network adapter that goes to the field network needs that static address. Started on a computer that does
+not have it, the FMS stops and says so. On Windows the address only exists while that adapter's cable is plugged in
+and the switch at its other end is on. To run on a computer that is not on a field network, start with `-dev`.
+
 A second copy can run beside the first for testing, for example
 `./galaxia-fms -port 8090 -server-ip 127.0.0.2 -db test.db`. Give it its own device ports too (Setup → Settings →
 Field Devices), since both copies would otherwise want MQTT ports 1883 and 8083.

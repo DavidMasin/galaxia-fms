@@ -1030,3 +1030,39 @@ David said to archive the session that made the restore fix; done. Archiving did
 `.claude/worktrees/ecstatic-lalande-5168fa`, or the local branch `claude/ecstatic-lalande-5168fa`. The worktree
 has no uncommitted work and the branch is contained in `main`, so removing them would lose nothing, but I have
 left both for David to decide.
+
+## 2026-11-27 14:05 - The field computer would not start: it does not have 10.0.100.5
+
+David sent a photograph of the field computer's terminal (`C:\Users\Galaxia\Documents\David\galaxia-fms`).
+`galaxia-fms.exe` printed `Error opening driver station UDP socket: listen udp4 10.0.100.5:1160: bind: The requested
+address is not valid in its context.` and stopped, twice. Between the two he tried `-run`, which is not an option.
+
+**Cause:** the computer has no network adapter with the address 10.0.100.5 at that moment, and without `-dev` the
+driver station listeners bind to exactly that address. Either no adapter is set to it, or the one that is has its
+cable out or its switch off; Windows drops a static address while the adapter has no link. The photograph does not
+show which.
+
+**What was wrong in the code:** the message. The UDP listener is opened first, and its failure only repeated the
+operating system's words. The TCP listener's failure did mention `-dev`, but it is opened second, so nobody ever
+saw that. The README's steps did not mention the address either: followed exactly on an ordinary computer, step 4
+ends in this error.
+
+**Done:**
+- A listener that fails because the computer does not have the address now says so, lists the addresses the
+  computer does have, and gives the two ways out: the static address on the field adapter, or `-dev`. Other
+  failures (a port already taken) keep the plain message, since that advice would mislead there. UDP and TCP share
+  the wording (`listenFailure` in `field/driver_station_connection.go`).
+- Windows answers with its own error number (10049), which Go's `syscall` package does not name, so it is matched
+  by number beside `syscall.EADDRNOTAVAIL`.
+- The function that lists this computer's addresses moved from `web` to `network` (`LocalIpv4Addresses`), since
+  `field` now needs it too. The Devices page still keeps its ten-second copy.
+- README: a paragraph under the startup options on the 10.0.100.5 address and `-dev`.
+
+**Not changed:** the FMS still stops when it lacks the address. Upstream made that deliberate, so a field is never
+run unnoticed on the wrong address, and the plan's "Flat" networking mode (no flag needed) is the place to change
+it.
+
+**Checked:** this session ran in a cloud Linux container, which has no 10.0.100.5 either. The binary built there
+stopped with the new message without `-dev`, and with `-dev` listened on UDP 1160 and TCP 1750 and served the web
+interface. The Windows wording is covered by a test that builds the Windows error by its number; **nobody has run
+the new binary on Windows.** The work is on the branch `claude/new-session-qqacoh`, not on `main`.

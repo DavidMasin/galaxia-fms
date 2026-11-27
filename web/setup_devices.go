@@ -191,37 +191,10 @@ func localIpv4Addresses() []string {
 	localAddresses.Lock()
 	defer localAddresses.Unlock()
 	if localAddresses.listed.IsZero() || time.Since(localAddresses.listed) > localAddressesMaxAge {
-		localAddresses.addresses = listLocalIpv4Addresses()
+		localAddresses.addresses = network.LocalIpv4Addresses()
 		localAddresses.listed = time.Now()
 	}
 	return append([]string(nil), localAddresses.addresses...)
-}
-
-func listLocalIpv4Addresses() []string {
-	var addresses []string
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return nil
-	}
-	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		ifaceAddresses, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, address := range ifaceAddresses {
-			ipNet, ok := address.(*net.IPNet)
-			if !ok {
-				continue
-			}
-			if ip := ipNet.IP.To4(); ip != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
-				addresses = append(addresses, ip.String())
-			}
-		}
-	}
-	return addresses
 }
 
 // The feed of the device pages: the full state on connecting, every device event as it happens, and the full state

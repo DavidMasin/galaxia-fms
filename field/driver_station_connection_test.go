@@ -9,6 +9,8 @@ import (
 	"github.com/DavidMasin/galaxia-fms/network"
 	"github.com/stretchr/testify/assert"
 	"net"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -26,6 +28,67 @@ func TestDriverStationListenAddress(t *testing.T) {
 
 	network.DevMode = true
 	assert.Equal(t, ":1750", listenAddress(1750))
+}
+
+func TestListenFailure(t *testing.T) {
+	oldServerIpAddress := network.ServerIpAddress
+	t.Cleanup(
+		func() {
+			network.ServerIpAddress = oldServerIpAddress
+		},
+	)
+	// An address reserved for documentation, so not one a field uses.
+	network.ServerIpAddress = "192.0.2.1"
+
+	// A port that is taken is a different failure, and advice about addresses would mislead.
+	taken, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	assert.Nil(t, err)
+	defer taken.Close()
+	_, portTakenErr := net.ListenUDP("udp4", taken.LocalAddr().(*net.UDPAddr))
+	assert.NotNil(t, portTakenErr)
+
+	testCases := []struct {
+		name    string
+		err     error
+		advised bool
+	}{
+		{
+			"address this computer does not have",
+			&net.OpError{Op: "listen", Net: "udp4", Err: os.NewSyscallError("bind", syscall.EADDRNOTAVAIL)},
+			true,
+		},
+		{
+			"the same on Windows",
+			&net.OpError{Op: "listen", Net: "udp4", Err: os.NewSyscallError("bind", windowsAddressNotAvailable)},
+			true,
+		},
+		{"port already taken", portTakenErr, false},
+		{"not from the operating system", assert.AnError, false},
+	}
+	for _, testCase := range testCases {
+		t.Run(
+			testCase.name, func(t *testing.T) {
+				message := listenFailure("UDP", testCase.err)
+				assert.Contains(t, message, "Error opening driver station UDP socket: "+testCase.err.Error())
+				if testCase.advised {
+					assert.Contains(t, message, "does not have the address 192.0.2.1")
+					assert.Contains(t, message, "static address 192.0.2.1")
+					assert.Contains(t, message, "-dev")
+				} else {
+					assert.NotContains(t, message, "\n")
+				}
+			},
+		)
+	}
+
+	// What the operating system itself answers for an address this computer does not have. A computer that has the
+	// address, or is set up to allow listening on addresses it does not have, leaves nothing to check.
+	listener, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(192, 0, 2, 1)})
+	if err == nil {
+		listener.Close()
+		return
+	}
+	assert.Contains(t, listenFailure("UDP", err), "does not have the address 192.0.2.1")
 }
 
 func TestEncodeControlPacket(t *testing.T) {

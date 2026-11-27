@@ -15,6 +15,8 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 )
 
@@ -128,7 +130,7 @@ func (arena *Arena) initializeUdpListener() {
 	}
 	listener, err := net.ListenUDP("udp4", udpAddress)
 	if err != nil {
-		log.Fatalf("Error opening driver station UDP socket: %v", err)
+		log.Fatal(listenFailure("UDP", err))
 	}
 	log.Printf("Listening for driver stations on UDP address %s\n", bindAddress)
 	arena.DriverStationUdpSocket = listener
@@ -354,17 +356,38 @@ func listenAddress(port int) string {
 	return fmt.Sprintf("%s:%d", network.ServerIpAddress, port)
 }
 
+// windowsAddressNotAvailable is what Windows answers when asked to listen on an address the computer does not have.
+// The syscall package has no name for it.
+const windowsAddressNotAvailable = syscall.Errno(10049)
+
+// listenFailure words why a driver station listener could not be opened. The usual reason is that the computer does
+// not have the server address, and the operating system's wording for that explains nothing to whoever is starting
+// the field, so that case says what is missing and the two ways out.
+func listenFailure(protocol string, err error) string {
+	message := fmt.Sprintf("Error opening driver station %s socket: %v.", protocol, err)
+	var errno syscall.Errno
+	if !errors.As(err, &errno) || (errno != syscall.EADDRNOTAVAIL && errno != windowsAddressNotAvailable) {
+		return message
+	}
+	has := "it has no address on any network"
+	if addresses := network.LocalIpv4Addresses(); len(addresses) > 0 {
+		has = "it has " + strings.Join(addresses, ", ")
+	}
+	return fmt.Sprintf(
+		"%s\nThis computer does not have the address %s at the moment (%s).\n"+
+			"On the field: give the network adapter that goes to the field the static address %s, check that its "+
+			"cable is plugged in and the switch is on, and start again.\n"+
+			"Without the field network: start with -dev, which accepts driver stations on every address.",
+		message, network.ServerIpAddress, has, network.ServerIpAddress,
+	)
+}
+
 // Listens for TCP connection requests to Cheesy Arena from driver stations.
 func (arena *Arena) listenForDriverStations() {
 	bindAddress := listenAddress(driverStationTcpListenPort)
 	l, err := net.Listen("tcp", bindAddress)
 	if err != nil {
-		log.Fatalf(
-			"Error opening driver station TCP socket: %v. Use the -dev flag to unrestrict server IP address for "+
-				"development, or change IP address to %s.",
-			err,
-			network.ServerIpAddress,
-		)
+		log.Fatal(listenFailure("TCP", err))
 	}
 	defer func() {
 		if err := l.Close(); err != nil {

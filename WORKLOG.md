@@ -1116,3 +1116,12 @@ from the session (the site is not reachable from it).
 
 **For David:** the field computer's `galaxia-fms.exe` has none of this until the branch
 `claude/new-session-qqacoh` is merged and the binary rebuilt there.
+
+## 2026-11-27 14:54 - Today's two changes are on main
+
+David said to work on `main`. The branch `claude/new-session-qqacoh` was two commits ahead of `main` and `main`
+had nothing new, so `main` was moved forward to it without a merge commit: `ff91dc2` (the startup message for a
+computer without 10.0.100.5) and `e51a58f` (keeping teams on the access point between matches). The two entries
+above still say the work is on the branch; that was true when they were written.
+
+The field computer gets both with `git pull` on `main` and `go build`, then a restart of `galaxia-fms.exe`.

@@ -720,3 +720,27 @@ func TestSetupSettingsRadioOnlyNetwork(t *testing.T) {
 	assert.Equal(t, 303, recorder.Code)
 	assert.False(t, web.arena.EventSettings.RadioOnlyNetwork)
 }
+
+func TestSetupSettingsApKeepTeams(t *testing.T) {
+	web := setupTestWeb(t)
+	assert.False(t, web.arena.EventSettings.ApKeepTeams)
+
+	recorder := web.postHttpResponse(
+		"/setup/settings", "name=Tent&playoffType=single&numPlayoffAlliances=8&networkSecurityEnabled=on&"+
+			"apKeepTeams=on",
+	)
+	assert.Equal(t, 303, recorder.Code)
+	assert.True(t, web.arena.EventSettings.ApKeepTeams)
+	recorder = web.getHttpResponse("/setup/settings")
+	assert.Contains(t, recorder.Body.String(), "name=\"apKeepTeams\"  checked")
+	recorder = web.getHttpResponse("/match_play")
+	assert.Contains(t, recorder.Body.String(), "const accessPointKeepsTeams = true;")
+
+	recorder = web.postHttpResponse(
+		"/setup/settings", "name=Tent&playoffType=single&numPlayoffAlliances=8&networkSecurityEnabled=on",
+	)
+	assert.Equal(t, 303, recorder.Code)
+	assert.False(t, web.arena.EventSettings.ApKeepTeams)
+	recorder = web.getHttpResponse("/match_play")
+	assert.Contains(t, recorder.Body.String(), "const accessPointKeepsTeams = false;")
+}

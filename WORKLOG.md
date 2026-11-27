@@ -1066,3 +1066,53 @@ it.
 stopped with the new message without `-dev`, and with `-dev` listened on UDP 1160 and TCP 1750 and served the web
 interface. The Windows wording is covered by a test that builds the Windows error by its number; **nobody has run
 the new binary on Windows.** The work is on the branch `claude/new-session-qqacoh`, not on `main`.
+
+## 2026-11-27 14:51 - Teams can stay on the access point between matches
+
+Later the same day on the field. The field computer (user `Galaxia`) runs the FMS; the Driver Station is a second
+computer (user `Field`). The access point is a VH-109 with the access point practice firmware (it reports
+`VH-109_AP_PRACTICE_1.2.9`) at 10.0.100.2.
+
+**What happened first, without code changes:**
+- The Rad box on Match Play showed a red `0` for team 5987 while the access point's own `/status` showed the
+  radio linked. The FMS was not reading the access point: it only talks to it with "Enable advanced network
+  security" on. With that on, radio only, and the address 10.0.100.2, David reported "It sees the robot".
+- The Driver Station then connected to the FMS after David fixed what he described as a VLAN issue on the switch.
+  I do not know what he changed.
+
+**What David asked for:** to play several matches without the FMS taking the robot off the access point at the
+end of each one. He suggested the FMS might configure the access point but not unconfigure it.
+
+**Cause:** committing (or discarding) a test match loads a new, empty test match. Loading a match sends the access
+point its teams, and an empty match sends none, which takes every team off.
+
+**Done:** a setting, "Keep teams on the access point between matches" (Setup → Settings → Field → Networking,
+`ApKeepTeams`, off by default).
+- A station given no team keeps the team it was last given, unless that team has been given another station.
+- Nothing is sent when that leaves the access point with what it was last asked for, so loading an empty match, or
+  putting the same team in the same station again, does not touch it. A new channel or a new key for a team is
+  still sent.
+- Before the FMS has sent anything it holds the access point to nothing. Without that, the once-a-second check
+  that the access point matches the last configuration would have emptied it at startup. A station the FMS asked
+  nothing for may hold any team; a station it asked for must still hold that team, and is put right if not.
+- The access point's configuration names every station at once, so the first team the FMS puts on after a restart
+  takes off any team it did not put there itself. The setting's help text and the README say so.
+- Match Play: with the setting on, a team left on the access point in an empty station is shown green or yellow
+  by its link, not red.
+- With the setting off nothing changes.
+
+**Checked:** `go test ./...`, `go vet` (three analyzers off as before), `gofmt -l` (clean), the two browser-code
+test files. Then the built binary on Linux against a stand-in access point (a script answering `/status` and
+applying `/configuration`), driven in a browser:
+1. Setting on, access point already holding 5987, FMS just started: nothing sent, Rad box `5987` green.
+2. 5987 put in red 1: one configuration sent, with red 1.
+3. A new empty test match loaded: nothing sent, Rad box still `5987` green.
+4. 5987 put in red 1 again: nothing sent.
+5. Setting off, a new empty test match loaded: an empty configuration sent, as before.
+
+**Not checked:** the real access point. In particular I do not know whether it drops a radio when it is sent the
+configuration it already has; the change avoids sending one. The Vivid-Hosting documentation could not be read
+from the session (the site is not reachable from it).
+
+**For David:** the field computer's `galaxia-fms.exe` has none of this until the branch
+`claude/new-session-qqacoh` is merged and the binary rebuilt there.

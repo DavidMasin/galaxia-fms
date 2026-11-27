@@ -32,9 +32,14 @@ type AccessPoint struct {
 	password               string
 	channel                int
 	networkSecurityEnabled bool
-	Status                 string
-	TeamWifiStatuses       [6]*TeamWifiStatus
-	lastConfiguredTeams    [6]*model.Team
+	// Whether a team stays on the access point when its station empties, until another team takes the station.
+	keepTeams        bool
+	Status           string
+	TeamWifiStatuses [6]*TeamWifiStatus
+	// What the access point was last asked for, and whether it has been asked for anything yet.
+	lastConfiguredTeams   [6]*model.Team
+	lastConfiguredChannel int
+	configured            bool
 	// Counts the times the status or the stations' radio links were updated, so that a reader can tell whether
 	// there is anything new.
 	revision uint64
@@ -89,6 +94,7 @@ func (ap *AccessPoint) SetSettings(
 	address, password string,
 	channel int,
 	networkSecurityEnabled bool,
+	keepTeams bool,
 	wifiStatuses [6]*TeamWifiStatus,
 ) {
 	ap.mutex.Lock()
@@ -97,6 +103,7 @@ func (ap *AccessPoint) SetSettings(
 	ap.password = password
 	ap.channel = channel
 	ap.networkSecurityEnabled = networkSecurityEnabled
+	ap.keepTeams = keepTeams
 	ap.Status = "UNKNOWN"
 	ap.TeamWifiStatuses = wifiStatuses
 	ap.revision++
@@ -134,28 +141,50 @@ func (ap *AccessPoint) Run() {
 		// If the access point is in a good state but doesn't match the expected configuration, try again.
 		ap.mutex.Lock()
 		retry := ap.Status == "ACTIVE" && !ap.statusMatchesLastConfiguration()
-		teams := ap.lastConfiguredTeams
 		ap.mutex.Unlock()
 		if retry {
 			log.Println("Access point is ACTIVE but does not match expected configuration; retrying configuration.")
-			if err := ap.ConfigureTeamWifi(teams); err != nil {
+			if err := ap.configure(nil); err != nil {
 				log.Printf("Failed to reconfigure access point: %v", err)
 			}
 		}
 	}
 }
 
-// Calls the access point's API to configure the team SSIDs and WPA keys.
+// Calls the access point's API to configure the team SSIDs and WPA keys. When teams are kept, a station given no
+// team keeps the one it has, and the access point is not called at all when that leaves it with what it was last
+// asked for: the robots already on it stay linked from one match to the next.
 func (ap *AccessPoint) ConfigureTeamWifi(teams [6]*model.Team) error {
+	return ap.configure(&teams)
+}
+
+// configure asks the access point for the given teams, or for the last ones again when given none.
+func (ap *AccessPoint) configure(newTeams *[6]*model.Team) error {
 	ap.mutex.Lock()
 	if !ap.networkSecurityEnabled {
 		ap.mutex.Unlock()
 		return nil
 	}
 
+	teams := ap.lastConfiguredTeams
+	if newTeams != nil {
+		teams = *newTeams
+		if ap.keepTeams {
+			teams = withKeptTeams(ap.lastConfiguredTeams, teams)
+			// Before anything has been asked for there is no channel to compare, and nothing to ask for either.
+			sameChannel := !ap.configured || ap.channel == ap.lastConfiguredChannel
+			if sameChannel && sameTeams(teams, ap.lastConfiguredTeams) {
+				ap.mutex.Unlock()
+				return nil
+			}
+		}
+	}
+
 	ap.Status = "CONFIGURING"
 	ap.revision++
 	ap.lastConfiguredTeams = teams
+	ap.lastConfiguredChannel = ap.channel
+	ap.configured = true
 	channel, apiUrl, password := ap.channel, ap.apiUrl, ap.password
 	ap.mutex.Unlock()
 
@@ -281,17 +310,56 @@ func (ap *AccessPoint) setStatus(status string) {
 }
 
 // Returns true if the access point's current status matches the last configuration that was sent to it. The caller
-// holds mutex.
+// holds mutex. When teams are kept, a station that was asked nothing for may hold any team: one from before this
+// program started, which is not to be taken off.
 func (ap *AccessPoint) statusMatchesLastConfiguration() bool {
 	for i := 0; i < 6; i++ {
 		var expectedTeamId, actualTeamId int
 		if ap.lastConfiguredTeams[i] != nil {
 			expectedTeamId = ap.lastConfiguredTeams[i].Id
 		}
+		if ap.keepTeams && expectedTeamId == 0 {
+			continue
+		}
 		if ap.TeamWifiStatuses[i] != nil {
 			actualTeamId = ap.TeamWifiStatuses[i].TeamId
 		}
 		if expectedTeamId != actualTeamId {
+			return false
+		}
+	}
+	return true
+}
+
+// withKeptTeams returns the teams to ask for when a team stays until another takes its station: a station given no
+// team keeps the one it was last given, unless that team has been given another station.
+func withKeptTeams(last, teams [6]*model.Team) [6]*model.Team {
+	kept := teams
+	for i, team := range teams {
+		if team != nil || last[i] == nil {
+			continue
+		}
+		moved := false
+		for _, other := range teams {
+			if other != nil && other.Id == last[i].Id {
+				moved = true
+			}
+		}
+		if !moved {
+			kept[i] = last[i]
+		}
+	}
+	return kept
+}
+
+// sameTeams returns true if both sets would be the same configuration: the same team with the same key in every
+// station.
+func sameTeams(a, b [6]*model.Team) bool {
+	for i := range a {
+		if (a[i] == nil) != (b[i] == nil) {
+			return false
+		}
+		if a[i] != nil && (a[i].Id != b[i].Id || a[i].WpaKey != b[i].WpaKey) {
 			return false
 		}
 	}

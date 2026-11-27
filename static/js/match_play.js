@@ -217,10 +217,10 @@ const handleArenaStatus = function (data) {
     }
 
     // Format the radio status box according to whether the AP is configured with the correct SSID and the connection
-    // status of the robot radio.
+    // status of the robot radio. When teams are kept on the AP, one left on it in an empty station is as intended.
     const expectedTeamId = stationStatus.Team ? stationStatus.Team.Id : 0;
     let radioStatus = 0;
-    if (expectedTeamId === wifiStatus.TeamId) {
+    if (expectedTeamId === wifiStatus.TeamId || (accessPointKeepsTeams && expectedTeamId === 0)) {
       if (wifiStatus.RadioLinked || stationStatus.DsConn?.RobotLinked) {
         radioStatus = 2;
       } else {

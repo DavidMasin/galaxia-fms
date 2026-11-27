@@ -282,6 +282,7 @@ func (arena *Arena) LoadSettings() error {
 		settings.ApPassword,
 		settings.ApChannel,
 		settings.NetworkSecurityEnabled,
+		settings.ApKeepTeams,
 		accessPointWifiStatuses,
 	)
 	// Nothing has been reported under these settings yet; the stations keep what they have until something is.

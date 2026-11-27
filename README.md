@@ -86,6 +86,12 @@ Three setups are supported from the Settings page:
 * **Network security on, radio only**: the access point is configured for each match's teams and the switch
   is left alone. For fields that have the radio but no managed switch.
 
+With network security on, loading a match takes the previous match's teams off the access point, so their radios
+drop and link again. **Keep teams on the access point between matches** stops that, for practising with the same
+robots over several matches: a team stays on the access point when its station empties, and comes off only when
+another team is given its station or it is given another station itself. After a restart, Galaxia FMS leaves the
+access point as it finds it until a team is given a station, and then keeps only the teams it has put on since.
+
 ## Licence
 
 Galaxia FMS is a modified version of Cheesy Arena and is covered by Team 254's licence terms in

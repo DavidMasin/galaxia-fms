@@ -233,6 +233,7 @@ func (web *Web) settingsPostHandler(w http.ResponseWriter, r *http.Request) {
 	eventSettings.NexusAutoQueueKey = r.PostFormValue("nexusAutoQueueKey")
 	eventSettings.NetworkSecurityEnabled = r.PostFormValue("networkSecurityEnabled") == "on"
 	eventSettings.RadioOnlyNetwork = r.PostFormValue("radioOnlyNetwork") == "on"
+	eventSettings.ApKeepTeams = r.PostFormValue("apKeepTeams") == "on"
 	eventSettings.ApAddress = r.PostFormValue("apAddress")
 	eventSettings.ApPassword = r.PostFormValue("apPassword")
 	eventSettings.ApChannel, _ = strconv.Atoi(r.PostFormValue("apChannel"))

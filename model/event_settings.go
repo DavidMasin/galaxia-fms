@@ -72,6 +72,7 @@ type EventSettings struct {
 	NexusAutoQueueKey                string
 	NetworkSecurityEnabled           bool
 	RadioOnlyNetwork                 bool
+	ApKeepTeams                      bool
 	ApAddress                        string
 	ApPassword                       string
 	ApChannel                        int

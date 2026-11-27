@@ -326,6 +326,19 @@ UI for configuring event settings.
                 plugged into the right station is turned off, because it relies on the switch's per-team
                 addresses.</p>
               <div class="row mb-3">
+                <label class="col-lg-8 control-label" for="apKeepTeams">Keep teams on the access point between
+                  matches</label>
+                <div class="col-lg-1 checkbox">
+                  <input type="checkbox" id="apKeepTeams"
+                    name="apKeepTeams" {{if .ApKeepTeams}} checked{{end}}>
+                </div>
+              </div>
+              <p class="form-text">For practising with the same robots over several matches. A team is put on the
+                access point when it is given a station, and stays there when the station empties, so its radio
+                stays linked while the next match is loaded. It comes off when another team is given its station
+                or it is given another station itself. After Galaxia FMS is restarted it keeps only the teams it
+                has put on since.</p>
+              <div class="row mb-3">
                 <label class="col-lg-6 control-label">AP Address</label>
                 <div class="col-lg-6">
                   <input type="text" class="form-control" name="apAddress" value="{{.ApAddress}}" placeholder="10.0.100.2">

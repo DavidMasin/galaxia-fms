@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 )
 
@@ -16,7 +17,7 @@ func TestAccessPoint_ConfigureTeamWifi(t *testing.T) {
 	var ap AccessPoint
 	var request configurationRequest
 	wifiStatuses := [6]*TeamWifiStatus{{}, {}, {}, {}, {}, {}}
-	ap.SetSettings("dummy", "password1", 123, true, wifiStatuses)
+	ap.SetSettings("dummy", "password1", 123, true, false, wifiStatuses)
 
 	// Mock the radio API server.
 	radioServer := httptest.NewServer(
@@ -90,7 +91,7 @@ func TestAccessPoint_ConfigureTeamWifi(t *testing.T) {
 func TestAccessPoint_updateMonitoring(t *testing.T) {
 	var ap AccessPoint
 	wifiStatuses := [6]*TeamWifiStatus{{}, {}, {}, {}, {}, {}}
-	ap.SetSettings("dummy", "password2", 123, true, wifiStatuses)
+	ap.SetSettings("dummy", "password2", 123, true, false, wifiStatuses)
 
 	apStatus := accessPointStatus{
 		Channel: 456,
@@ -167,7 +168,7 @@ func TestAccessPoint_updateMonitoring(t *testing.T) {
 func TestAccessPoint_statusMatchesLastConfiguration(t *testing.T) {
 	var ap AccessPoint
 	wifiStatuses := [6]*TeamWifiStatus{{}, {}, {}, {}, {}, {}}
-	ap.SetSettings("dummy", "", 123, true, wifiStatuses)
+	ap.SetSettings("dummy", "", 123, true, false, wifiStatuses)
 
 	assert.True(t, ap.statusMatchesLastConfiguration())
 	team1 := &model.Team{Id: 254, WpaKey: "11111111"}
@@ -181,5 +182,101 @@ func TestAccessPoint_statusMatchesLastConfiguration(t *testing.T) {
 	ap.TeamWifiStatuses[3].TeamId = 1678
 	assert.True(t, ap.statusMatchesLastConfiguration())
 	ap.TeamWifiStatuses[4].TeamId = 111
+	assert.False(t, ap.statusMatchesLastConfiguration())
+}
+
+func TestAccessPoint_KeepTeams(t *testing.T) {
+	var ap AccessPoint
+	var requests []configurationRequest
+	wifiStatuses := [6]*TeamWifiStatus{{}, {}, {}, {}, {}, {}}
+	ap.SetSettings("dummy", "", 13, true, true, wifiStatuses)
+
+	radioServer := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				var request configurationRequest
+				assert.Nil(t, json.NewDecoder(r.Body).Decode(&request))
+				requests = append(requests, request)
+			},
+		),
+	)
+	defer radioServer.Close()
+	ap.apiUrl = radioServer.URL
+
+	team1 := &model.Team{Id: 254, WpaKey: "11111111"}
+	team2 := &model.Team{Id: 1114, WpaKey: "22222222"}
+	team3 := &model.Team{Id: 469, WpaKey: "33333333"}
+	stations := func(pairs ...any) map[string]stationConfiguration {
+		configurations := map[string]stationConfiguration{}
+		for i := 0; i < len(pairs); i += 2 {
+			team := pairs[i+1].(*model.Team)
+			configurations[pairs[i].(string)] = stationConfiguration{strconv.Itoa(team.Id), team.WpaKey}
+		}
+		return configurations
+	}
+
+	steps := []struct {
+		name     string
+		teams    [6]*model.Team
+		channel  int
+		expected map[string]stationConfiguration // What is sent; nil when nothing is.
+	}{
+		{"an empty match at startup leaves the access point alone", [6]*model.Team{}, 13, nil},
+		{"a team is put on", [6]*model.Team{team1}, 13, stations("red1", team1)},
+		{"the next match is empty: nothing is taken off", [6]*model.Team{}, 13, nil},
+		{"the same team in the same station again", [6]*model.Team{team1}, 13, nil},
+		{
+			"a second team joins and the first stays", [6]*model.Team{nil, nil, nil, team2}, 13,
+			stations("red1", team1, "blue1", team2),
+		},
+		{
+			"a team given another station leaves its old one", [6]*model.Team{nil, nil, nil, nil, team1}, 13,
+			stations("blue1", team2, "blue2", team1),
+		},
+		{
+			"another team takes a station", [6]*model.Team{nil, nil, nil, team3}, 13,
+			stations("blue1", team3, "blue2", team1),
+		},
+		{"a new channel is sent with the teams as they are", [6]*model.Team{}, 21, stations("blue1", team3, "blue2", team1)},
+		{
+			"a new key for a team is sent", [6]*model.Team{nil, nil, nil, {Id: 469, WpaKey: "44444444"}}, 21,
+			stations("blue1", &model.Team{Id: 469, WpaKey: "44444444"}, "blue2", team1),
+		},
+	}
+	for _, step := range steps {
+		requests = nil
+		ap.channel = step.channel
+		assert.Nil(t, ap.ConfigureTeamWifi(step.teams), step.name)
+		if step.expected == nil {
+			assert.Empty(t, requests, step.name)
+		} else if assert.Len(t, requests, 1, step.name) {
+			assert.Equal(t, configurationRequest{step.channel, step.expected}, requests[0], step.name)
+		}
+	}
+
+	// A station that was asked nothing for may hold a team from before, but one that was asked for must be there.
+	ap.TeamWifiStatuses[0].TeamId = 2046
+	ap.TeamWifiStatuses[3].TeamId = 469
+	ap.TeamWifiStatuses[4].TeamId = 254
+	assert.True(t, ap.statusMatchesLastConfiguration())
+	ap.TeamWifiStatuses[4].TeamId = 0
+	assert.False(t, ap.statusMatchesLastConfiguration())
+
+	// Putting right an access point that has lost its teams sends them again, though nothing about them changed.
+	requests = nil
+	assert.Nil(t, ap.configure(nil))
+	if assert.Len(t, requests, 1) {
+		assert.Equal(t, stations("blue1", &model.Team{Id: 469, WpaKey: "44444444"}, "blue2", team1),
+			requests[0].StationConfigurations)
+	}
+
+	// Without the setting, an empty match empties the access point, as it always has.
+	ap.keepTeams = false
+	requests = nil
+	assert.Nil(t, ap.ConfigureTeamWifi([6]*model.Team{}))
+	if assert.Len(t, requests, 1) {
+		assert.Empty(t, requests[0].StationConfigurations)
+	}
+	ap.TeamWifiStatuses[0].TeamId = 2046
 	assert.False(t, ap.statusMatchesLastConfiguration())
 }

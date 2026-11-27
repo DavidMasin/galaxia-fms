@@ -258,6 +258,10 @@ UI for controlling match play and viewing team connection and field status.
 {{define "script"}}
 <script src="/static/js/game_view.js"></script>
 <script src="/static/js/match_timing.js"></script>
+<script>
+  // Whether a team stays on the access point after its station empties (a setting).
+  const accessPointKeepsTeams = {{.EventSettings.ApKeepTeams}};
+</script>
 <script src="/static/js/match_play.js"></script>
 {{end}}
 {{define "matchPlayTeam"}}
